@@ -1,6 +1,6 @@
 """
 Search Service - Orchestrateur de recherche de produits
-Combine DuckDuckGo + Light Scraper + Browserless fallback
+Combine recherche directe sur sites + Light Scraper + Browserless fallback
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import SearchSite
 from app.schemas import SearchProgress, SearchResultItem
-from app.services import ai_service, duckduckgo_service, light_scraper_service
+from app.services import ai_service, direct_search_service, light_scraper_service
 from app.services.scraper_service import ScraperService
 from app.services.settings_service import SettingsService
 
@@ -34,7 +34,7 @@ async def search_products(
     Recherche des produits sur les sites configurés.
 
     Flux:
-    1. SearXNG recherche les URLs
+    1. Recherche directe sur les pages de recherche de chaque site
     2. Light scraper tente extraction HTTP rapide
     3. Browserless fallback pour les sites JS
 
@@ -65,21 +65,31 @@ async def search_products(
         )
         return
 
-    domains = [site.domain for site in sites]
+    # Préparer les données des sites pour la recherche directe
+    sites_data = [
+        {
+            "domain": site.domain,
+            "name": site.name,
+            "search_url": site.search_url,
+            "product_link_selector": site.product_link_selector,
+            "requires_js": site.requires_js,
+        }
+        for site in sites
+    ]
     site_map = {site.domain: site for site in sites}
 
-    # Phase 1: Recherche DuckDuckGo
+    # Phase 1: Recherche directe sur les sites
     yield SearchProgress(
         status="searching",
         total=0,
         completed=0,
-        message=f"Recherche sur {len(domains)} sites...",
+        message=f"Recherche sur {len(sites)} sites...",
         results=[],
     )
 
-    search_results = await duckduckgo_service.search(
+    search_results = await direct_search_service.search(
         query=query,
-        domains=domains,
+        sites=sites_data,
         max_results=max_results,
     )
 
@@ -94,7 +104,7 @@ async def search_products(
         return
 
     total = len(search_results)
-    logger.info(f"DuckDuckGo: {total} URLs trouvées pour '{query}'")
+    logger.info(f"Recherche directe: {total} URLs trouvées pour '{query}'")
 
     # Phase 2: Scraping des URLs
     results: list[SearchResultItem] = []
@@ -103,7 +113,7 @@ async def search_products(
     # Créer un sémaphore pour limiter la concurrence
     semaphore = asyncio.Semaphore(parallel_limit)
 
-    async def process_url(search_result: duckduckgo_service.SearchResult) -> SearchResultItem | None:
+    async def process_url(search_result: direct_search_service.SearchResult) -> SearchResultItem | None:
         async with semaphore:
             url = search_result.url
             domain = search_result.source
