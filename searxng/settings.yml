@@ -10,6 +10,11 @@ server:
   port: 8080
   bind_address: "0.0.0.0"
   method: "GET"
+  # Trust all proxies for X-Forwarded-For header
+  real_ip:
+    x_for: 1
+    ipv4_prefix: 32
+    ipv6_prefix: 128
 
 # Disable bot detection completely
 redis:

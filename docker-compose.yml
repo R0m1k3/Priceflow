@@ -62,6 +62,7 @@ services:
       - SEARXNG_SECRET=priceflow-searxng-secret
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
     networks:
       - nginx_default
 
