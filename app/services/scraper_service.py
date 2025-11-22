@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import re
+from urllib.parse import urlparse, urlunparse
 
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -8,6 +10,72 @@ from playwright.async_api import async_playwright
 logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
+
+# Nombre de tentatives pour le scraping
+MAX_RETRIES = 2
+RETRY_DELAY = 3  # secondes
+
+
+def simplify_url(url: str) -> str:
+    """
+    Simplifie les URLs en supprimant les paramètres de tracking.
+    Particulièrement utile pour Amazon qui a des URLs très longues.
+
+    Exemples:
+    - Amazon: https://www.amazon.fr/dp/B0CFYHHPPV?ref=... -> https://www.amazon.fr/dp/B0CFYHHPPV
+    - Autres: garde l'URL originale si pas de simplification possible
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+
+        # Simplification pour Amazon
+        if "amazon" in hostname:
+            # Extraire l'ASIN (identifiant produit Amazon)
+            # Format: /dp/ASIN ou /gp/product/ASIN
+            asin_match = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", url)
+            if asin_match:
+                asin = asin_match.group(1)
+                # Reconstruire une URL simple
+                simplified = f"{parsed.scheme}://{parsed.netloc}/dp/{asin}"
+                logger.info(f"URL Amazon simplifiée: {url[:80]}... -> {simplified}")
+                return simplified
+
+        # Pour les autres sites, supprimer les paramètres de tracking courants
+        # mais garder les paramètres essentiels
+        tracking_params = [
+            "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+            "ref", "ref_", "tag", "linkCode", "linkId", "camp", "creative",
+            "crid", "dib", "dib_tag", "qid", "sprefix", "sr", "keywords",
+            "fbclid", "gclid", "msclkid"
+        ]
+
+        if parsed.query:
+            # Garder seulement les paramètres non-tracking
+            from urllib.parse import parse_qs, urlencode
+            params = parse_qs(parsed.query)
+            filtered_params = {
+                k: v[0] for k, v in params.items()
+                if k.lower() not in tracking_params
+            }
+            new_query = urlencode(filtered_params) if filtered_params else ""
+            simplified = urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                ""  # fragment
+            ))
+            if simplified != url:
+                logger.info(f"URL simplifiée: {url[:60]}... -> {simplified[:60]}...")
+            return simplified
+
+        return url
+
+    except Exception as e:
+        logger.warning(f"Erreur lors de la simplification de l'URL: {e}")
+        return url
 
 
 class ScraperService:
@@ -34,6 +102,10 @@ class ScraperService:
             text_length: Number of characters to extract (0 = disabled)
             timeout: Page load timeout in milliseconds
         """
+        # Simplifier l'URL avant le scraping
+        original_url = url
+        url = simplify_url(url)
+
         # Input validation
         if scroll_pixels <= 0:
             logger.warning(f"Invalid scroll_pixels value: {scroll_pixels}, using default 350")
@@ -42,6 +114,44 @@ class ScraperService:
         if timeout <= 0:
             logger.warning(f"Invalid timeout value: {timeout}, using default 90000")
             timeout = 90000
+
+        # Retries avec backoff
+        last_error = None
+        for attempt in range(MAX_RETRIES + 1):
+            if attempt > 0:
+                logger.info(f"Tentative {attempt + 1}/{MAX_RETRIES + 1} pour {url}")
+                await asyncio.sleep(RETRY_DELAY * attempt)
+
+            result = await ScraperService._do_scrape(
+                url=url,
+                selector=selector,
+                item_id=item_id,
+                smart_scroll=smart_scroll,
+                scroll_pixels=scroll_pixels,
+                text_length=text_length,
+                timeout=timeout,
+            )
+
+            if result[0] is not None:  # Screenshot réussi
+                return result
+
+            last_error = "Scraping failed"
+            logger.warning(f"Tentative {attempt + 1} échouée pour {url}")
+
+        logger.error(f"Toutes les tentatives ont échoué pour {url}")
+        return None, ""
+
+    @staticmethod
+    async def _do_scrape(  # noqa: PLR0913, PLR0912, PLR0915
+        url: str,
+        selector: str | None = None,
+        item_id: int | None = None,
+        smart_scroll: bool = False,
+        scroll_pixels: int = 350,
+        text_length: int = 0,
+        timeout: int = 90000,
+    ) -> tuple[str | None, str]:
+        """Exécute le scraping réel (appelé par scrape_item avec retries)."""
         async with async_playwright() as p:
             browser = None
             try:
@@ -83,11 +193,19 @@ class ScraperService:
                 # Wait a bit for dynamic content if needed
                 await page.wait_for_timeout(2000)
 
-                # Try to close common popups
+                # Try to close common popups (inclut Amazon)
                 logger.info("Attempting to close popups...")
                 popup_selectors = [
+                    # Amazon spécifique - boutons cookies
+                    "#sp-cc-accept",
+                    "#sp-cc-rejectall-link",
+                    "input[data-action-type='DISMISS']",
+                    "#a-popover-content-1 button",
+                    "[data-action='a-popover-close']",
+                    # Popups généraux
                     "button[aria-label='Close']",
                     "button[aria-label='close']",
+                    "button[aria-label='Fermer']",
                     ".close-button",
                     ".modal-close",
                     "svg[data-name='Close']",
@@ -95,6 +213,9 @@ class ScraperService:
                     "[class*='modal'] button",
                     "button:has-text('No, thanks')",
                     "button:has-text('No thanks')",
+                    "button:has-text('Accepter')",
+                    "button:has-text('Accept')",
+                    "button:has-text('Continuer')",
                     "a:has-text('No, thanks')",
                     "div[role='dialog'] button[aria-label='Close']",
                 ]
@@ -148,31 +269,37 @@ class ScraperService:
                     except Exception as e:
                         logger.warning(f"Smart scroll failed: {e}")
 
-                # Text Extraction
-                page_text = ""
-                if text_length > 0:
-                    try:
-                        logger.info(f"Extracting text (limit: {text_length} chars)...")
-                        # Get text from body
-                        raw_text = await page.inner_text("body")
-                        # Simple truncation
-                        page_text = raw_text[:text_length]
-                        logger.info(f"Extracted {len(page_text)} characters")
-                    except Exception as e:
-                        logger.error(f"Text extraction failed: {e}")
-
-                # Take screenshot
+                # IMPORTANT: Prendre le screenshot AVANT l'extraction de texte
+                # pour éviter de perdre le screenshot si le navigateur se ferme
                 screenshot_dir = "screenshots"
                 os.makedirs(screenshot_dir, exist_ok=True)
                 if item_id:
                     filename = f"{screenshot_dir}/item_{item_id}.png"
                 else:
-                    url_part = url.split("//")[-1].replace("/", "_")
-                    timestamp = asyncio.get_event_loop().time()
+                    url_part = url.split("//")[-1].replace("/", "_")[:50]  # Limiter la longueur
+                    timestamp = int(asyncio.get_event_loop().time())
                     filename = f"{screenshot_dir}/{url_part}_{timestamp}.png"
 
-                await page.screenshot(path=filename, full_page=False)
-                logger.info(f"Screenshot saved to {filename}")
+                try:
+                    await page.screenshot(path=filename, full_page=False)
+                    logger.info(f"Screenshot saved to {filename}")
+                except Exception as e:
+                    logger.error(f"Screenshot failed: {e}")
+                    return None, ""
+
+                # Text Extraction (après le screenshot pour ne pas le perdre)
+                page_text = ""
+                if text_length > 0:
+                    try:
+                        logger.info(f"Extracting text (limit: {text_length} chars)...")
+                        # Get text from body avec un timeout court
+                        raw_text = await page.inner_text("body", timeout=10000)
+                        # Simple truncation
+                        page_text = raw_text[:text_length]
+                        logger.info(f"Extracted {len(page_text)} characters")
+                    except Exception as e:
+                        logger.warning(f"Text extraction failed (screenshot saved): {e}")
+                        # On continue car le screenshot a été pris
 
                 return filename, page_text
 
