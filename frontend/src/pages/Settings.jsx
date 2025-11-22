@@ -681,11 +681,11 @@ export default function Settings() {
                                                     </h3>
                                                     <p className="text-sm text-muted-foreground mt-1">{site.domain}</p>
                                                 </div>
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => editSite(site)}>
+                                                <div className="flex items-center gap-1">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => editSite(site)} title="Modifier">
                                                         <Edit2 className="h-4 w-4" />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteSite(site.id)}>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteSite(site.id)} title="Supprimer">
                                                         <Trash2 className="h-4 w-4" />
                                                     </Button>
                                                 </div>

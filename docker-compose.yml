@@ -61,7 +61,17 @@ services:
       - SEARXNG_BASE_URL=http://searxng:8080
       - SEARXNG_SECRET=priceflow-searxng-secret
     volumes:
-      - ./searxng:/etc/searxng:rw
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    command: >
+      sh -c "
+        rm -rf /etc/searxng/limiter.toml &&
+        echo '[botdetection.ip_limit]
+        link_token = false
+        [botdetection.ip_lists]
+        pass_ip = [\"0.0.0.0/0\", \"127.0.0.0/8\", \"172.16.0.0/12\", \"192.168.0.0/16\", \"10.0.0.0/8\", \"::/0\"]
+        block_ip = []' > /etc/searxng/limiter.toml &&
+        /usr/local/searxng/dockerfiles/docker-entrypoint.sh
+      "
     networks:
       - nginx_default
 
