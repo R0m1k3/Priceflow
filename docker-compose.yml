@@ -9,7 +9,7 @@ services:
     container_name: priceflow-app
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8555:8555"
     environment:
       - DATABASE_URL=postgresql://priceflow:priceflow@db:5432/priceflow
       - BROWSERLESS_URL=ws://browserless:3000

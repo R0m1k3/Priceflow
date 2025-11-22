@@ -39,10 +39,10 @@ COPY --from=frontend-build /app/frontend/dist /app/static
 RUN mkdir -p screenshots
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8555
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/')" || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8555/api/')" || exit 1
 
 ENTRYPOINT ["./docker-entrypoint.sh"]

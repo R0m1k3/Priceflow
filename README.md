@@ -1,142 +1,223 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="Pricecious logo" width="80">
+  <img src="frontend/public/logo.png" alt="PriceFlow logo" width="100">
 </p>
 
-<h1 align="center">(My) Pricecious</h1>
+<h1 align="center">PriceFlow</h1>
 
 <p align="center">
-  Price tracking using A-Eyes 🤦
+  <strong>Suivi de prix intelligent propulsé par l'IA</strong>
 </p>
 
-> [!WARNING]  
-> This is 100% vibe-coded.
+<p align="center">
+  <a href="#fonctionnalités">Fonctionnalités</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#utilisation">Utilisation</a>
+</p>
 
-**Pricecious** is a self-hosted, AI-powered price tracking application. It uses **GenAI Vision Models** (OpenAI, Anthropic, Ollama, etc.) to visually analyze product pages, detect prices, and monitor stock status.
+---
 
-<img width="1186" height="482" alt="SCR-20251120-sdky" src="https://github.com/user-attachments/assets/b9c09142-496e-458e-9a86-9e3d7b1fb7c0" />
+## Description
 
-## Features
+**PriceFlow** est une application auto-hébergée de suivi de prix utilisant l'intelligence artificielle. Elle analyse visuellement les pages produits grâce aux modèles de vision IA (OpenAI, Anthropic, Ollama, OpenRouter) pour détecter les prix et surveiller l'état des stocks.
 
-*   **AI-Powered Analysis**: Uses GenAI Vision Models to "see" the price and stock status on any webpage, bypassing complex HTML structures.
-*   **Confidence Scoring**: AI provides confidence scores (0-1) for each extraction, enabling smart business rules and quality monitoring.
-*   **Robust JSON Parsing**: Hardened parsing pipeline with automatic JSON repair fallback when primary extraction fails.
-*   **Provider-Specific Optimization**: Leverages native JSON modes and structured output features for OpenAI, Ollama, and other providers.
-*   **Visual History**: Keeps a screenshot history of every check with full AI metadata (model, provider, confidence, etc.).
-*   **Smart Scrolling**: Automatically scrolls pages to load lazy-loaded content before capturing.
-*   **Text Context**: Optionally extracts page text to improve AI accuracy.
-*   **Notifications**: Supports multi-channel notifications (Discord, Telegram, Email, etc.) via [Apprise](https://github.com/caronc/apprise).
-*   **Dark Mode**: Beautiful UI with full dark/light mode support.
-*   **Dockerized**: Easy to deploy with Docker Compose.
+## Fonctionnalités
 
-## Prerequisites
+- **Analyse par IA** : Utilise les modèles de vision GenAI pour "voir" le prix et l'état du stock sur n'importe quelle page web
+- **Multi-fournisseurs IA** : Support de Ollama, OpenAI, Anthropic et **OpenRouter** avec filtres par catégorie (chat, vision, code, raisonnement)
+- **Scores de confiance** : L'IA fournit un score de confiance (0-1) pour chaque extraction
+- **Historique visuel** : Conserve l'historique des captures d'écran avec les métadonnées IA
+- **Défilement intelligent** : Scroll automatique pour charger le contenu différé
+- **Notifications** : Support multi-canaux (Discord, Telegram, Email, etc.) via [Apprise](https://github.com/caronc/apprise)
+- **Interface en français** : Application entièrement traduite en français
+- **Mode sombre** : Interface moderne avec support du thème clair/sombre
+- **Dockerisé** : Déploiement facile avec Docker Compose
 
-*   **Docker** and **Docker Compose**
-*   **AI Provider**: An API key for OpenAI, Anthropic, Gemini, OR a local Ollama instance.
-*   **PostgreSQL**: A database for storing items and history (handled via Docker Compose).
-*   **Browserless**: A headless browser service for scraping (handled via Docker Compose).
+## Prérequis
 
-## Quick Start
+- **Docker** et **Docker Compose**
+- **Réseau Docker** : `nginx_default` (external)
+- **Fournisseur IA** : Clé API OpenAI, Anthropic, OpenRouter, OU une instance Ollama locale
 
-1.  **Create a `docker-compose.yml` file:**
-    Save the following content to a file named `docker-compose.yml`:
+## Installation
 
-    ```yaml
-    services:
-      app:
-        image: ghcr.io/ds-sebastian/pricecious:latest
-        container_name: pricecious-app
-        ports:
-          - "8000:8000"
-        environment:
-          - DATABASE_URL=postgresql://user:password@db:5432/pricewatch
-          - BROWSERLESS_URL=ws://browserless:3000
-        depends_on:
-          - db
-          - browserless
-        extra_hosts:
-          - "host.docker.internal:host-gateway"
-        volumes:
-          - screenshots_data:/app/screenshots
+### 1. Cloner le dépôt
 
-      db:
-        image: postgres:15-alpine
-        environment:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: pricewatch
-        volumes:
-          - postgres_data:/var/lib/postgresql/data
+```bash
+git clone https://github.com/R0m1k3/Priceflow.git
+cd Priceflow
+```
 
-      browserless:
-        image: browserless/chrome:latest
-        ports:
-          - "3000:3000"
-        environment:
-          - MAX_CONCURRENT_SESSIONS=10
+### 2. Créer le réseau Docker (si non existant)
 
-    volumes:
-      postgres_data:
-      screenshots_data:
-    ```
+```bash
+docker network create nginx_default
+```
 
-2.  **Start the Application:**
-    Run the following command in the same directory:
-    ```bash
-    docker compose up -d
-    ```
+### 3. Configurer les variables d'environnement
 
-3.  **Access the Dashboard:**
-    Open your browser and navigate to `http://localhost:8000`.
+```bash
+cp .env.example .env
+# Modifier .env selon vos besoins
+```
+
+### 4. Lancer l'application
+
+```bash
+docker compose up -d
+```
+
+### 5. Accéder à l'interface
+
+Ouvrez votre navigateur sur : **http://localhost:8555**
+
+## Architecture Docker
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **PriceFlow App** | `8555:8555` | Application principale |
+| **PostgreSQL** | `5488:5432` | Base de données |
+| **Browserless** | `3012:3000` | Navigateur headless pour le scraping |
+
+**Réseau** : `nginx_default` (external)
 
 ## Configuration
 
-### Environment Variables
-The following environment variables can be configured in your `docker-compose.yml`:
+### Variables d'environnement
 
-| Variable | Description | Default | Example |
-| :--- | :--- | :--- | :--- |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:password@db:5432/pricewatch` | `postgresql://u:p@localhost:5432/db` |
-| `BROWSERLESS_URL` | WebSocket URL for Browserless | `ws://browserless:3000` | `ws://browserless:3000` |
-| `LOG_LEVEL` | Application logging level | `INFO` | `DEBUG` |
-| `SQL_ECHO` | Log all SQL queries to console | `false` | `true` |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | `*` | `http://localhost:3000,https://myapp.com` |
+| Variable | Description | Défaut |
+|----------|-------------|--------|
+| `DATABASE_URL` | Chaîne de connexion PostgreSQL | `postgresql://priceflow:priceflow@db:5432/priceflow` |
+| `BROWSERLESS_URL` | URL WebSocket de Browserless | `ws://browserless:3000` |
+| `LOG_LEVEL` | Niveau de log (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+| `CORS_ORIGINS` | Origines CORS autorisées | `*` |
 
-> [!TIP]
-> LiteLLM environment variables should work too to prepopulate AI model default settings
+### Configuration IA
 
-### Scraper Settings
-All scraper settings are configured via the **Settings** page in the UI:
-*   **Smart Scroll**: Enable to handle infinite scroll pages.
-*   **Text Context**: Enable to send page text to the AI for better accuracy.
-*   **Scraper Timeout**: Maximum time to wait for page load.
+Toute la configuration IA se fait via la page **Paramètres** de l'interface :
 
-### AI Configuration
-All AI settings are configured via the **Settings** page in the UI. No environment variables are required.
+**Fournisseurs supportés :**
+- **Ollama** : Modèles locaux (gemma3, llava, etc.)
+- **OpenAI** : GPT-4o, GPT-4-vision, etc.
+- **Anthropic** : Claude 3.5 Sonnet, etc.
+- **OpenRouter** : Accès à +200 modèles avec filtres par catégorie
 
-**Provider Settings**:
-*   **Provider**: Choose between OpenAI, Anthropic, Gemini, Ollama, or Custom.
-*   **Model**: Specify the model name (e.g., `gpt-4o`, `claude-3-5-sonnet`, `gemma3:4b`).
-*   **API Key**: Enter your API key (not required for Ollama).
-*   **Base URL**: Required for Ollama or custom OpenAI-compatible endpoints.
+**Paramètres avancés :**
+- Température (0.0 - 1.0)
+- Tokens maximum
+- Seuils de confiance (prix/stock)
+- Réparation JSON automatique
 
-**Advanced AI Settings**:
-*   **Temperature**: Controls output randomness (0.0-1.0).
-*   **Max Tokens**: Maximum tokens for AI responses.
-*   **Price/Stock Confidence Thresholds**: Minimum confidence required to update values.
-*   **Enable JSON Repair**: Automatically attempt to repair malformed JSON responses.
+### Configuration OpenRouter
 
-**How Confidence Works**:
-- The AI provides a confidence score (0.0 to 1.0) for each extracted value
-- Scores represent the AI's subjective probability that the extraction is correct
-- If confidence is below the threshold, the value is logged but doesn't overwrite the current value
-- Large price changes (>20%) with low confidence (<0.7) are flagged for manual review
-- All extractions are saved in history with their confidence scores for analysis
+1. Sélectionnez **OpenRouter** comme fournisseur
+2. Entrez votre clé API (`sk-or-...`)
+3. Filtrez les modèles par catégorie :
+   - **Chat** : Conversation générale
+   - **Vision** : Analyse d'images
+   - **Code** : Programmation
+   - **Raisonnement** : Raisonnement avancé
+   - **Gratuit** : Modèles gratuits
+4. Sélectionnez un modèle avec affichage des coûts
 
 ### Notifications
-Create **Notification Profiles** in the Settings page using Apprise URLs.
-*   Example Discord: `discord://webhook_id/webhook_token`
-*   Example Telegram: `tgram://bot_token/chat_id`
 
-## License
+Créez des **Profils de notification** dans les Paramètres avec des URLs Apprise :
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+```
+# Discord
+discord://webhook_id/webhook_token
+
+# Telegram
+tgram://bot_token/chat_id
+
+# Email
+mailto://user:password@gmail.com
+```
+
+## Utilisation
+
+### Ajouter un article à suivre
+
+1. Cliquez sur **Ajouter un article**
+2. Entrez l'URL de la page produit
+3. (Optionnel) Définissez un prix cible
+4. (Optionnel) Associez un profil de notification
+5. Enregistrez
+
+### Fonctionnement
+
+1. PriceFlow capture une image de la page produit
+2. L'IA analyse l'image pour extraire le prix et l'état du stock
+3. Les données sont enregistrées avec un score de confiance
+4. Si le prix atteint votre cible, vous êtes notifié
+
+## Structure du projet
+
+```
+Priceflow/
+├── app/                    # Backend FastAPI
+│   ├── routers/           # Endpoints API
+│   ├── services/          # Services métier
+│   └── models.py          # Modèles SQLAlchemy
+├── frontend/              # Frontend React
+│   ├── src/
+│   │   ├── components/    # Composants React
+│   │   ├── pages/         # Pages (Dashboard, Settings)
+│   │   └── i18n/          # Traductions
+│   └── public/            # Assets statiques
+├── docker-compose.yml     # Configuration Docker
+├── Dockerfile            # Image Docker
+├── init.sql              # Script d'initialisation DB
+└── .env.example          # Variables d'environnement
+```
+
+## Personnalisation
+
+### Changer le favicon
+
+Remplacez les fichiers dans `/frontend/public/` :
+- `favicon.ico` (32x32 ou 64x64)
+- `apple-touch-icon.png` (180x180)
+- `logo.png` (logo principal)
+
+### Ajouter une langue
+
+1. Créez un fichier dans `frontend/src/i18n/locales/`
+2. Copiez la structure de `fr.json`
+3. Modifiez `frontend/src/i18n/index.js`
+
+## Développement
+
+### Lancer en mode développement
+
+```bash
+# Backend
+cd app
+uvicorn app.main:app --reload --port 8555
+
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+### Migrations de base de données
+
+```bash
+# Créer une migration
+alembic revision --autogenerate -m "description"
+
+# Appliquer les migrations
+alembic upgrade head
+```
+
+## Licence
+
+Ce projet est sous licence GNU General Public License v3.0 - voir le fichier [LICENSE](LICENSE) pour plus de détails.
+
+---
+
+<p align="center">
+  Développé avec ❤️ pour le suivi de prix intelligent
+</p>
