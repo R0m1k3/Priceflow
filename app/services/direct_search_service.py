@@ -79,10 +79,10 @@ DEFAULT_SITE_CONFIGS = {
     "stokomani.fr": {
         "search_url": "https://www.stokomani.fr/recherche?q={query}",
         "product_selector": (
-            ".product-miniature a, .js-product-miniature a, "
-            "a.product-thumbnail, .products article a, a[href*='/produit/']"
+            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
+            ".products article a, a[href*='/products/'], a[href*='/produit/']"
         ),
-        "wait_selector": ".products, .product-miniature, #js-product-list",
+        "wait_selector": ".products, .product-miniature, #js-product-list, .collection-products",
     },
     "gifi.fr": {
         "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
@@ -370,6 +370,7 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
     patterns = [
         # Patterns spécifiques e-commerce
         "a[href*='/product']",
+        "a[href*='/products/']",
         "a[href*='/produit']",
         "a[href*='/produits/']",
         "a[href*='/p/']",
