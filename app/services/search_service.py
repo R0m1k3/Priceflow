@@ -5,6 +5,7 @@ Combine recherche directe sur sites + Light Scraper + Browserless fallback
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -233,6 +234,12 @@ async def _scrape_with_browserless(
             page_text=page_text,
         )
 
+        # Construire l'URL du screenshot pour le frontend
+        screenshot_url = None
+        if screenshot_path:
+            screenshot_filename = os.path.basename(screenshot_path)
+            screenshot_url = f"/screenshots/{screenshot_filename}"
+
         if ai_result:
             extraction, metadata = ai_result
             if extraction and extraction.price is not None:
@@ -242,7 +249,7 @@ async def _scrape_with_browserless(
                     price=extraction.price,
                     currency=extraction.currency or "EUR",
                     in_stock=extraction.in_stock,
-                    image_url=None,
+                    image_url=screenshot_url,
                     site_name=site_name,
                     site_domain=domain,
                     confidence=extraction.price_confidence or 0.5,
@@ -252,6 +259,7 @@ async def _scrape_with_browserless(
             url=url,
             title=fallback_title,
             price=None,
+            image_url=screenshot_url,
             site_name=site_name,
             site_domain=domain,
             error="AI extraction failed",
