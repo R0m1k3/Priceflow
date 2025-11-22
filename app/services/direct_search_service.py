@@ -118,7 +118,10 @@ async def _search_site_browserless(
     timeout: float,
 ) -> list[SearchResult]:
     """Recherche sur un site via Browserless (Playwright)"""
-    domain = site.get("domain", "").lower()
+    raw_domain = site.get("domain", "").lower()
+    # Nettoyer le domaine (enlever protocole, www, slash final)
+    domain = _clean_domain(raw_domain)
+
     search_url = site.get("search_url") or _get_default_search_url(domain)
     product_selector = site.get("product_link_selector") or _get_default_product_selector(domain)
     wait_selector = _get_default_wait_selector(domain)
@@ -356,6 +359,29 @@ def _extract_domain(url: str) -> str:
         return domain
     except Exception:
         return ""
+
+
+def _clean_domain(domain: str) -> str:
+    """Nettoie un domaine (enlève protocole, www, slash final)"""
+    if not domain:
+        return ""
+
+    domain = domain.strip().lower()
+
+    # Enlever le protocole
+    if domain.startswith("https://"):
+        domain = domain[8:]
+    elif domain.startswith("http://"):
+        domain = domain[7:]
+
+    # Enlever www.
+    if domain.startswith("www."):
+        domain = domain[4:]
+
+    # Enlever le slash final
+    domain = domain.rstrip("/")
+
+    return domain
 
 
 def _is_non_product_url(url: str) -> bool:

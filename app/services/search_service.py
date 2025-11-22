@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.models import SearchSite
 from app.schemas import SearchProgress, SearchResultItem
-from app.services import ai_service, direct_search_service, light_scraper_service
+from app.services import direct_search_service, light_scraper_service
+from app.services.ai_service import AIService
 from app.services.scraper_service import ScraperService
 from app.services.settings_service import SettingsService
 
@@ -227,23 +228,25 @@ async def _scrape_with_browserless(
             )
 
         # Extraction IA
-        ai_result = await ai_service.analyze_image(
-            screenshot_path=screenshot_path,
-            webpage_text=page_text,
+        ai_result = await AIService.analyze_image(
+            image_path=screenshot_path,
+            page_text=page_text,
         )
 
-        if ai_result and ai_result.get("price"):
-            return SearchResultItem(
-                url=url,
-                title=fallback_title,
-                price=ai_result.get("price"),
-                currency=ai_result.get("currency", "EUR"),
-                in_stock=ai_result.get("in_stock"),
-                image_url=None,  # Pas d'image depuis le screenshot
-                site_name=site_name,
-                site_domain=domain,
-                confidence=ai_result.get("price_confidence", 0.5),
-            )
+        if ai_result:
+            extraction, metadata = ai_result
+            if extraction and extraction.price is not None:
+                return SearchResultItem(
+                    url=url,
+                    title=fallback_title,
+                    price=extraction.price,
+                    currency=extraction.currency or "EUR",
+                    in_stock=extraction.in_stock,
+                    image_url=None,
+                    site_name=site_name,
+                    site_domain=domain,
+                    confidence=extraction.price_confidence or 0.5,
+                )
 
         return SearchResultItem(
             url=url,
