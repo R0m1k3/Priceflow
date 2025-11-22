@@ -86,8 +86,11 @@ DEFAULT_SITE_CONFIGS = {
     },
     "gifi.fr": {
         "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
-        "product_selector": ".product-item a.product-item-link, .product-item-info a, a[href*='.html']",
-        "wait_selector": ".products-grid, .product-items, .search-results",
+        "product_selector": (
+            ".product-item a.product-item-link, .product-item-info a, "
+            ".product-item a, .products-grid a, a[href$='.html']"
+        ),
+        "wait_selector": ".products-grid, .product-items, .search-results, .products",
     },
     "bmstores.fr": {
         "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",
@@ -381,6 +384,7 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
         "a[href*='-p-']",
         "a[href*='_p_']",
         "a[href*='/detail']",
+        "a[href$='.html']",
         # Classes communes
         "a.product",
         "a.product-link",
