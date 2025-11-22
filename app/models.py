@@ -91,5 +91,6 @@ class SearchSite(Base):
     is_active: bool = Column(Boolean, default=True)  # type: ignore
     priority: int = Column(Integer, default=0)  # type: ignore  # Ordre d'affichage
     requires_js: bool = Column(Boolean, default=False)  # type: ignore  # Force Browserless si True
+    price_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour le prix
     created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
     updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore

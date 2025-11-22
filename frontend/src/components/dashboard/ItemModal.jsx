@@ -16,7 +16,6 @@ export function ItemModal({ item, onClose, onSaved, open }) {
         url: '',
         name: '',
         target_price: '',
-        selector: '',
         tags: '',
         description: '',
         notification_profile_id: ''
@@ -29,7 +28,6 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 url: item.url || '',
                 name: item.name || '',
                 target_price: item.target_price || '',
-                selector: item.selector || '',
                 tags: item.tags || '',
                 description: item.description || '',
                 notification_profile_id: item.notification_profile_id ? item.notification_profile_id.toString() : ''
@@ -39,7 +37,6 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 url: '',
                 name: '',
                 target_price: '',
-                selector: '',
                 tags: '',
                 description: '',
                 notification_profile_id: ''
@@ -105,27 +102,16 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                             onChange={e => setFormData({ ...formData, name: e.target.value })}
                         />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="target_price">{t('itemModal.targetPrice')} (€)</Label>
-                            <Input
-                                id="target_price"
-                                type="number"
-                                step="0.01"
-                                placeholder="0.00"
-                                value={formData.target_price}
-                                onChange={e => setFormData({ ...formData, target_price: e.target.value })}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="selector">{t('itemModal.selector')}</Label>
-                            <Input
-                                id="selector"
-                                placeholder={t('itemModal.selectorPlaceholder')}
-                                value={formData.selector}
-                                onChange={e => setFormData({ ...formData, selector: e.target.value })}
-                            />
-                        </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="target_price">{t('itemModal.targetPrice')} (€)</Label>
+                        <Input
+                            id="target_price"
+                            type="number"
+                            step="0.01"
+                            placeholder="0.00"
+                            value={formData.target_price}
+                            onChange={e => setFormData({ ...formData, target_price: e.target.value })}
+                        />
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="profile">{t('itemModal.notificationProfile')}</Label>

@@ -56,7 +56,7 @@ export default function Settings() {
 
     // Search Sites state
     const [searchSites, setSearchSites] = useState([]);
-    const [newSite, setNewSite] = useState({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false });
+    const [newSite, setNewSite] = useState({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
     const [editingSiteId, setEditingSiteId] = useState(null);
 
     // OpenRouter state
@@ -251,7 +251,7 @@ export default function Settings() {
                 await axios.post(`${API_URL}/search-sites`, newSite);
                 toast.success('Site ajouté');
             }
-            setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false });
+            setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
             setEditingSiteId(null);
             fetchAll();
         } catch (error) {
@@ -266,13 +266,14 @@ export default function Settings() {
             category: site.category || '',
             is_active: site.is_active,
             priority: site.priority,
-            requires_js: site.requires_js
+            requires_js: site.requires_js,
+            price_selector: site.price_selector || ''
         });
         setEditingSiteId(site.id);
     };
 
     const cancelSiteEdit = () => {
-        setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false });
+        setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
         setEditingSiteId(null);
     };
 
@@ -634,6 +635,11 @@ export default function Settings() {
                                 <Input type="number" min="0" value={newSite.priority} onChange={(e) => setNewSite({ ...newSite, priority: parseInt(e.target.value) || 0 })} />
                             </div>
                         </div>
+                        <div className="space-y-2">
+                            <Label>Sélecteur CSS (prix)</Label>
+                            <Input value={newSite.price_selector} onChange={(e) => setNewSite({ ...newSite, price_selector: e.target.value })} placeholder="ex: .price, #product-price, [data-price]" />
+                            <p className="text-xs text-muted-foreground">Sélecteur CSS pour extraire le prix sur ce site (optionnel)</p>
+                        </div>
                         <div className="flex flex-wrap gap-4">
                             <div className="flex items-center space-x-2">
                                 <Switch checked={newSite.is_active} onCheckedChange={(checked) => setNewSite({ ...newSite, is_active: checked })} />
@@ -693,6 +699,11 @@ export default function Settings() {
                                                 {site.requires_js && (
                                                     <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-400">
                                                         JavaScript
+                                                    </span>
+                                                )}
+                                                {site.price_selector && (
+                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-400" title={site.price_selector}>
+                                                        CSS: {site.price_selector.length > 15 ? site.price_selector.substring(0, 15) + '...' : site.price_selector}
                                                     </span>
                                                 )}
                                             </div>

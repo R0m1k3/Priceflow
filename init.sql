@@ -73,6 +73,33 @@ CREATE TABLE IF NOT EXISTS settings (
 -- Index sur les paramètres
 CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
 
+-- Table des sites de recherche
+CREATE TABLE IF NOT EXISTS search_sites (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    domain VARCHAR(512) UNIQUE NOT NULL,
+    logo_url VARCHAR(1024),
+    category VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    priority INTEGER DEFAULT 0,
+    requires_js BOOLEAN DEFAULT FALSE,
+    price_selector VARCHAR(512),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index sur les sites de recherche
+CREATE INDEX IF NOT EXISTS idx_search_sites_domain ON search_sites(domain);
+CREATE INDEX IF NOT EXISTS idx_search_sites_is_active ON search_sites(is_active);
+
+-- Ajouter la colonne price_selector si elle n'existe pas (pour bases existantes)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = 'price_selector') THEN
+        ALTER TABLE search_sites ADD COLUMN price_selector VARCHAR(512);
+    END IF;
+END $$;
+
 -- Paramètres par défaut pour l'application
 INSERT INTO settings (key, value) VALUES
     ('ai_provider', 'ollama'),
