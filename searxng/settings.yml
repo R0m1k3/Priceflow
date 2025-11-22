@@ -1,4 +1,5 @@
 # SearXNG settings for PriceFlow
+# Bot detection completely disabled for internal API use
 
 use_default_settings: true
 
@@ -10,13 +11,8 @@ server:
   port: 8080
   bind_address: "0.0.0.0"
   method: "GET"
-  # Trust all proxies for X-Forwarded-For header
-  real_ip:
-    x_for: 1
-    ipv4_prefix: 32
-    ipv6_prefix: 128
 
-# Disable bot detection completely
+# Disable Redis (used for rate limiting)
 redis:
   url: false
 
@@ -28,6 +24,7 @@ search:
     - html
     - json
 
+# Enable search engines
 engines:
   - name: google
     engine: google
