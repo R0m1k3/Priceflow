@@ -154,9 +154,18 @@ class ScraperService:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
         async with async_playwright() as p:
             browser = None
+            context = None
+            page = None
             try:
                 logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-                browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
+
+                # Utiliser l'endpoint WebSocket de Browserless
+                # Format: ws://browserless:3000?token=xxx ou ws://browserless:3000
+                browser = await p.chromium.connect_over_cdp(
+                    BROWSERLESS_URL,
+                    timeout=60000,  # 60s pour la connexion
+                )
+
                 context = await browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     user_agent=(
@@ -164,6 +173,13 @@ class ScraperService:
                         "AppleWebKit/537.36 (KHTML, like Gecko) "
                         "Chrome/120.0.0.0 Safari/537.36"
                     ),
+                    locale="fr-FR",
+                    timezone_id="Europe/Paris",
+                    # Options supplémentaires pour éviter la détection
+                    extra_http_headers={
+                        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    }
                 )
 
                 # Stealth mode / Ad blocking attempts
@@ -308,5 +324,21 @@ class ScraperService:
                 return None, ""
 
             finally:
-                if browser:
-                    await browser.close()
+                # Fermeture propre des ressources dans l'ordre inverse
+                try:
+                    if page and not page.is_closed():
+                        await page.close()
+                except Exception as e:
+                    logger.debug(f"Error closing page: {e}")
+
+                try:
+                    if context:
+                        await context.close()
+                except Exception as e:
+                    logger.debug(f"Error closing context: {e}")
+
+                try:
+                    if browser and browser.is_connected():
+                        await browser.close()
+                except Exception as e:
+                    logger.debug(f"Error closing browser: {e}")
