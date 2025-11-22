@@ -8,6 +8,11 @@ server:
   image_proxy: false
   port: 8080
   bind_address: "0.0.0.0"
+  method: "GET"
+
+# Disable bot detection for internal API use
+redis:
+  url: false
 
 search:
   safe_search: 0
