@@ -151,3 +151,40 @@ async def discover_site_search_url(
             "success": False,
             "message": "Impossible de découvrir l'URL de recherche automatiquement",
         }
+
+
+@router.post("/discover-all", response_model=dict)
+async def discover_all_missing_search_urls(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """
+    Lance la découverte d'URL de recherche pour tous les sites qui n'en ont pas.
+    La découverte se fait en arrière-plan.
+    """
+    sites = search_service.get_all_sites(db)
+    sites_to_discover = [s for s in sites if not s.search_url]
+
+    if not sites_to_discover:
+        return {
+            "success": True,
+            "message": "Tous les sites ont déjà une URL de recherche configurée",
+            "sites_queued": 0,
+        }
+
+    db_url = os.getenv("DATABASE_URL", "")
+
+    for site in sites_to_discover:
+        background_tasks.add_task(
+            _discover_and_update_site,
+            site.id,
+            site.domain,
+            db_url,
+        )
+
+    return {
+        "success": True,
+        "message": f"Découverte lancée pour {len(sites_to_discover)} sites",
+        "sites_queued": len(sites_to_discover),
+        "sites": [{"id": s.id, "domain": s.domain} for s in sites_to_discover],
+    }

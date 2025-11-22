@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
+# Constants
+MIN_TITLE_LENGTH = 3
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 class SearchResult:
     """Résultat de recherche"""
@@ -157,7 +164,7 @@ async def search(
     return all_results[:max_results]
 
 
-async def _search_site_browserless(
+async def _search_site_browserless(  # noqa: PLR0912, PLR0915
     query: str,
     site: dict,
     max_results: int,
@@ -190,7 +197,7 @@ async def _search_site_browserless(
             try:
                 context = await browser.new_context(
                     viewport={"width": 1920, "height": 1080},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    user_agent=USER_AGENT,
                     locale="fr-FR",
                 )
                 page = await context.new_page()
@@ -272,7 +279,7 @@ async def _search_site_browserless(
 
             # Extraire le titre
             title = _extract_title(link)
-            if not title or len(title) < 3:
+            if not title or len(title) < MIN_TITLE_LENGTH:
                 continue
 
             results.append(SearchResult(
@@ -295,24 +302,52 @@ async def _search_site_browserless(
 
 def _get_default_search_url(domain: str) -> str | None:
     """Retourne l'URL de recherche par défaut pour un domaine"""
+    # Nettoyer le domaine pour la comparaison
+    clean = domain.lower().strip()
+    if clean.startswith("www."):
+        clean = clean[4:]
+
     for key, config in DEFAULT_SITE_CONFIGS.items():
-        if key in domain or domain in key:
+        key_clean = key.lower().strip()
+        if key_clean.startswith("www."):
+            key_clean = key_clean[4:]
+
+        # Comparaison exacte ou partielle
+        if clean == key_clean or key_clean in clean or clean in key_clean:
             return config.get("search_url")
     return None
 
 
 def _get_default_product_selector(domain: str) -> str | None:
     """Retourne le sélecteur de produits par défaut pour un domaine"""
+    # Nettoyer le domaine pour la comparaison
+    clean = domain.lower().strip()
+    if clean.startswith("www."):
+        clean = clean[4:]
+
     for key, config in DEFAULT_SITE_CONFIGS.items():
-        if key in domain or domain in key:
+        key_clean = key.lower().strip()
+        if key_clean.startswith("www."):
+            key_clean = key_clean[4:]
+
+        if clean == key_clean or key_clean in clean or clean in key_clean:
             return config.get("product_selector")
     return None
 
 
 def _get_default_wait_selector(domain: str) -> str | None:
     """Retourne le sélecteur d'attente par défaut pour un domaine"""
+    # Nettoyer le domaine pour la comparaison
+    clean = domain.lower().strip()
+    if clean.startswith("www."):
+        clean = clean[4:]
+
     for key, config in DEFAULT_SITE_CONFIGS.items():
-        if key in domain or domain in key:
+        key_clean = key.lower().strip()
+        if key_clean.startswith("www."):
+            key_clean = key_clean[4:]
+
+        if clean == key_clean or key_clean in clean or clean in key_clean:
             return config.get("wait_selector")
     return None
 
@@ -359,12 +394,12 @@ def _extract_title(element) -> str:
     """Extrait le titre d'un élément"""
     # Essayer différentes méthodes
     title = element.get("title", "")
-    if title and len(title) > 3:
+    if title and len(title) > MIN_TITLE_LENGTH:
         return title.strip()
 
     # Texte de l'élément
     text = element.get_text(strip=True)
-    if text and len(text) > 3:
+    if text and len(text) > MIN_TITLE_LENGTH:
         return text[:200]
 
     # Attribut aria-label
