@@ -11,7 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.limiter import limiter
-from app.routers import items, jobs, notifications, settings
+from app.routers import items, jobs, notifications, openrouter, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
 
 # Configure logging
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("Application shutdown complete")
 
 
-app = FastAPI(title="Pricecious API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="PriceFlow API", version="0.1.0", lifespan=lifespan)
 
 # Rate Limiting & CORS
 app.state.limiter = limiter
@@ -63,13 +63,13 @@ os.makedirs("screenshots", exist_ok=True)
 app.mount("/screenshots", StaticFiles(directory="screenshots"), name="screenshots")
 
 # Routers
-for router in [notifications.router, items.router, settings.router, jobs.router]:
+for router in [notifications.router, items.router, settings.router, jobs.router, openrouter.router]:
     app.include_router(router, prefix="/api")
 
 
 @app.get("/api/")
 def read_root():
-    return {"message": "Welcome to Pricecious API"}
+    return {"message": "Welcome to PriceFlow API"}
 
 
 # Frontend Serving

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Sun, Clock, Cpu, Settings as SettingsIcon, Bell, Trash2, ChevronDown, ChevronUp, Edit2, CheckCircle2, AlertCircle, TrendingDown, DollarSign, Package } from 'lucide-react';
+import { Sun, Clock, Cpu, Settings as SettingsIcon, Bell, Trash2, ChevronDown, ChevronUp, Edit2, CheckCircle2, AlertCircle, TrendingDown, DollarSign, Package, RefreshCw, Filter, Eye, Code, Brain, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,15 @@ import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 
 const API_URL = '/api';
+
+// Icônes pour les catégories OpenRouter
+const categoryIcons = {
+    chat: Sparkles,
+    vision: Eye,
+    code: Code,
+    reasoning: Brain,
+    free: DollarSign
+};
 
 export default function Settings() {
     const [profiles, setProfiles] = useState([]);
@@ -45,9 +54,57 @@ export default function Settings() {
     const [editingProfileId, setEditingProfileId] = useState(null);
     const [showAdvancedAI, setShowAdvancedAI] = useState(false);
 
+    // OpenRouter state
+    const [openrouterModels, setOpenrouterModels] = useState([]);
+    const [openrouterLoading, setOpenrouterLoading] = useState(false);
+    const [openrouterCategory, setOpenrouterCategory] = useState('all');
+    const [openrouterCategories] = useState([
+        { id: 'all', name: 'Tous', description: 'Tous les modèles' },
+        { id: 'chat', name: 'Chat', description: 'Conversation générale' },
+        { id: 'vision', name: 'Vision', description: 'Analyse d\'images' },
+        { id: 'code', name: 'Code', description: 'Programmation' },
+        { id: 'reasoning', name: 'Raisonnement', description: 'Raisonnement avancé' },
+        { id: 'free', name: 'Gratuit', description: 'Modèles gratuits' }
+    ]);
+
     useEffect(() => {
         fetchAll();
     }, []);
+
+    // Charger les modèles OpenRouter quand le provider change ou la catégorie
+    useEffect(() => {
+        if (config.ai_provider === 'openrouter') {
+            fetchOpenRouterModels();
+        }
+    }, [config.ai_provider, openrouterCategory]);
+
+    const fetchOpenRouterModels = async () => {
+        setOpenrouterLoading(true);
+        try {
+            const params = new URLSearchParams();
+            if (config.ai_api_key) {
+                params.append('api_key', config.ai_api_key);
+            }
+            if (openrouterCategory && openrouterCategory !== 'all') {
+                params.append('category', openrouterCategory);
+            }
+            const response = await axios.get(`${API_URL}/openrouter/models?${params.toString()}`);
+            setOpenrouterModels(response.data.models || []);
+        } catch (error) {
+            console.error('Erreur chargement modèles OpenRouter:', error);
+            toast.error('Erreur lors du chargement des modèles OpenRouter');
+        } finally {
+            setOpenrouterLoading(false);
+        }
+    };
+
+    const formatPrice = (pricePerToken) => {
+        if (!pricePerToken || pricePerToken === 0) return 'Gratuit';
+        const pricePerMillion = pricePerToken * 1000000;
+        if (pricePerMillion < 0.01) return `$${pricePerMillion.toFixed(4)}/1M`;
+        if (pricePerMillion < 1) return `$${pricePerMillion.toFixed(3)}/1M`;
+        return `$${pricePerMillion.toFixed(2)}/1M`;
+    };
 
     const fetchAll = async () => {
         try {
@@ -192,25 +249,152 @@ export default function Settings() {
                 <CardContent className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <Label>Provider</Label>
+                            <Label>Fournisseur</Label>
                             <Select value={config.ai_provider} onValueChange={(val) => updateSetting('ai_provider', val)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="ollama">Ollama</SelectItem>
                                     <SelectItem value="openai">OpenAI</SelectItem>
                                     <SelectItem value="anthropic">Anthropic</SelectItem>
+                                    <SelectItem value="openrouter">OpenRouter</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className="space-y-2">
-                            <Label>Model</Label>
-                            <Input value={config.ai_model} onChange={(e) => updateSetting('ai_model', e.target.value)} placeholder="e.g., moondream" />
-                        </div>
+                        {config.ai_provider !== 'openrouter' ? (
+                            <div className="space-y-2">
+                                <Label>Modèle</Label>
+                                <Input value={config.ai_model} onChange={(e) => updateSetting('ai_model', e.target.value)} placeholder="ex: moondream" />
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <Label>Catégorie</Label>
+                                <Select value={openrouterCategory} onValueChange={setOpenrouterCategory}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Filtrer par catégorie" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {openrouterCategories.map(cat => (
+                                            <SelectItem key={cat.id} value={cat.id}>
+                                                <span className="flex items-center gap-2">
+                                                    {cat.name}
+                                                </span>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
+
                     <div className="space-y-2">
-                        <Label>API Key</Label>
-                        <Input type="password" value={config.ai_api_key} onChange={(e) => updateSetting('ai_api_key', e.target.value)} placeholder="Optional for local models" />
+                        <Label>Clé API</Label>
+                        <Input
+                            type="password"
+                            value={config.ai_api_key}
+                            onChange={(e) => updateSetting('ai_api_key', e.target.value)}
+                            placeholder={config.ai_provider === 'openrouter' ? 'sk-or-...' : 'Optionnel pour les modèles locaux'}
+                        />
                     </div>
+
+                    {/* OpenRouter Model Selector */}
+                    {config.ai_provider === 'openrouter' && (
+                        <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-base font-medium">Sélection du modèle OpenRouter</Label>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={fetchOpenRouterModels}
+                                    disabled={openrouterLoading}
+                                >
+                                    <RefreshCw className={cn("h-4 w-4 mr-2", openrouterLoading && "animate-spin")} />
+                                    Actualiser
+                                </Button>
+                            </div>
+
+                            {/* Filtres par catégorie - badges cliquables */}
+                            <div className="flex flex-wrap gap-2">
+                                {openrouterCategories.map(cat => {
+                                    const Icon = categoryIcons[cat.id] || Filter;
+                                    return (
+                                        <Button
+                                            key={cat.id}
+                                            variant={openrouterCategory === cat.id ? "default" : "outline"}
+                                            size="sm"
+                                            onClick={() => setOpenrouterCategory(cat.id)}
+                                            className="text-xs"
+                                        >
+                                            <Icon className="h-3 w-3 mr-1" />
+                                            {cat.name}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Liste des modèles */}
+                            <div className="space-y-2">
+                                <Label>Modèle ({openrouterModels.length} disponibles)</Label>
+                                {openrouterLoading ? (
+                                    <div className="text-sm text-muted-foreground py-4 text-center">
+                                        Chargement des modèles...
+                                    </div>
+                                ) : (
+                                    <Select
+                                        value={config.ai_model}
+                                        onValueChange={(val) => updateSetting('ai_model', val)}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Sélectionner un modèle" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-[300px]">
+                                            {openrouterModels.map(model => (
+                                                <SelectItem key={model.id} value={model.id}>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium">{model.name}</span>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            Entrée: {formatPrice(model.pricing?.prompt)} | Sortie: {formatPrice(model.pricing?.completion)}
+                                                        </span>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                            </div>
+
+                            {/* Afficher les détails du modèle sélectionné */}
+                            {config.ai_model && openrouterModels.length > 0 && (
+                                <div className="text-sm p-3 bg-background rounded border">
+                                    {(() => {
+                                        const selectedModel = openrouterModels.find(m => m.id === config.ai_model);
+                                        if (!selectedModel) return <span className="text-muted-foreground">Modèle: {config.ai_model}</span>;
+                                        return (
+                                            <div className="space-y-2">
+                                                <div className="font-medium">{selectedModel.name}</div>
+                                                <div className="text-muted-foreground text-xs">{selectedModel.description}</div>
+                                                <div className="flex flex-wrap gap-2 pt-1">
+                                                    <span className="px-2 py-0.5 bg-primary/10 rounded text-xs">
+                                                        Contexte: {selectedModel.context_length?.toLocaleString()} tokens
+                                                    </span>
+                                                    <span className="px-2 py-0.5 bg-green-500/10 text-green-700 dark:text-green-400 rounded text-xs">
+                                                        Entrée: {formatPrice(selectedModel.pricing?.prompt)}
+                                                    </span>
+                                                    <span className="px-2 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 rounded text-xs">
+                                                        Sortie: {formatPrice(selectedModel.pricing?.completion)}
+                                                    </span>
+                                                    {selectedModel.categories?.map(cat => (
+                                                        <span key={cat} className="px-2 py-0.5 bg-secondary rounded text-xs capitalize">
+                                                            {cat}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="pt-2">
                         <Button

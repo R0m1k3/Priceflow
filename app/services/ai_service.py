@@ -186,6 +186,9 @@ class AIService:
             kwargs["format"] = "json"
         elif config["provider"] == "openai" and config["api_base"]:
             kwargs["api_base"] = config["api_base"]
+        elif config["provider"] == "openrouter":
+            kwargs["api_base"] = "https://openrouter.ai/api/v1"
+            kwargs["model"] = f"openrouter/{config['model']}"
 
         response = await acompletion(**kwargs)
         repaired_text = response.choices[0].message.content
@@ -250,6 +253,12 @@ class AIService:
             # Anthropic doesn't have native JSON mode yet, rely on prompt
             if config["api_base"]:
                 kwargs["api_base"] = config["api_base"]
+        elif config["provider"] == "openrouter":
+            # OpenRouter uses OpenAI-compatible API
+            kwargs["api_base"] = "https://openrouter.ai/api/v1"
+            kwargs["response_format"] = {"type": "json_object"}
+            # OpenRouter requires model prefix for routing
+            kwargs["model"] = f"openrouter/{config['model']}"
         # Other providers - rely on prompt engineering
         elif config["api_base"]:
             kwargs["api_base"] = config["api_base"]

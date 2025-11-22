@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ExternalLink, Edit2, RefreshCw, Trash2, AlertTriangle, Clock } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,10 +7,12 @@ import { Marquee } from '@/components/ui/marquee';
 import { cn } from '@/lib/utils';
 
 export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
+    const { t } = useTranslation();
+
     const getStockStatus = (inStock) => {
-        if (inStock === true) return { label: 'In Stock', color: 'bg-green-500/90 text-white border-green-400/50' };
-        if (inStock === false) return { label: 'Out of Stock', color: 'bg-red-500/90 text-white border-red-400/50' };
-        return { label: 'Unknown', color: 'bg-zinc-500/90 text-white border-zinc-400/50' };
+        if (inStock === true) return { label: t('dashboard.inStock'), color: 'bg-green-500/90 text-white border-green-400/50' };
+        if (inStock === false) return { label: t('dashboard.outOfStock'), color: 'bg-red-500/90 text-white border-red-400/50' };
+        return { label: t('dashboard.stockUnknown'), color: 'bg-zinc-500/90 text-white border-zinc-400/50' };
     };
 
     const stockStatus = getStockStatus(item.in_stock);
@@ -29,7 +32,7 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                     </>
                 ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm text-zinc-400">
-                        No screenshot
+                        Pas de capture
                     </div>
                 )}
 
@@ -79,14 +82,14 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                 <div className="space-y-4">
                     <div>
                         <div className="mb-1 flex items-baseline justify-between">
-                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Price</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('dashboard.currentPrice')}</span>
                             {item.target_price && (
                                 <span className={cn("rounded px-2 py-0.5 text-xs font-medium",
                                     item.current_price <= item.target_price
                                         ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                                         : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
                                 )}>
-                                    Target: ${item.target_price}
+                                    {t('dashboard.targetPrice')}: {item.target_price}€
                                 </span>
                             )}
                         </div>
@@ -97,7 +100,7 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                                     ? 'text-green-600 dark:text-green-400'
                                     : 'text-foreground'
                             )}>
-                                {item.current_price ? `$${item.current_price}` : '---'}
+                                {item.current_price ? `${item.current_price}€` : '---'}
                             </span>
                         </div>
 
@@ -114,7 +117,7 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                                     />
                                 </div>
                                 <div className="absolute -bottom-4 left-0 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/confidence:opacity-100">
-                                    Price Confidence: {Math.round(item.current_price_confidence * 100)}%
+                                    {t('dashboard.confidence')} (prix): {Math.round(item.current_price_confidence * 100)}%
                                 </div>
                             </div>
                         )}
@@ -145,12 +148,12 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                         <div className="flex items-center gap-1.5">
                             <Clock className="h-3 w-3" />
-                            <span>{item.last_checked ? new Date(item.last_checked).toLocaleString() : 'Never'}</span>
+                            <span>{item.last_checked ? new Date(item.last_checked).toLocaleString('fr-FR') : t('dashboard.never')}</span>
                         </div>
                         {item.last_error && (
                             <div className="flex items-center gap-1 text-destructive" title={item.last_error}>
                                 <AlertTriangle className="h-3 w-3" />
-                                <span className="max-w-[100px] truncate">Error</span>
+                                <span className="max-w-[100px] truncate">{t('common.error')}</span>
                             </div>
                         )}
                     </div>

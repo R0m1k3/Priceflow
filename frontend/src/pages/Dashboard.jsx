@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Plus, RefreshCw, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +12,7 @@ import { DeleteConfirmationModal } from '@/components/dashboard/DeleteConfirmati
 const API_URL = '/api';
 
 export default function Dashboard() {
+    const { t } = useTranslation();
     const [items, setItems] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
@@ -25,7 +27,7 @@ export default function Dashboard() {
             setItems(sortedItems);
         } catch (error) {
             console.error('Error fetching items:', error);
-            toast.error('Failed to fetch items');
+            toast.error(t('toast.fetchError'));
         }
     };
 
@@ -37,25 +39,25 @@ export default function Dashboard() {
 
     const handleCheck = async (id) => {
         try {
-            toast.info('Check triggered...');
+            toast.info(t('toast.refreshStarted'));
             await axios.post(`${API_URL}/items/${id}/check`);
-            toast.success('Check started in background');
+            toast.success(t('toast.refreshComplete'));
             refreshItems();
         } catch (error) {
             console.error('Error triggering check:', error);
-            toast.error('Failed to trigger check');
+            toast.error(t('toast.refreshError'));
         }
     };
 
     const handleRefreshAll = async () => {
         try {
-            toast.info('Triggering refresh for all items...');
+            toast.info(t('toast.refreshStarted'));
             setItems(prevItems => prevItems.map(item => ({ ...item, is_refreshing: true })));
             await axios.post(`${API_URL}/jobs/refresh-all`);
-            toast.success('Refresh all started');
+            toast.success(t('toast.refreshComplete'));
         } catch (error) {
             console.error('Error triggering refresh all:', error);
-            toast.error('Failed to trigger refresh all');
+            toast.error(t('toast.refreshError'));
             refreshItems();
         }
     };
@@ -64,12 +66,12 @@ export default function Dashboard() {
         if (!itemToDelete) return;
         try {
             await axios.delete(`${API_URL}/items/${itemToDelete.id}`);
-            toast.success('Item deleted');
+            toast.success(t('toast.itemDeleted'));
             refreshItems();
             setItemToDelete(null);
         } catch (error) {
             console.error('Error deleting item:', error);
-            toast.error('Failed to delete item');
+            toast.error(t('toast.itemError'));
         }
     };
 
@@ -87,14 +89,14 @@ export default function Dashboard() {
         <div className="space-y-6 animate-in fade-in duration-500">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-                    <p className="text-muted-foreground">Manage and monitor your product watchlist.</p>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('dashboard.title')}</h2>
+                    <p className="text-muted-foreground">{t('dashboard.description')}</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <div className="relative w-full md:w-64">
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Search items..."
+                            placeholder={t('dashboard.search')}
                             className="pl-8"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -102,11 +104,11 @@ export default function Dashboard() {
                     </div>
                     <Button variant="outline" onClick={handleRefreshAll}>
                         <RefreshCw className="mr-2 h-4 w-4" />
-                        Refresh All
+                        {t('dashboard.refreshAll')}
                     </Button>
                     <Button onClick={() => setShowAddModal(true)}>
                         <Plus className="mr-2 h-4 w-4" />
-                        Add Item
+                        {t('dashboard.addItem')}
                     </Button>
                 </div>
             </div>
