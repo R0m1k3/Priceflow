@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 const API_URL = '/api';
@@ -58,6 +59,8 @@ export default function Settings() {
     const [searchSites, setSearchSites] = useState([]);
     const [newSite, setNewSite] = useState({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
     const [editingSiteId, setEditingSiteId] = useState(null);
+    const [siteModalOpen, setSiteModalOpen] = useState(false);
+    const [editSiteData, setEditSiteData] = useState(null);
 
     // OpenRouter state
     const [openrouterModels, setOpenrouterModels] = useState([]);
@@ -260,7 +263,8 @@ export default function Settings() {
     };
 
     const editSite = (site) => {
-        setNewSite({
+        setEditSiteData({
+            id: site.id,
             name: site.name,
             domain: site.domain,
             category: site.category || '',
@@ -269,7 +273,21 @@ export default function Settings() {
             requires_js: site.requires_js,
             price_selector: site.price_selector || ''
         });
-        setEditingSiteId(site.id);
+        setSiteModalOpen(true);
+    };
+
+    const handleEditSiteSubmit = async (e) => {
+        e.preventDefault();
+        if (!editSiteData) return;
+        try {
+            await axios.put(`${API_URL}/search-sites/${editSiteData.id}`, editSiteData);
+            toast.success('Site mis à jour');
+            setSiteModalOpen(false);
+            setEditSiteData(null);
+            fetchAll();
+        } catch (error) {
+            toast.error('Erreur lors de la mise à jour');
+        }
     };
 
     const cancelSiteEdit = () => {
@@ -836,6 +854,89 @@ export default function Settings() {
                     </div>
                 </CardContent>
             </Card>
+
+            {/* Modal d'édition de site */}
+            <Dialog open={siteModalOpen} onOpenChange={setSiteModalOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Modifier le site</DialogTitle>
+                    </DialogHeader>
+                    {editSiteData && (
+                        <form onSubmit={handleEditSiteSubmit} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Nom du site</Label>
+                                    <Input
+                                        required
+                                        value={editSiteData.name}
+                                        onChange={(e) => setEditSiteData({ ...editSiteData, name: e.target.value })}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Domaine</Label>
+                                    <Input
+                                        required
+                                        value={editSiteData.domain}
+                                        onChange={(e) => setEditSiteData({ ...editSiteData, domain: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <Label>Catégorie</Label>
+                                    <Input
+                                        value={editSiteData.category}
+                                        onChange={(e) => setEditSiteData({ ...editSiteData, category: e.target.value })}
+                                        placeholder="ex: Électronique"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Priorité</Label>
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        value={editSiteData.priority}
+                                        onChange={(e) => setEditSiteData({ ...editSiteData, priority: parseInt(e.target.value) || 0 })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Sélecteur CSS (prix)</Label>
+                                <Input
+                                    value={editSiteData.price_selector}
+                                    onChange={(e) => setEditSiteData({ ...editSiteData, price_selector: e.target.value })}
+                                    placeholder="ex: .price, #product-price"
+                                />
+                                <p className="text-xs text-muted-foreground">Sélecteur CSS pour extraire le prix</p>
+                            </div>
+                            <div className="flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <Switch
+                                        checked={editSiteData.is_active}
+                                        onCheckedChange={(checked) => setEditSiteData({ ...editSiteData, is_active: checked })}
+                                    />
+                                    <Label>Actif</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Switch
+                                        checked={editSiteData.requires_js}
+                                        onCheckedChange={(checked) => setEditSiteData({ ...editSiteData, requires_js: checked })}
+                                    />
+                                    <Label>Nécessite JavaScript</Label>
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button type="button" variant="outline" onClick={() => setSiteModalOpen(false)}>
+                                    Annuler
+                                </Button>
+                                <Button type="submit">
+                                    Enregistrer
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
