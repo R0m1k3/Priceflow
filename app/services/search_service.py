@@ -1,6 +1,6 @@
 """
 Search Service - Orchestrateur de recherche de produits
-Combine SearXNG + Light Scraper + Browserless fallback
+Combine DuckDuckGo + Light Scraper + Browserless fallback
 """
 
 import asyncio
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import SearchSite
 from app.schemas import SearchProgress, SearchResultItem
-from app.services import ai_service, light_scraper_service, searxng_service
+from app.services import ai_service, duckduckgo_service, light_scraper_service
 from app.services.scraper_service import ScraperService
 from app.services.settings_service import SettingsService
 
@@ -68,7 +68,7 @@ async def search_products(
     domains = [site.domain for site in sites]
     site_map = {site.domain: site for site in sites}
 
-    # Phase 1: Recherche SearXNG
+    # Phase 1: Recherche DuckDuckGo
     yield SearchProgress(
         status="searching",
         total=0,
@@ -77,13 +77,13 @@ async def search_products(
         results=[],
     )
 
-    searxng_results = await searxng_service.search(
+    search_results = await duckduckgo_service.search(
         query=query,
         domains=domains,
         max_results=max_results,
     )
 
-    if not searxng_results:
+    if not search_results:
         yield SearchProgress(
             status="error",
             total=0,
@@ -93,8 +93,8 @@ async def search_products(
         )
         return
 
-    total = len(searxng_results)
-    logger.info(f"SearXNG: {total} URLs trouvées pour '{query}'")
+    total = len(search_results)
+    logger.info(f"DuckDuckGo: {total} URLs trouvées pour '{query}'")
 
     # Phase 2: Scraping des URLs
     results: list[SearchResultItem] = []
@@ -103,10 +103,10 @@ async def search_products(
     # Créer un sémaphore pour limiter la concurrence
     semaphore = asyncio.Semaphore(parallel_limit)
 
-    async def process_url(searxng_result: searxng_service.SearXNGResult) -> SearchResultItem | None:
+    async def process_url(search_result: duckduckgo_service.SearchResult) -> SearchResultItem | None:
         async with semaphore:
-            url = searxng_result.url
-            domain = searxng_result.source
+            url = search_result.url
+            domain = search_result.source
             site = site_map.get(domain)
 
             if not site:
@@ -126,7 +126,7 @@ async def search_products(
                 if light_result.success and light_result.price is not None:
                     return SearchResultItem(
                         url=url,
-                        title=light_result.title or searxng_result.title,
+                        title=light_result.title or search_result.title,
                         price=light_result.price,
                         currency=light_result.currency,
                         in_stock=light_result.in_stock,
@@ -138,13 +138,13 @@ async def search_products(
 
             # Fallback: Browserless + IA
             try:
-                result = await _scrape_with_browserless(url, site_name, domain, searxng_result.title)
+                result = await _scrape_with_browserless(url, site_name, domain, search_result.title)
                 return result
             except Exception as e:
                 logger.error(f"Erreur scraping {url}: {e}")
                 return SearchResultItem(
                     url=url,
-                    title=searxng_result.title,
+                    title=search_result.title,
                     price=None,
                     site_name=site_name,
                     site_domain=domain,
@@ -152,7 +152,7 @@ async def search_products(
                 )
 
     # Traiter les URLs en parallèle avec mises à jour progressives
-    tasks = [asyncio.create_task(process_url(r)) for r in searxng_results]
+    tasks = [asyncio.create_task(process_url(r)) for r in search_results]
 
     for coro in asyncio.as_completed(tasks):
         try:
