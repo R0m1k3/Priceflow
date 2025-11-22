@@ -67,6 +67,52 @@ DEFAULT_SITE_CONFIGS = {
         "product_selector": ".product-list__item a, a[href*='/ref/']",
         "wait_selector": ".product-list",
     },
+    # Magasins discount français
+    "stokomani.fr": {
+        "search_url": "https://www.stokomani.fr/recherche?q={query}",
+        "product_selector": "a.product-card, .product-item a, a[href*='/product']",
+        "wait_selector": ".product-card, .product-item, .search-results",
+    },
+    "gifi.fr": {
+        "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
+        "product_selector": ".product-item a.product-item-link, a[href*='/produit/']",
+        "wait_selector": ".product-item, .products-grid",
+    },
+    "bmstores.fr": {
+        "search_url": "https://www.bmstores.fr/search?q={query}",
+        "product_selector": "a.product-card, .product a, a[href*='/products/']",
+        "wait_selector": ".product-card, .product-grid",
+    },
+    "centrakor.com": {
+        "search_url": "https://www.centrakor.com/recherche?search={query}",
+        "product_selector": "a.product-card, .product-item a",
+        "wait_selector": ".product-card, .product-list",
+    },
+    "lafoirfouille.fr": {
+        "search_url": "https://www.lafoirfouille.fr/recherche?q={query}",
+        "product_selector": "a.product-item-link, .product-card a",
+        "wait_selector": ".product-item, .products",
+    },
+    "tedi.fr": {
+        "search_url": "https://www.tedi.fr/search?q={query}",
+        "product_selector": "a.product-card, .product a",
+        "wait_selector": ".product-card, .search-results",
+    },
+    "leclerc.fr": {
+        "search_url": "https://www.e.leclerc/recherche?q={query}",
+        "product_selector": "a.product-card, .product-tile a",
+        "wait_selector": ".product-card, .products-grid",
+    },
+    "carrefour.fr": {
+        "search_url": "https://www.carrefour.fr/s?q={query}",
+        "product_selector": "a.product-card, .product-item a",
+        "wait_selector": ".product-card, .product-list",
+    },
+    "auchan.fr": {
+        "search_url": "https://www.auchan.fr/recherche?text={query}",
+        "product_selector": "a.product-card, .product-tile a",
+        "wait_selector": ".product-card, .products",
+    },
 }
 
 
