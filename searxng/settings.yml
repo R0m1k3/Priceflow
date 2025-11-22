@@ -5,12 +5,13 @@ use_default_settings: true
 server:
   secret_key: "priceflow-searxng-secret-key-change-in-production"
   limiter: false
+  public_instance: false
   image_proxy: false
   port: 8080
   bind_address: "0.0.0.0"
   method: "GET"
 
-# Disable bot detection for internal API use
+# Disable bot detection completely
 redis:
   url: false
 
