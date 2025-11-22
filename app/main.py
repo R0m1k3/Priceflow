@@ -11,7 +11,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.limiter import limiter
-from app.routers import items, jobs, notifications, openrouter, settings
+from app.routers import items, jobs, notifications, openrouter, search, search_sites, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
 
 # Configure logging
@@ -65,6 +65,10 @@ app.mount("/screenshots", StaticFiles(directory="screenshots"), name="screenshot
 # Routers
 for router in [notifications.router, items.router, settings.router, jobs.router, openrouter.router]:
     app.include_router(router, prefix="/api")
+
+# Search routers (already have /api prefix)
+app.include_router(search.router)
+app.include_router(search_sites.router)
 
 
 @app.get("/api/")

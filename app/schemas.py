@@ -50,3 +50,71 @@ class ItemResponse(ItemCreate):
 class SettingsUpdate(BaseModel):
     key: str
     value: str
+
+
+# === Search Sites Schemas ===
+
+class SearchSiteCreate(BaseModel):
+    name: str
+    domain: str
+    logo_url: str | None = None
+    category: str | None = None
+    is_active: bool = True
+    priority: int = 0
+    requires_js: bool = False
+
+
+class SearchSiteUpdate(BaseModel):
+    name: str | None = None
+    domain: str | None = None
+    logo_url: str | None = None
+    category: str | None = None
+    is_active: bool | None = None
+    priority: int | None = None
+    requires_js: bool | None = None
+
+
+class SearchSiteResponse(BaseModel):
+    id: int
+    name: str
+    domain: str
+    logo_url: str | None = None
+    category: str | None = None
+    is_active: bool
+    priority: int
+    requires_js: bool
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+# === Search Results Schemas ===
+
+class SearchQuery(BaseModel):
+    query: str
+    site_ids: list[int] | None = None  # If None, use all active sites
+    max_results: int = 20
+
+
+class SearchResultItem(BaseModel):
+    """Un produit trouvé lors de la recherche"""
+    url: str
+    title: str
+    price: float | None = None
+    currency: str = "EUR"
+    in_stock: bool | None = None
+    image_url: str | None = None
+    site_name: str
+    site_domain: str
+    confidence: float | None = None
+    error: str | None = None
+
+
+class SearchProgress(BaseModel):
+    """Progression de la recherche pour SSE"""
+    status: str  # "searching", "scraping", "completed", "error"
+    total: int
+    completed: int
+    current_site: str | None = None
+    results: list[SearchResultItem] = []
+    message: str | None = None

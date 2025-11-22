@@ -5,6 +5,7 @@
     },
     "nav": {
         "dashboard": "Tableau de bord",
+        "search": "Recherche",
         "settings": "Paramètres",
         "lightMode": "Mode clair",
         "darkMode": "Mode sombre"
