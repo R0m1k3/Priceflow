@@ -32,6 +32,7 @@ async def search(
 ) -> list[SearchResult]:
     """
     Effectue une recherche DuckDuckGo ciblée sur les domaines spécifiés.
+    Recherche chaque domaine séparément pour de meilleurs résultats.
 
     Args:
         query: Terme de recherche (ex: "lutin de noel")
@@ -50,57 +51,61 @@ async def search(
     clean_domains = [_clean_domain(d) for d in domains]
     clean_domains = [d for d in clean_domains if d]
 
-    # Construire la requête avec site: pour chaque domaine
-    site_query = " OR ".join([f"site:{domain}" for domain in clean_domains])
-    full_query = f"{query} ({site_query})"
+    logger.info(f"Domaines ciblés: {clean_domains}")
 
-    logger.info(f"Recherche DuckDuckGo: {full_query}")
+    all_results = []
+    seen_urls = set()
+    results_per_domain = max(5, max_results // len(clean_domains))
 
-    try:
-        # Exécuter la recherche dans un thread séparé (duckduckgo_search est synchrone)
-        loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None,
-            lambda: _do_search(full_query, max_results * 2, timeout),
-        )
+    # Rechercher sur chaque domaine séparément
+    for domain in clean_domains:
+        # Format de requête simple: "query site:domain"
+        full_query = f"{query} site:{domain}"
+        logger.info(f"Recherche DuckDuckGo: {full_query}")
 
-        # Filtrer pour ne garder que les domaines ciblés
-        filtered_results = []
-        seen_urls = set()
-
-        for item in results:
-            url = item.get("href", "") or item.get("link", "")
-            if not url:
-                continue
-
-            # Éviter les doublons
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-
-            # Vérifier que l'URL appartient à un des domaines ciblés
-            url_domain = _extract_domain(url)
-            if not any(domain in url_domain for domain in clean_domains):
-                continue
-
-            filtered_results.append(
-                SearchResult(
-                    url=url,
-                    title=item.get("title", ""),
-                    snippet=item.get("body", "") or item.get("snippet", ""),
-                    source=url_domain,
-                )
+        try:
+            loop = asyncio.get_event_loop()
+            results = await loop.run_in_executor(
+                None,
+                lambda d=domain, q=full_query: _do_search(q, results_per_domain, timeout),
             )
 
-            if len(filtered_results) >= max_results:
-                break
+            logger.info(f"DuckDuckGo [{domain}]: {len(results)} résultats bruts")
 
-        logger.info(f"DuckDuckGo: {len(filtered_results)} résultats trouvés")
-        return filtered_results
+            for item in results:
+                url = item.get("href", "") or item.get("link", "")
+                if not url or url in seen_urls:
+                    continue
 
-    except Exception as e:
-        logger.error(f"Erreur DuckDuckGo: {e}")
-        return []
+                seen_urls.add(url)
+                url_domain = _extract_domain(url)
+
+                # Vérifier que l'URL appartient au domaine ciblé
+                if domain not in url_domain and not url_domain.endswith(domain):
+                    logger.debug(f"URL ignorée (domaine {url_domain} != {domain}): {url}")
+                    continue
+
+                all_results.append(
+                    SearchResult(
+                        url=url,
+                        title=item.get("title", ""),
+                        snippet=item.get("body", "") or item.get("snippet", ""),
+                        source=url_domain,
+                    )
+                )
+
+                if len(all_results) >= max_results:
+                    break
+
+        except Exception as e:
+            logger.error(f"Erreur recherche sur {domain}: {e}")
+            continue
+
+        if len(all_results) >= max_results:
+            break
+
+    logger.info(f"DuckDuckGo: {len(all_results)} résultats totaux")
+    return all_results
 
 
 def _do_search(query: str, max_results: int, timeout: float) -> list[dict]:
@@ -113,6 +118,12 @@ def _do_search(query: str, max_results: int, timeout: float) -> list[dict]:
                 safesearch="off",
                 max_results=max_results,
             ))
+            logger.info(f"DDGS.text('{query[:50]}...') retourne {len(results)} résultats")
+
+            # Log les premiers résultats pour debug
+            for i, r in enumerate(results[:3]):
+                logger.info(f"  Résultat {i+1}: {r.get('href', 'N/A')[:80]}")
+
             return results
     except Exception as e:
         logger.error(f"Erreur lors de la recherche DuckDuckGo: {e}")
