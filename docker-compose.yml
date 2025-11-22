@@ -13,12 +13,15 @@ services:
     environment:
       - DATABASE_URL=postgresql://priceflow:priceflow@db:5432/priceflow
       - BROWSERLESS_URL=ws://browserless:3000
+      - SEARXNG_URL=http://searxng:8080
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=*
     depends_on:
       db:
         condition: service_healthy
       browserless:
+        condition: service_started
+      searxng:
         condition: service_started
     volumes:
       - screenshots_data:/app/screenshots
@@ -44,6 +47,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - nginx_default
+
+  # SearXNG - Moteur de recherche auto-hébergé
+  searxng:
+    image: searxng/searxng:latest
+    container_name: priceflow-searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080
+    volumes:
+      - ./searxng:/etc/searxng:rw
     networks:
       - nginx_default
 

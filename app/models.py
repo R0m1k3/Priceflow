@@ -77,3 +77,19 @@ class Settings(Base):
 
     key = Column(String, primary_key=True, index=True)
     value = Column(Text)
+
+
+class SearchSite(Base):
+    """Sites configurés pour la recherche de produits"""
+    __tablename__ = "search_sites"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    name: str = Column(String, nullable=False)  # type: ignore  # "Amazon France"
+    domain: str = Column(String, unique=True, nullable=False, index=True)  # type: ignore  # "amazon.fr"
+    logo_url: str | None = Column(String, nullable=True)  # type: ignore
+    category: str | None = Column(String, nullable=True)  # type: ignore  # "Tech", "Déco", "Généraliste"
+    is_active: bool = Column(Boolean, default=True)  # type: ignore
+    priority: int = Column(Integer, default=0)  # type: ignore  # Ordre d'affichage
+    requires_js: bool = Column(Boolean, default=False)  # type: ignore  # Force Browserless si True
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+    updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore

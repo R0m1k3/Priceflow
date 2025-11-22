@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard, Settings, Moon, Sun, Menu } from 'lucide-react';
+import { LayoutDashboard, Search, Settings, Moon, Sun, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
 
     const navItems = [
         { icon: LayoutDashboard, label: t('nav.dashboard'), path: '/' },
+        { icon: Search, label: t('nav.search') || 'Recherche', path: '/search' },
         { icon: Settings, label: t('nav.settings'), path: '/settings' },
     ];
 
@@ -23,7 +24,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
                 <div className="flex h-full flex-col">
                     <div className="flex h-14 items-center border-b px-6">
                         <Link to="/" className="flex items-center gap-2 font-semibold">
-                            <img src="/logo.png" alt="PriceFlow Logo" className="h-8 w-8" />
+                            <img src="/logo.svg" alt="PriceFlow Logo" className="h-8 w-8 rounded-lg" />
                             <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
                                 PriceFlow
                             </span>
@@ -80,9 +81,9 @@ const Layout = ({ children, theme, toggleTheme }) => {
                     <SheetContent side="left" className="w-64 p-0">
                         <div className="flex h-full flex-col">
                             <div className="flex h-14 items-center border-b px-6">
-                                <img src="/logo.png" alt="PriceFlow Logo" className="h-8 w-8 mr-2" />
+                                <img src="/logo.svg" alt="PriceFlow Logo" className="h-8 w-8 mr-2 rounded-lg" />
                                 <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                                    Pricecious
+                                    PriceFlow
                                 </span>
                             </div>
                             <nav className="flex-1 space-y-1 p-4">
@@ -125,7 +126,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
                     </SheetContent>
                 </Sheet>
                 <Link to="/" className="flex items-center gap-2 font-semibold">
-                    <img src="/logo.png" alt="PriceFlow Logo" className="h-6 w-6" />
+                    <img src="/logo.svg" alt="PriceFlow Logo" className="h-6 w-6 rounded" />
                     PriceFlow
                 </Link>
                 <div className="ml-auto flex items-center gap-2">

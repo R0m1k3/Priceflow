@@ -1,0 +1,13 @@
+# SearXNG rate limiter configuration
+# Disabled for internal use
+
+[botdetection.ip_limit]
+# Disable rate limiting for internal Docker network
+link_token = false
+
+[botdetection.ip_lists]
+pass_ip = [
+    "192.168.0.0/16",
+    "172.16.0.0/12",
+    "10.0.0.0/8",
+]

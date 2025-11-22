@@ -1,0 +1,50 @@
+# SearXNG settings for PriceFlow
+
+use_default_settings: true
+
+server:
+  secret_key: "priceflow-searxng-secret-key-change-in-production"
+  limiter: false
+  image_proxy: false
+  port: 8080
+  bind_address: "0.0.0.0"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "fr"
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: qwant
+    engine: qwant
+    shortcut: qw
+    disabled: false
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+
+general:
+  debug: false
+  instance_name: "PriceFlow Search"
