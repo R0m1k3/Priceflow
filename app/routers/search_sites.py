@@ -3,11 +3,12 @@ API Router pour la gestion des sites de recherche
 """
 
 import logging
+import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.schemas import SearchSiteCreate, SearchSiteResponse, SearchSiteUpdate
 from app.services import search_service
 from app.services.search_url_discovery import discover_search_url
@@ -35,8 +36,6 @@ async def get_site(site_id: int, db: Session = Depends(get_db)):
 
 async def _discover_and_update_site(site_id: int, domain: str, db_url: str):
     """Découvre l'URL de recherche en background et met à jour le site"""
-    from app.database import SessionLocal
-
     try:
         logger.info(f"Discovering search URL for site {site_id} ({domain})")
         result = await discover_search_url(domain)
@@ -78,7 +77,6 @@ async def create_site(
 
         # Si pas de search_url, lancer la découverte en background
         if not site.search_url:
-            import os
             db_url = os.getenv("DATABASE_URL", "")
             background_tasks.add_task(
                 _discover_and_update_site,
@@ -90,7 +88,7 @@ async def create_site(
 
         return new_site
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.put("/{site_id}", response_model=SearchSiteResponse)
@@ -114,7 +112,6 @@ async def delete_site(site_id: int, db: Session = Depends(get_db)):
     deleted = search_service.delete_site(db, site_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Site not found")
-    return None
 
 
 @router.post("/{site_id}/discover", response_model=dict)

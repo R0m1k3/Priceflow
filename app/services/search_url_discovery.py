@@ -5,15 +5,17 @@ Search URL Discovery Service - Découvre automatiquement l'URL de recherche d'un
 import asyncio
 import logging
 import os
-import re
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
+
+# Constants
+HTTP_OK = 200
+MIN_PRODUCTS_TO_MATCH = 2
 
 # Patterns communs pour les URLs de recherche
 COMMON_SEARCH_PATTERNS = [
@@ -101,7 +103,7 @@ async def discover_search_url(domain: str) -> dict:
     return result
 
 
-async def _find_search_form(page, base_url: str, domain: str) -> str | None:
+async def _find_search_form(page, base_url: str, domain: str) -> str | None:  # noqa: PLR0912
     """Trouve le formulaire de recherche sur la page"""
     try:
         # Chercher les formulaires de recherche
@@ -125,7 +127,11 @@ async def _find_search_form(page, base_url: str, domain: str) -> str | None:
                     action = await form.get_attribute("action")
                     if action:
                         # Trouver le nom du champ de recherche
-                        input_field = await form.query_selector('input[type="search"], input[type="text"], input[name*="q"], input[name*="query"], input[name*="search"]')
+                        input_selector = (
+                            'input[type="search"], input[type="text"], '
+                            'input[name*="q"], input[name*="query"], input[name*="search"]'
+                        )
+                        input_field = await form.query_selector(input_selector)
                         if input_field:
                             input_name = await input_field.get_attribute("name") or "q"
 
@@ -192,7 +198,7 @@ async def _try_common_patterns(page, base_url: str, domain: str) -> str | None:
         test_url = f"https://www.{domain}{pattern}".replace("{query}", "test")
         try:
             response = await page.goto(test_url, wait_until="domcontentloaded", timeout=10000)
-            if response and response.status == 200:
+            if response and response.status == HTTP_OK:
                 # Vérifier qu'on est sur une page de résultats
                 content = await page.content()
                 if "test" in content.lower() or "résultat" in content.lower() or "result" in content.lower():
@@ -229,7 +235,7 @@ async def _discover_product_selector(page, search_url: str, domain: str) -> str 
         for selector in product_selectors:
             try:
                 elements = await page.query_selector_all(selector)
-                if len(elements) >= 2:  # Au moins 2 produits trouvés
+                if len(elements) >= MIN_PRODUCTS_TO_MATCH:
                     return selector
             except Exception:
                 continue
