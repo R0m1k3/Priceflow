@@ -1,7 +1,7 @@
 [project]
-name = "pricecious-backend"
+name = "priceflow-backend"
 version = "0.1.0"
-description = "Backend for Pricecious Price Tracker"
+description = "Backend for PriceFlow Price Tracker"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

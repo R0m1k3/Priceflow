@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # Application PriceFlow
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: priceflow-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://priceflow:priceflow@db:5432/priceflow
+      - BROWSERLESS_URL=ws://browserless:3000
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=*
+    depends_on:
+      db:
+        condition: service_healthy
+      browserless:
+        condition: service_started
+    volumes:
+      - screenshots_data:/app/screenshots
+    networks:
+      - nginx_default
+
+  # Base de données PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: priceflow-db
+    restart: unless-stopped
+    ports:
+      - "5488:5432"
+    environment:
+      - POSTGRES_USER=priceflow
+      - POSTGRES_PASSWORD=priceflow
+      - POSTGRES_DB=priceflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U priceflow -d priceflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nginx_default
+
+  # Browserless - Navigateur headless pour le scraping
+  browserless:
+    image: browserless/chrome:latest
+    container_name: priceflow-browserless
+    restart: unless-stopped
+    ports:
+      - "3012:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=5
+      - CONNECTION_TIMEOUT=120000
+      - MAX_QUEUE_LENGTH=10
+      - PREBOOT_CHROME=true
+      - KEEP_ALIVE=true
+      - DEFAULT_BLOCK_ADS=true
+      - DEFAULT_STEALTH=true
+    networks:
+      - nginx_default
+
+volumes:
+  postgres_data:
+    driver: local
+  screenshots_data:
+    driver: local
+
+networks:
+  nginx_default:
+    external: true

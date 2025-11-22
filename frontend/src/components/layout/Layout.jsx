@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { LayoutDashboard, Settings, Moon, Sun, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 
 const Layout = ({ children, theme, toggleTheme }) => {
+    const { t } = useTranslation();
     const location = useLocation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const navItems = [
-        { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-        { icon: Settings, label: 'Settings', path: '/settings' },
+        { icon: LayoutDashboard, label: t('nav.dashboard'), path: '/' },
+        { icon: Settings, label: t('nav.settings'), path: '/settings' },
     ];
 
     return (
@@ -21,9 +23,9 @@ const Layout = ({ children, theme, toggleTheme }) => {
                 <div className="flex h-full flex-col">
                     <div className="flex h-14 items-center border-b px-6">
                         <Link to="/" className="flex items-center gap-2 font-semibold">
-                            <img src="/logo.png" alt="Pricecious Logo" className="h-8 w-8" />
+                            <img src="/logo.png" alt="PriceFlow Logo" className="h-8 w-8" />
                             <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                                Pricecious
+                                PriceFlow
                             </span>
                         </Link>
                     </div>
@@ -54,12 +56,12 @@ const Layout = ({ children, theme, toggleTheme }) => {
                             {theme === 'dark' ? (
                                 <>
                                     <Sun className="h-4 w-4" />
-                                    <span>Light Mode</span>
+                                    <span>{t('nav.lightMode')}</span>
                                 </>
                             ) : (
                                 <>
                                     <Moon className="h-4 w-4" />
-                                    <span>Dark Mode</span>
+                                    <span>{t('nav.darkMode')}</span>
                                 </>
                             )}
                         </Button>
@@ -78,7 +80,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
                     <SheetContent side="left" className="w-64 p-0">
                         <div className="flex h-full flex-col">
                             <div className="flex h-14 items-center border-b px-6">
-                                <img src="/logo.png" alt="Pricecious Logo" className="h-8 w-8 mr-2" />
+                                <img src="/logo.png" alt="PriceFlow Logo" className="h-8 w-8 mr-2" />
                                 <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
                                     Pricecious
                                 </span>
@@ -109,12 +111,12 @@ const Layout = ({ children, theme, toggleTheme }) => {
                                     {theme === 'dark' ? (
                                         <>
                                             <Sun className="h-4 w-4" />
-                                            <span>Light Mode</span>
+                                            <span>{t('nav.lightMode')}</span>
                                         </>
                                     ) : (
                                         <>
                                             <Moon className="h-4 w-4" />
-                                            <span>Dark Mode</span>
+                                            <span>{t('nav.darkMode')}</span>
                                         </>
                                     )}
                                 </Button>
@@ -123,8 +125,8 @@ const Layout = ({ children, theme, toggleTheme }) => {
                     </SheetContent>
                 </Sheet>
                 <Link to="/" className="flex items-center gap-2 font-semibold">
-                    <img src="/logo.png" alt="Pricecious Logo" className="h-6 w-6" />
-                    Pricecious
+                    <img src="/logo.png" alt="PriceFlow Logo" className="h-6 w-6" />
+                    PriceFlow
                 </Link>
                 <div className="ml-auto flex items-center gap-2">
                     <Button variant="ghost" size="icon" onClick={toggleTheme}>
