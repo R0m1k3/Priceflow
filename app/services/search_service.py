@@ -14,7 +14,7 @@ from app.models import SearchSite
 from app.schemas import SearchProgress, SearchResultItem
 from app.services import ai_service, light_scraper_service, searxng_service
 from app.services.scraper_service import ScraperService
-from app.services.settings_service import get_setting_value
+from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +49,9 @@ async def search_products(
     """
     # Récupérer la configuration
     if max_results is None:
-        max_results = int(get_setting_value(db, "search_max_results", str(DEFAULT_MAX_RESULTS)))
+        max_results = int(SettingsService.get_setting_value(db, "search_max_results", str(DEFAULT_MAX_RESULTS)))
 
-    parallel_limit = int(get_setting_value(db, "search_parallel_limit", str(DEFAULT_PARALLEL_LIMIT)))
+    parallel_limit = int(SettingsService.get_setting_value(db, "search_parallel_limit", str(DEFAULT_PARALLEL_LIMIT)))
 
     # Récupérer les sites
     sites = _get_sites(db, site_ids)
