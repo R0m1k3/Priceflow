@@ -71,6 +71,7 @@ async def search(
                 },
                 headers={
                     "Accept": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                     "X-Forwarded-For": "127.0.0.1",
                     "X-Real-IP": "127.0.0.1",
                 },
