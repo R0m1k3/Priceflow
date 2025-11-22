@@ -18,6 +18,7 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
 # Constants
 MIN_TITLE_LENGTH = 3
+MIN_LINK_TEXT_LENGTH = 5
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -77,18 +78,24 @@ DEFAULT_SITE_CONFIGS = {
     # Magasins discount français
     "stokomani.fr": {
         "search_url": "https://www.stokomani.fr/recherche?q={query}",
-        "product_selector": "a.product-card, .product-item a, a[href*='/product']",
-        "wait_selector": ".product-card, .product-item, .search-results",
+        "product_selector": (
+            ".product-miniature a, .js-product-miniature a, "
+            "a.product-thumbnail, .products article a, a[href*='/produit/']"
+        ),
+        "wait_selector": ".products, .product-miniature, #js-product-list",
     },
     "gifi.fr": {
         "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
-        "product_selector": ".product-item a.product-item-link, a[href*='/produit/']",
-        "wait_selector": ".product-item, .products-grid",
+        "product_selector": ".product-item a.product-item-link, .product-item-info a, a[href*='.html']",
+        "wait_selector": ".products-grid, .product-items, .search-results",
     },
     "bmstores.fr": {
-        "search_url": "https://www.bmstores.fr/search?q={query}",
-        "product_selector": "a.product-card, .product a, a[href*='/products/']",
-        "wait_selector": ".product-card, .product-grid",
+        "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",
+        "product_selector": (
+            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
+            ".products article a, a[href*='/produits/']"
+        ),
+        "wait_selector": ".products, .product-miniature, #js-product-list, #search_results",
     },
     "centrakor.com": {
         "search_url": "https://www.centrakor.com/recherche?search={query}",
@@ -234,20 +241,23 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
         seen_urls = set()
 
         # Trouver les liens produits
+        links = []
         if product_selector:
             # Essayer plusieurs sélecteurs séparés par virgule
             selectors = [s.strip() for s in product_selector.split(",")]
-            links = []
             for sel in selectors:
                 try:
                     found = soup.select(sel)
                     links.extend(found)
                 except Exception:
                     continue
-        else:
-            links = _find_product_links(soup, domain)
+            logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
 
-        logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur")
+        # Fallback: détection générique si le sélecteur n'a rien trouvé
+        if not links:
+            logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
+            links = _find_product_links(soup, domain)
+            logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
 
         for link in links:
             href = link.get("href", "")
@@ -356,18 +366,57 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
     """Trouve les liens produits de manière générique"""
     links = []
 
-    # Patterns communs pour les liens produits
+    # Patterns très génériques pour les liens produits - ordre du plus spécifique au plus générique
     patterns = [
+        # Patterns spécifiques e-commerce
         "a[href*='/product']",
+        "a[href*='/produit']",
+        "a[href*='/produits/']",
         "a[href*='/p/']",
         "a[href*='/dp/']",
         "a[href*='/item']",
         "a[href*='/article']",
+        "a[href*='/fiche']",
+        "a[href*='-p-']",
+        "a[href*='_p_']",
+        "a[href*='/detail']",
+        # Classes communes
         "a.product",
         "a.product-link",
+        "a.product-card",
+        "a.product-item",
+        "a.product-title",
+        "a.product-name",
         ".product a",
         ".product-card a",
         ".product-tile a",
+        ".product-item a",
+        ".product-miniature a",
+        ".product-container a",
+        # Patterns PrestaShop (très commun en France)
+        ".product-miniature a.thumbnail",
+        ".product-miniature a.product-thumbnail",
+        "a.product-thumbnail",
+        ".js-product-miniature a",
+        # Patterns Magento
+        ".product-item-link",
+        "a.product-item-link",
+        ".products-grid a",
+        ".products-list a",
+        # Patterns WooCommerce
+        ".woocommerce-loop-product__link",
+        "a.woocommerce-LoopProduct-link",
+        # Autres patterns génériques
+        "[data-product] a",
+        "[data-item] a",
+        ".search-result a",
+        ".results a",
+        ".listing a",
+        ".catalog a",
+        # Images de produits avec liens
+        "a:has(img[alt])",
+        ".thumbnail a",
+        ".thumb a",
     ]
 
     for pattern in patterns:
@@ -377,6 +426,24 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
                 links.extend(found)
         except Exception:
             continue
+
+    # Si toujours rien, essayer de trouver des liens dans les conteneurs de liste
+    if not links:
+        containers = soup.select(
+            ".search-results, .products, .product-list, .results, "
+            ".listing, .catalog, [class*='product'], [class*='result'], "
+            "main, #content, .content"
+        )
+        for container in containers:
+            # Trouver tous les liens dans ces conteneurs
+            container_links = container.find_all("a", href=True)
+            for link in container_links:
+                href = link.get("href", "")
+                # Filtrer les liens de navigation/footer
+                if href and not _is_navigation_link(href):
+                    # Vérifier si le lien a une image ou du texte substantiel
+                    if link.find("img") or len(link.get_text(strip=True)) > MIN_LINK_TEXT_LENGTH:
+                        links.append(link)
 
     # Dédupliquer
     seen = set()
@@ -388,6 +455,29 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
             unique_links.append(link)
 
     return unique_links
+
+
+def _is_navigation_link(href: str) -> bool:
+    """Vérifie si un lien est un lien de navigation (pas un produit)"""
+    nav_patterns = [
+        "/category", "/categories", "/categorie",
+        "/brand", "/brands", "/marque",
+        "/page/", "/pages/",
+        "/cart", "/panier", "/basket",
+        "/checkout", "/commande",
+        "/account", "/compte", "/mon-compte",
+        "/login", "/connexion", "/register", "/inscription",
+        "/search", "/recherche",
+        "/contact", "/help", "/aide",
+        "/about", "/a-propos",
+        "/terms", "/privacy", "/cgv", "/mentions",
+        "/faq", "/shipping", "/livraison",
+        "/returns", "/retours",
+        "javascript:", "mailto:", "tel:",
+        "#", "?page=", "&page=",
+    ]
+    href_lower = href.lower()
+    return any(pattern in href_lower for pattern in nav_patterns)
 
 
 def _extract_title(element) -> str:
