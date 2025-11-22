@@ -59,8 +59,10 @@ services:
       - "8888:8080"
     environment:
       - SEARXNG_BASE_URL=http://searxng:8080
+      - SEARXNG_SECRET=priceflow-searxng-secret
     volumes:
-      - ./searxng:/etc/searxng:rw
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./searxng/limiter.toml:/etc/searxng/limiter.toml:ro
     networks:
       - nginx_default
 
