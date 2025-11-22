@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="PriceFlow logo" width="100">
+  <img src="frontend/public/logo.svg" alt="PriceFlow logo" width="120">
 </p>
 
 <h1 align="center">PriceFlow</h1>
 
 <p align="center">
-  <strong>Suivi de prix intelligent propulsé par l'IA</strong>
+  <strong>Suivi de prix intelligent propulse par l'IA</strong>
 </p>
 
 <p align="center">
