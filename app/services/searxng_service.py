@@ -67,6 +67,8 @@ async def search(
                 },
                 headers={
                     "Accept": "application/json",
+                    "X-Forwarded-For": "127.0.0.1",
+                    "X-Real-IP": "127.0.0.1",
                 },
             )
             response.raise_for_status()
