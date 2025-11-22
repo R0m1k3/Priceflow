@@ -62,6 +62,7 @@ class SearchSiteCreate(BaseModel):
     is_active: bool = True
     priority: int = 0
     requires_js: bool = False
+    price_selector: str | None = None
 
 
 class SearchSiteUpdate(BaseModel):
@@ -72,6 +73,7 @@ class SearchSiteUpdate(BaseModel):
     is_active: bool | None = None
     priority: int | None = None
     requires_js: bool | None = None
+    price_selector: str | None = None
 
 
 class SearchSiteResponse(BaseModel):
@@ -83,6 +85,7 @@ class SearchSiteResponse(BaseModel):
     is_active: bool
     priority: int
     requires_js: bool
+    price_selector: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)

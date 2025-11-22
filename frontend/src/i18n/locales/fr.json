@@ -4,14 +4,14 @@
         "tagline": "Suivi de prix intelligent"
     },
     "nav": {
-        "dashboard": "Tableau de bord",
+        "dashboard": "Suivis produits",
         "search": "Recherche",
         "settings": "Paramètres",
         "lightMode": "Mode clair",
         "darkMode": "Mode sombre"
     },
     "dashboard": {
-        "title": "Tableau de bord",
+        "title": "Suivis produits",
         "description": "Gérez vos articles suivis et surveillez les changements de prix.",
         "addItem": "Ajouter un article",
         "refreshAll": "Actualiser tout",
