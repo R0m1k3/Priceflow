@@ -48,8 +48,12 @@ async def search(
         logger.warning("Aucun domaine spécifié pour la recherche")
         return []
 
+    # Nettoyer les domaines (enlever protocole, www, etc.)
+    clean_domains = [_clean_domain(d) for d in domains]
+    clean_domains = [d for d in clean_domains if d]  # Filtrer les vides
+
     # Construire la requête avec site: pour chaque domaine
-    site_query = " OR ".join([f"site:{domain}" for domain in domains])
+    site_query = " OR ".join([f"site:{domain}" for domain in clean_domains])
     full_query = f"{query} ({site_query})"
 
     logger.info(f"Recherche SearXNG: {full_query}")
@@ -87,7 +91,7 @@ async def search(
 
                 # Vérifier que l'URL appartient à un des domaines ciblés
                 url_domain = _extract_domain(url)
-                if not any(domain in url_domain for domain in domains):
+                if not any(domain in url_domain for domain in clean_domains):
                     continue
 
                 results.append(
@@ -129,6 +133,27 @@ def _extract_domain(url: str) -> str:
         return domain
     except Exception:
         return ""
+
+
+def _clean_domain(domain: str) -> str:
+    """Nettoie un domaine (enlève protocole, www, slash final, etc.)"""
+    if not domain:
+        return ""
+
+    domain = domain.strip()
+
+    # Si c'est une URL complète, extraire le domaine
+    if domain.startswith(("http://", "https://")):
+        domain = _extract_domain(domain)
+    else:
+        # Nettoyer le domaine directement
+        domain = domain.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        # Retirer le slash final
+        domain = domain.rstrip("/")
+
+    return domain
 
 
 async def health_check() -> bool:
