@@ -53,15 +53,21 @@ def run_migrations():
             conn.commit()
             logger.info("search_sites table created")
         else:
-            # 2. Add price_selector column if missing
-            result = conn.execute(text(
-                "SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = 'price_selector'"
-            ))
-            if not result.fetchone():
-                logger.info("Adding price_selector column to search_sites...")
-                conn.execute(text("ALTER TABLE search_sites ADD COLUMN price_selector VARCHAR(512)"))
-                conn.commit()
-                logger.info("price_selector column added")
+            # 2. Add missing columns
+            columns_to_add = [
+                ("price_selector", "VARCHAR(512)"),
+                ("search_url", "VARCHAR(1024)"),
+                ("product_link_selector", "VARCHAR(512)"),
+            ]
+            for col_name, col_type in columns_to_add:
+                result = conn.execute(text(
+                    f"SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = '{col_name}'"
+                ))
+                if not result.fetchone():
+                    logger.info(f"Adding {col_name} column to search_sites...")
+                    conn.execute(text(f"ALTER TABLE search_sites ADD COLUMN {col_name} {col_type}"))
+                    conn.commit()
+                    logger.info(f"{col_name} column added")
 
 
 @asynccontextmanager

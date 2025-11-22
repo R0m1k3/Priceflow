@@ -63,6 +63,8 @@ class SearchSiteCreate(BaseModel):
     priority: int = 0
     requires_js: bool = False
     price_selector: str | None = None
+    search_url: str | None = None  # URL avec {query} placeholder, ex: https://amazon.fr/s?k={query}
+    product_link_selector: str | None = None  # Sélecteur CSS pour les liens produits
 
 
 class SearchSiteUpdate(BaseModel):
@@ -74,6 +76,8 @@ class SearchSiteUpdate(BaseModel):
     priority: int | None = None
     requires_js: bool | None = None
     price_selector: str | None = None
+    search_url: str | None = None
+    product_link_selector: str | None = None
 
 
 class SearchSiteResponse(BaseModel):
@@ -86,6 +90,8 @@ class SearchSiteResponse(BaseModel):
     priority: int
     requires_js: bool
     price_selector: str | None = None
+    search_url: str | None = None
+    product_link_selector: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)

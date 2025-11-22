@@ -92,5 +92,7 @@ class SearchSite(Base):
     priority: int = Column(Integer, default=0)  # type: ignore  # Ordre d'affichage
     requires_js: bool = Column(Boolean, default=False)  # type: ignore  # Force Browserless si True
     price_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour le prix
+    search_url: str | None = Column(String, nullable=True)  # type: ignore  # URL de recherche avec {query} placeholder
+    product_link_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour les liens produits
     created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
     updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore

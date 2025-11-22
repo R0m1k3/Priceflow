@@ -23,7 +23,8 @@ dependencies = [
     "alembic",
     "tenacity",
     "slowapi",
-    "duckduckgo-search",
+    "beautifulsoup4",
+    "lxml",
 ]
 
 [build-system]
