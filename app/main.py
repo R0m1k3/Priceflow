@@ -9,7 +9,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
 
+from app.database import engine
 from app.limiter import limiter
 from app.routers import items, jobs, notifications, openrouter, search, search_sites, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
@@ -22,8 +24,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def run_migrations():
+    """Run database migrations for missing tables and columns"""
+    with engine.connect() as conn:
+        # 1. Create search_sites table if it doesn't exist
+        result = conn.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'search_sites'"
+        ))
+        if not result.fetchone():
+            logger.info("Creating search_sites table...")
+            conn.execute(text("""
+                CREATE TABLE search_sites (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    domain VARCHAR(512) UNIQUE NOT NULL,
+                    logo_url VARCHAR(1024),
+                    category VARCHAR(255),
+                    is_active BOOLEAN DEFAULT TRUE,
+                    priority INTEGER DEFAULT 0,
+                    requires_js BOOLEAN DEFAULT FALSE,
+                    price_selector VARCHAR(512),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_search_sites_domain ON search_sites(domain)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_search_sites_is_active ON search_sites(is_active)"))
+            conn.commit()
+            logger.info("search_sites table created")
+        else:
+            # 2. Add price_selector column if missing
+            result = conn.execute(text(
+                "SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = 'price_selector'"
+            ))
+            if not result.fetchone():
+                logger.info("Adding price_selector column to search_sites...")
+                conn.execute(text("ALTER TABLE search_sites ADD COLUMN price_selector VARCHAR(512)"))
+                conn.commit()
+                logger.info("price_selector column added")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Run database migrations
+    logger.info("Running database migrations...")
+    try:
+        run_migrations()
+        logger.info("Database migrations completed")
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+
     logger.info("Starting smart scheduler (Heartbeat: 1 minute)")
     scheduler.add_job(scheduled_refresh, IntervalTrigger(minutes=1), id="refresh_job", replace_existing=True)
     scheduler.start()
