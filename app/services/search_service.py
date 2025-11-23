@@ -9,6 +9,7 @@ import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from playwright.async_api import async_playwright
 from sqlalchemy.orm import Session
 
 from app.models import SearchSite
