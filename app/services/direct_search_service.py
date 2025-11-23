@@ -106,7 +106,7 @@ DEFAULT_SITE_CONFIGS = {
     },
     "lincroyable.fr": {
         "name": "L'Incroyable",
-        "search_url": "https://www.lincroyable.fr/recherche?q={query}",
+        "search_url": "https://www.lincroyable.fr/recherche-query={query}/?",
         "product_selector": (
             ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
             ".products article a, a[href*='/produit']"
