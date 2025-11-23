@@ -190,12 +190,15 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Amazon France",
         "search_url": "https://www.amazon.fr/s?k={query}",
         "product_selector": (
-            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
             ".s-result-item[data-asin] h2 a, "
-            "[data-component-type='s-search-result'] h2 a"
+            "[data-component-type='s-search-result'] h2 a, "
+            # Fallback sur les liens d'images si le titre est manqué
+            ".s-result-item[data-asin] .s-image-link, "
+            "a.a-link-normal.s-no-outline[href*='/dp/']"
         ),
-        "wait_selector": "[data-component-type='s-search-result']",
+        "wait_selector": "[data-component-type='s-search-result'], .s-result-item",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
@@ -248,12 +251,15 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Amazon US",
         "search_url": "https://www.amazon.com/s?k={query}",
         "product_selector": (
-            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
             ".s-result-item[data-asin] h2 a, "
-            "[data-component-type='s-search-result'] h2 a"
+            "[data-component-type='s-search-result'] h2 a, "
+            # Fallback sur les liens d'images si le titre est manqué
+            ".s-result-item[data-asin] .s-image-link, "
+            "a.a-link-normal.s-no-outline[href*='/dp/']"
         ),
-        "wait_selector": "[data-component-type='s-search-result']",
+        "wait_selector": "[data-component-type='s-search-result'], .s-result-item",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 99,
