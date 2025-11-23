@@ -44,6 +44,10 @@ export default function Settings() {
     const [newProfile, setNewProfile] = useState({
         name: '',
         apprise_url: '',
+        provider: 'custom',
+        discord_webhook: '',
+        telegram_token: '',
+        telegram_chat_id: '',
         check_interval_minutes: 60,
         notify_on_price_drop: true,
         notify_on_target_price: true,
