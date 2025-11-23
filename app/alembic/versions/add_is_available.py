@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_is_available'
-down_revision = None  # Update this if there are previous migrations
+down_revision = 'b2c3d4e5f6g7'  # Points to add_search_sites
 branch_labels = None
 depends_on = None
 
