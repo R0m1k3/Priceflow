@@ -89,125 +89,154 @@ async def search_products(
         results=[],
     )
 
+    browser = None
+    playwright = None
+    
     try:
-        search_results = await direct_search_service.search(
-            query=query,
-            sites=sites_data,
-            max_results=max_results,
+        # Initialiser Playwright et Browserless pour TOUTE la session de recherche
+        logger.info(f"Initialisation session Browserless globale pour '{query}'")
+        playwright = await async_playwright().start()
+        browser = await playwright.chromium.connect_over_cdp(
+            os.getenv("BROWSERLESS_URL", "ws://browserless:3000"),
+            timeout=60000
         )
-    except Exception as e:
-        logger.error(f"Erreur critique lors de la recherche directe: {e}")
-        yield SearchProgress(
-            status="error",
-            total=0,
-            completed=0,
-            message=f"Erreur de recherche: {str(e)}",
-            results=[],
-        )
-        return
 
-    if not search_results:
-        yield SearchProgress(
-            status="completed", # Changed from error to completed to avoid scary red alerts for just 0 results
-            total=0,
-            completed=0,
-            message="Aucun résultat trouvé sur les sites configurés",
-            results=[],
-        )
-        return
+        try:
+            search_results = await direct_search_service.search(
+                query=query,
+                sites=sites_data,
+                max_results=max_results,
+                browser=browser,  # Utiliser le navigateur partagé
+            )
+        except Exception as e:
+            logger.error(f"Erreur critique lors de la recherche directe: {e}")
+            yield SearchProgress(
+                status="error",
+                total=0,
+                completed=0,
+                message=f"Erreur de recherche: {str(e)}",
+                results=[],
+            )
+            return
 
-    total = len(search_results)
-    logger.info(f"Recherche directe: {total} URLs trouvées pour '{query}'")
+        if not search_results:
+            yield SearchProgress(
+                status="completed",
+                total=0,
+                completed=0,
+                message="Aucun résultat trouvé sur les sites configurés",
+                results=[],
+            )
+            return
 
-    # Phase 2: Scraping des URLs
-    results: list[SearchResultItem] = []
-    completed = 0
+        total = len(search_results)
+        logger.info(f"Recherche directe: {total} URLs trouvées pour '{query}'")
 
-    # Créer un sémaphore pour limiter la concurrence
-    semaphore = asyncio.Semaphore(parallel_limit)
+        # Phase 2: Scraping des URLs
+        results: list[SearchResultItem] = []
+        completed = 0
 
-    async def process_url(search_result: direct_search_service.SearchResult) -> SearchResultItem | None:
-        async with semaphore:
-            url = search_result.url
-            domain = search_result.source
-            site = site_map.get(domain)
+        # Créer un sémaphore pour limiter la concurrence
+        semaphore = asyncio.Semaphore(parallel_limit)
 
-            if not site:
-                # Trouver le site par correspondance partielle
-                for d, s in site_map.items():
-                    if d in domain or domain in d:
-                        site = s
-                        break
+        async def process_url(search_result: direct_search_service.SearchResult) -> SearchResultItem | None:
+            async with semaphore:
+                url = search_result.url
+                domain = search_result.source
+                site = site_map.get(domain)
 
-            site_name = site.name if site else domain
-            requires_js = site.requires_js if site else False
+                if not site:
+                    # Trouver le site par correspondance partielle
+                    for d, s in site_map.items():
+                        if d in domain or domain in d:
+                            site = s
+                            break
 
-            # Essayer le scraping léger d'abord (sauf si le site requiert JS)
-            if not requires_js:
-                light_result = await light_scraper_service.scrape_url(url)
+                site_name = site.name if site else domain
+                requires_js = site.requires_js if site else False
 
-                if light_result.success and light_result.price is not None:
+                # Essayer le scraping léger d'abord (sauf si le site requiert JS)
+                if not requires_js:
+                    light_result = await light_scraper_service.scrape_url(url)
+
+                    if light_result.success and light_result.price is not None:
+                        return SearchResultItem(
+                            url=url,
+                            title=light_result.title or search_result.title,
+                            price=light_result.price,
+                            currency=light_result.currency,
+                            in_stock=light_result.in_stock,
+                            image_url=light_result.image_url,
+                            site_name=site_name,
+                            site_domain=domain,
+                            confidence=0.7,  # Confiance moyenne pour le scraping léger
+                        )
+
+                # Fallback: Browserless + IA
+                try:
+                    # Passer le navigateur partagé
+                    result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
+                    return result
+                except Exception as e:
+                    logger.error(f"Erreur scraping {url}: {e}")
                     return SearchResultItem(
                         url=url,
-                        title=light_result.title or search_result.title,
-                        price=light_result.price,
-                        currency=light_result.currency,
-                        in_stock=light_result.in_stock,
-                        image_url=light_result.image_url,
+                        title=search_result.title,
+                        price=None,
                         site_name=site_name,
                         site_domain=domain,
-                        confidence=0.7,  # Confiance moyenne pour le scraping léger
+                        error=str(e),
                     )
 
-            # Fallback: Browserless + IA
+        # Traiter les URLs en parallèle avec mises à jour progressives
+        tasks = [asyncio.create_task(process_url(r)) for r in search_results]
+
+        for coro in asyncio.as_completed(tasks):
             try:
-                result = await _scrape_with_browserless(url, site_name, domain, search_result.title)
-                return result
+                result = await coro
+                completed += 1
+
+                if result:
+                    # Ajouter tous les résultats, même sans prix (le frontend affichera "Prix non disponible")
+                    results.append(result)
+
+                    yield SearchProgress(
+                        status="scraping",
+                        total=total,
+                        completed=completed,
+                        current_site=result.site_name if result else None,
+                        results=results.copy(),
+                        message=f"Extraction {completed}/{total}...",
+                    )
             except Exception as e:
-                logger.error(f"Erreur scraping {url}: {e}")
-                return SearchResultItem(
-                    url=url,
-                    title=search_result.title,
-                    price=None,
-                    site_name=site_name,
-                    site_domain=domain,
-                    error=str(e),
-                )
+                completed += 1
+                logger.error(f"Erreur lors du traitement: {e}")
 
-    # Traiter les URLs en parallèle avec mises à jour progressives
-    tasks = [asyncio.create_task(process_url(r)) for r in search_results]
+        # Trier les résultats par prix
+        results.sort(key=lambda x: x.price if x.price else float("inf"))
 
-    for coro in asyncio.as_completed(tasks):
-        try:
-            result = await coro
-            completed += 1
-
-            if result:
-                # Ajouter tous les résultats, même sans prix (le frontend affichera "Prix non disponible")
-                results.append(result)
-
-                yield SearchProgress(
-                    status="scraping",
-                    total=total,
-                    completed=completed,
-                    current_site=result.site_name if result else None,
-                    results=results.copy(),
-                    message=f"Extraction {completed}/{total}...",
-                )
-        except Exception as e:
-            completed += 1
-            logger.error(f"Erreur lors du traitement: {e}")
-
-    # Trier les résultats par prix
-    results.sort(key=lambda x: x.price if x.price else float("inf"))
-
-    yield SearchProgress(
-        status="completed",
-        total=total,
-        completed=completed,
-        results=results,
-        message=f"{len(results)} produits trouvés avec prix",
-    )
+        yield SearchProgress(
+            status="completed",
+            total=total,
+            completed=completed,
+            results=results,
+            message=f"{len(results)} produits trouvés avec prix",
+        )
+        
+    finally:
+        # Nettoyage global des ressources
+        if browser:
+            try:
+                await browser.close()
+                logger.info("Navigateur global fermé")
+            except Exception as e:
+                logger.error(f"Erreur fermeture navigateur: {e}")
+                
+        if playwright:
+            try:
+                await playwright.stop()
+            except Exception as e:
+                logger.error(f"Erreur arrêt Playwright: {e}")
 
 
 async def _scrape_with_browserless(
@@ -215,10 +244,11 @@ async def _scrape_with_browserless(
     site_name: str,
     domain: str,
     fallback_title: str,
+    browser=None,  # Navigateur partagé
 ) -> SearchResultItem:
     """Scrape une URL avec Browserless + extraction IA"""
     try:
-        # Scraper avec Browserless
+        # Scraper avec Browserless (utiliser le navigateur partagé)
         screenshot_path, page_text, is_available = await ScraperService.scrape_item(
             url=url,
             item_id=None,
@@ -226,6 +256,7 @@ async def _scrape_with_browserless(
             scroll_pixels=350,
             text_length=3000,
             timeout=30000,
+            browser=browser,
         )
 
         if not screenshot_path:

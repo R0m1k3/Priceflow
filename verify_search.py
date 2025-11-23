@@ -71,11 +71,22 @@ async def test_search_flow():
     # Mock SettingsService
     search_service.SettingsService.get_setting_value.side_effect = lambda db, key, default: default
     
+    # Mock async_playwright in search_service
+    mock_browser = AsyncMock()
+    mock_playwright_obj = AsyncMock()
+    mock_playwright_obj.chromium.connect_over_cdp.return_value = mock_browser
+    
+    mock_playwright_manager = MagicMock()
+    mock_playwright_manager.start = AsyncMock(return_value=mock_playwright_obj)
+    
+    search_service.async_playwright = MagicMock(return_value=mock_playwright_manager)
+    
     # Mock direct_search_service.search
     mock_results = [
         MockSearchResult("http://site1.com/p1", "Product 1", "site1.com"),
         MockSearchResult("http://site2.com/p2", "Product 2", "site2.com"),
     ]
+    # Accept any arguments including browser
     direct_search_mock.search = AsyncMock(return_value=mock_results)
     direct_search_mock.SearchResult = MockSearchResult
     
@@ -100,10 +111,15 @@ async def test_search_flow():
     
     # Run the search
     print("Running search_products...")
-    async for progress in search_service.search_products("test query", db):
-        print(f"Event: {progress.status} - {progress.message}")
-        if progress.results:
-            print(f"  Results: {len(progress.results)}")
+    try:
+        async for progress in search_service.search_products("test query", db):
+            print(f"Event: {progress.status} - {progress.message}")
+            if progress.results:
+                print(f"  Results: {len(progress.results)}")
+    except Exception as e:
+        print(f"Caught exception during search: {e}")
+        import traceback
+        traceback.print_exc()
             
     print("--- Verification Complete ---")
 

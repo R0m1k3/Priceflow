@@ -88,6 +88,7 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
+        browser=None,  # Instance de navigateur partagée optionnelle
     ) -> tuple[str | None, str, bool]:
         """
         Scrapes the given URL using Browserless and Playwright.
@@ -101,6 +102,7 @@ class ScraperService:
             scroll_pixels: Number of pixels to scroll (must be positive)
             text_length: Number of characters to extract (0 = disabled)
             timeout: Page load timeout in milliseconds
+            browser: Optional shared Playwright browser instance
         """
         # Simplifier l'URL avant le scraping
         original_url = url
@@ -130,6 +132,7 @@ class ScraperService:
                 scroll_pixels=scroll_pixels,
                 text_length=text_length,
                 timeout=timeout,
+                browser=browser,
             )
 
             if result[0] is not None:  # Screenshot réussi
@@ -150,25 +153,36 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
+        browser=None,
     ) -> tuple[str | None, str, bool]:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
-        async with async_playwright() as p:
-            browser = None
+        
+        # Si un navigateur est fourni, on l'utilise directement sans async_playwright context manager
+        # sinon on crée tout de zéro
+        playwright_manager = None
+        local_browser = None
+        
+        try:
+            if browser:
+                # Utiliser le navigateur partagé
+                current_browser = browser
+            else:
+                # Créer un nouveau navigateur
+                playwright_manager = async_playwright()
+                p = await playwright_manager.start()
+                logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
+                current_browser = await p.chromium.connect_over_cdp(
+                    BROWSERLESS_URL,
+                    timeout=60000,
+                )
+                local_browser = current_browser
+
             context = None
             page = None
             is_available = True  # Par défaut, le produit est disponible
             
             try:
-                logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-
-                # Utiliser l'endpoint WebSocket de Browserless
-                # Format: ws://browserless:3000?token=xxx ou ws://browserless:3000
-                browser = await p.chromium.connect_over_cdp(
-                    BROWSERLESS_URL,
-                    timeout=60000,  # 60s pour la connexion
-                )
-
-                context = await browser.new_context(
+                context = await current_browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     user_agent=(
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -427,8 +441,15 @@ class ScraperService:
                 except Exception as e:
                     logger.debug(f"Error closing context: {e}")
 
-                try:
-                    if browser and browser.is_connected():
-                        await browser.close()
-                except Exception as e:
-                    logger.debug(f"Error closing browser: {e}")
+                # On ne ferme le navigateur que s'il est local (non partagé)
+                if local_browser:
+                    try:
+                        if local_browser.is_connected():
+                            await local_browser.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing browser: {e}")
+                        
+        finally:
+            # Si on a créé un manager playwright local, on l'arrête
+            if playwright_manager:
+                await playwright_manager.stop()

@@ -415,6 +415,7 @@ async def search(
     sites: list[dict],
     max_results: int = 20,
     timeout: float = 30.0,
+    browser=None,  # Instance de navigateur partagée optionnelle
 ) -> list[SearchResult]:
     """
     Recherche sur les sites e-commerce via Browserless.
@@ -424,6 +425,7 @@ async def search(
         sites: Liste de dicts avec {domain, search_url, product_link_selector, name}
         max_results: Nombre maximum de résultats
         timeout: Timeout par site
+        browser: Instance Playwright browser partagée (optionnel)
 
     Returns:
         Liste de SearchResult
@@ -435,56 +437,69 @@ async def search(
     all_results = []
     results_per_site = max(5, max_results // len(sites))
 
-    logger.info(f"Démarrage recherche parallèle sur {len(sites)} sites pour '{query}'")
+    logger.info(f"Démarrage recherche parallèle v2 (Shared Browser) sur {len(sites)} sites pour '{query}'")
 
+    # Si un navigateur est fourni, on l'utilise directement
+    if browser:
+        return await _execute_search_with_browser(query, sites, results_per_site, timeout, browser)
+    
+    # Sinon on crée notre propre instance (comportement autonome)
     try:
         async with async_playwright() as p:
-            # Se connecter à Browserless UNE SEULE FOIS pour tous les sites
-            logger.info(f"Connexion à Browserless: {BROWSERLESS_URL}")
-            browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
-
+            logger.info(f"Connexion autonome à Browserless: {BROWSERLESS_URL}")
+            local_browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
             try:
-                # Créer des tâches pour chaque site
-                tasks = []
-                for site in sites:
-                    task = _search_site_browserless(
-                        query=query,
-                        site=site,
-                        max_results=results_per_site,
-                        timeout=timeout,
-                        browser=browser,  # Passer l'instance du navigateur
-                    )
-                    tasks.append(task)
-
-                # Exécuter en parallèle avec asyncio.gather
-                # return_exceptions=True permet de continuer même si un site plante
-                results_list = await asyncio.gather(*tasks, return_exceptions=True)
-
-                # Agréger les résultats
-                for i, result in enumerate(results_list):
-                    site_domain = sites[i].get("domain", "inconnu")
-                    
-                    if isinstance(result, Exception):
-                        logger.error(f"Erreur fatale recherche {site_domain}: {result}")
-                        continue
-                        
-                    if result:
-                        all_results.extend(result)
-                        logger.info(f"Site {site_domain}: {len(result)} résultats")
-                    else:
-                        logger.info(f"Site {site_domain}: 0 résultat")
-
+                return await _execute_search_with_browser(query, sites, results_per_site, timeout, local_browser)
             finally:
-                # Fermer le navigateur à la fin
-                if browser:
-                    await browser.close()
-                    logger.info("Navigateur Browserless fermé")
-
+                await local_browser.close()
+                logger.info("Navigateur autonome fermé")
     except Exception as e:
-        logger.error(f"Erreur globale recherche Browserless: {e}")
+        logger.error(f"Erreur globale recherche autonome: {e}")
+        return []
 
-    logger.info(f"Recherche Browserless terminée: {len(all_results)} résultats totaux")
-    return all_results[:max_results]
+async def _execute_search_with_browser(
+    query: str,
+    sites: list[dict],
+    results_per_site: int,
+    timeout: float,
+    browser,
+) -> list[SearchResult]:
+    """Exécute la recherche avec un navigateur donné"""
+    all_results = []
+    try:
+        # Créer des tâches pour chaque site
+        tasks = []
+        for site in sites:
+            task = _search_site_browserless(
+                query=query,
+                site=site,
+                max_results=results_per_site,
+                timeout=timeout,
+                browser=browser,
+            )
+            tasks.append(task)
+
+        # Exécuter en parallèle avec asyncio.gather
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Agréger les résultats
+        for i, result in enumerate(results_list):
+            site_domain = sites[i].get("domain", "inconnu")
+            
+            if isinstance(result, Exception):
+                logger.error(f"Erreur fatale recherche {site_domain}: {result}")
+                continue
+                
+            if result:
+                all_results.extend(result)
+                logger.info(f"Site {site_domain}: {len(result)} résultats")
+            else:
+                logger.info(f"Site {site_domain}: 0 résultat")
+                
+    except Exception as e:
+        logger.error(f"Erreur exécution recherche: {e}")
+        
+    return all_results
 
 
 async def _search_site_browserless(  # noqa: PLR0912, PLR0915
