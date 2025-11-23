@@ -4,12 +4,17 @@ import { ExternalLink, Edit2, RefreshCw, Trash2, AlertTriangle, Clock, Tag, Hist
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Marquee } from '@/components/ui/marquee';
 import { cn } from '@/lib/utils';
 
 export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUpdate, categories, onViewHistory }) {
     const { t } = useTranslation();
     const [showCategorySelect, setShowCategorySelect] = useState(false);
+    const [showNewCategoryDialog, setShowNewCategoryDialog] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
 
     const getStockStatus = (inStock) => {
         if (inStock === true) return { label: t('dashboard.inStock'), color: 'bg-green-500/90 text-white border-green-400/50' };
@@ -147,7 +152,13 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
                         {onCategoryUpdate && (
                             <Select
                                 value={item.category || '_none_'}
-                                onValueChange={(value) => onCategoryUpdate(item.id, value === '_none_' ? null : value)}
+                                onValueChange={(value) => {
+                                    if (value === '__new__') {
+                                        setShowNewCategoryDialog(true);
+                                    } else {
+                                        onCategoryUpdate(item.id, value === '_none_' ? null : value);
+                                    }
+                                }}
                             >
                                 <SelectTrigger className="h-6 w-[120px] text-[10px]">
                                     <Tag className="h-2.5 w-2.5 mr-1" />
@@ -163,6 +174,50 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
                             </Select>
                         )}
                     </div>
+
+                    {/* New Category Dialog */}
+                    <Dialog open={showNewCategoryDialog} onOpenChange={setShowNewCategoryDialog}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Nouvelle catégorie</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="category-name">Nom de la catégorie</Label>
+                                    <Input
+                                        id="category-name"
+                                        value={newCategoryName}
+                                        onChange={(e) => setNewCategoryName(e.target.value)}
+                                        placeholder="ex: Électronique"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && newCategoryName.trim()) {
+                                                onCategoryUpdate(item.id, newCategoryName.trim());
+                                                setNewCategoryName('');
+                                                setShowNewCategoryDialog(false);
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => {
+                                    setNewCategoryName('');
+                                    setShowNewCategoryDialog(false);
+                                }}>
+                                    Annuler
+                                </Button>
+                                <Button onClick={() => {
+                                    if (newCategoryName.trim()) {
+                                        onCategoryUpdate(item.id, newCategoryName.trim());
+                                        setNewCategoryName('');
+                                        setShowNewCategoryDialog(false);
+                                    }
+                                }} disabled={!newCategoryName.trim()}>
+                                    Créer
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
 
                     {/* Description */}
                     {item.description && (
