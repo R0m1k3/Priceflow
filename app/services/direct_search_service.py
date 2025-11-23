@@ -126,12 +126,13 @@ DEFAULT_SITE_CONFIGS = {
     # === GRANDES SURFACES ===
     "e.leclerc": {
         "name": "E.Leclerc",
-        "search_url": "https://www.e.leclerc/recherche?q={query}",
+        "search_url": "https://www.e.leclerc/cat/recherche~q={query}",
         "product_selector": (
-            "a[data-testid='product-card-link'], .product-card a, "
-            ".product-tile a, a[href*='/fp/']"
+            ".product-card a, .product-thumbnail a, "
+            "a[href*='/fp/'], a[href*='/cat/'], .product-tile a, "
+            "[data-testid='product-card'] a"
         ),
-        "wait_selector": ".product-card, .products-grid, [data-testid='product-card']",
+        "wait_selector": ".product-card, .products-grid, [data-testid='product-grid']",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 8,
@@ -140,10 +141,11 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Auchan",
         "search_url": "https://www.auchan.fr/recherche?text={query}",
         "product_selector": (
-            ".product-card a, .product-tile a, "
-            "a[href*='/p/'], .product-item a"
+            ".product-thumbnail a, .product-card__link, "
+            "a[href*='/p/'], .list-product__item a, "
+            "[data-testid='product-card'] a, .product-card a"
         ),
-        "wait_selector": ".product-card, .products, .product-list",
+        "wait_selector": ".list-product, .product-grid, [data-testid='product-grid']",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 9,
@@ -152,10 +154,11 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Carrefour",
         "search_url": "https://www.carrefour.fr/s?q={query}",
         "product_selector": (
-            "a[data-testid='product-card-link'], .product-card a, "
-            ".product-item a, a[href*='/p/']"
+            ".product-card-title a, .product-card__link, "
+            "a[href*='/p/'], .product-thumbnail a, "
+            "[data-testid='product-card'] a, .product-card a"
         ),
-        "wait_selector": ".product-card, .product-list, [data-testid='product-card']",
+        "wait_selector": ".product-grid, .product-list, [data-testid='product-grid']",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 10,
@@ -163,9 +166,12 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        "search_url": "https://www.amazon.fr/s?k={query}",
-        "product_selector": "div[data-component-type='s-search-result'] h2 a",
-        "wait_selector": "div[data-component-type='s-search-result']",
+        "search_url": "https://www.amazon.fr/s?k={query}&language=fr_FR",
+        "product_selector": (
+            "div[data-component-type='s-search-result'] h2 a, "
+            ".s-result-item h2 a, [data-asin] h2 a"
+        ),
+        "wait_selector": "div[data-component-type='s-search-result'], .s-result-item",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
@@ -229,63 +235,128 @@ DEFAULT_SITE_CONFIGS = {
 }
 
 # Sélecteurs communs pour les bannières de cookies
+# Ordonnés du plus spécifique au plus générique pour une meilleure détection
 COOKIE_ACCEPT_SELECTORS = [
-    # Boutons d'acceptation génériques
+    # === SITES SPÉCIFIQUES FRANÇAIS ===
+    # Amazon France
+    "#sp-cc-accept",
+    "input[name='accept'][type='submit']",
+    "[data-action='sp-cc']",
+    # E.Leclerc
+    "#onetrust-accept-btn-handler",
+    ".onetrust-accept-btn-handler",
+    # Auchan
+    "#popin_tc_privacy_button_2",
+    ".popin_tc_privacy_button",
+    "#didomi-notice-agree-button",
+    # Carrefour
+    "#onetrust-accept-btn-handler",
+    "[data-testid='accept-cookies-button']",
+    # Cdiscount
+    "#footer_tc_privacy_button_2",
+    ".privacy_prompt_accept",
+    # Darty / Fnac
+    "#onetrust-accept-btn-handler",
+    # Boulanger
+    ".bcom-consent-accept-all",
+    "#cookieBanner-accept",
+
+    # === CMP (Consent Management Platforms) ===
+    "#didomi-notice-agree-button",
+    ".didomi-continue-without-agreeing",
+    "#onetrust-accept-btn-handler",
+    ".onetrust-accept-btn-handler",
+    "#tarteaucitronPersonalize2",
+    ".tarteaucitronAllow",
+    "#tarteaucitronAllDenied2",
+    ".cc-btn.cc-allow",
+    ".cky-btn-accept",
+    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+    "#CybotCookiebotDialogBodyButtonAccept",
+    ".qc-cmp2-summary-buttons button:first-child",
+    "[data-accept-cookies]",
+    "[data-gdpr-accept]",
+    "#axeptio_btn_acceptAll",
+    ".axeptio_acceptAll",
+
+    # === TEXTE FRANÇAIS (Playwright :has-text) ===
+    "button:has-text('Tout accepter')",
+    "button:has-text('Accepter tout')",
+    "button:has-text('Accepter et fermer')",
+    "button:has-text('Accepter les cookies')",
+    "button:has-text('Accepter')",
+    "button:has-text('J\\'accepte')",
+    "button:has-text('OK')",
+    "button:has-text('Continuer')",
+    "button:has-text('Continuer sans accepter')",
+    "a:has-text('Tout accepter')",
+    "a:has-text('Accepter')",
+    "a:has-text('J\\'accepte')",
+    "span:has-text('Tout accepter')",
+
+    # === TEXTE ANGLAIS ===
+    "button:has-text('Accept all')",
+    "button:has-text('Accept cookies')",
+    "button:has-text('Accept')",
+    "button:has-text('I accept')",
+    "button:has-text('Allow all')",
+
+    # === GÉNÉRIQUES ===
     "button[id*='accept']",
     "button[id*='cookie']",
     "button[class*='accept']",
     "button[class*='cookie']",
     "button[data-testid*='accept']",
     "button[data-testid*='cookie']",
-    # Texte français
-    "button:has-text('Accepter')",
-    "button:has-text('J\\'accepte')",
-    "button:has-text('Tout accepter')",
-    "button:has-text('Accepter tout')",
-    "button:has-text('Accepter les cookies')",
-    "button:has-text('OK')",
-    "button:has-text('Continuer')",
-    # Texte anglais (certains sites utilisent l'anglais)
-    "button:has-text('Accept')",
-    "button:has-text('Accept all')",
-    "button:has-text('Accept cookies')",
-    "button:has-text('I accept')",
-    # Liens
-    "a:has-text('Accepter')",
-    "a:has-text('J\\'accepte')",
-    "a:has-text('Tout accepter')",
-    # Classes communes de CMP (Consent Management Platforms)
-    ".didomi-continue-without-agreeing",
-    "#didomi-notice-agree-button",
-    ".onetrust-accept-btn-handler",
-    "#onetrust-accept-btn-handler",
-    ".tarteaucitronAllow",
-    "#tarteaucitronPersonalize",
-    ".cc-btn.cc-allow",
-    ".cky-btn-accept",
-    "#CybsAccept",
-    ".qc-cmp2-summary-buttons button:first-child",
-    "[data-accept-cookies]",
-    "[data-gdpr-accept]",
 ]
 
 
 async def _accept_cookies(page, domain: str) -> bool:
     """
     Tente d'accepter les cookies sur une page.
+    Essaie plusieurs fois et gère les iframes.
     Retourne True si un bouton a été cliqué, False sinon.
     """
     try:
         # Attendre un court moment pour que la bannière apparaisse
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
 
+        # Essayer d'abord dans la page principale
         for selector in COOKIE_ACCEPT_SELECTORS:
             try:
                 button = page.locator(selector).first
-                if await button.is_visible(timeout=500):
+                if await button.is_visible(timeout=300):
                     await button.click(timeout=2000)
                     logger.info(f"{domain}: Cookies acceptés avec sélecteur {selector}")
-                    # Attendre que la bannière disparaisse
+                    await asyncio.sleep(0.5)
+                    return True
+            except Exception:
+                continue
+
+        # Essayer dans les iframes (certains CMP utilisent des iframes)
+        frames = page.frames
+        for frame in frames:
+            if frame == page.main_frame:
+                continue
+            for selector in COOKIE_ACCEPT_SELECTORS[:20]:  # Limiter aux premiers sélecteurs
+                try:
+                    button = frame.locator(selector).first
+                    if await button.is_visible(timeout=200):
+                        await button.click(timeout=2000)
+                        logger.info(f"{domain}: Cookies acceptés dans iframe avec {selector}")
+                        await asyncio.sleep(0.5)
+                        return True
+                except Exception:
+                    continue
+
+        # Deuxième tentative après un peu plus d'attente (pour les bannières lentes)
+        await asyncio.sleep(1)
+        for selector in COOKIE_ACCEPT_SELECTORS[:30]:
+            try:
+                button = page.locator(selector).first
+                if await button.is_visible(timeout=200):
+                    await button.click(timeout=2000)
+                    logger.info(f"{domain}: Cookies acceptés (2e essai) avec {selector}")
                     await asyncio.sleep(0.5)
                     return True
             except Exception:

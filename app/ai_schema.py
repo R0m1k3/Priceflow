@@ -38,7 +38,7 @@ class AIExtractionResponse(BaseModel):
         description="Extracted price as a number, or null if no price found",
     )
     currency: str = Field(
-        "USD",
+        "EUR",
         description="Currency code (ISO 4217)",
     )
     in_stock: bool | None = Field(
@@ -137,7 +137,7 @@ EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from the 
 Respond ONLY with valid JSON:
 {{
   "price": <number or null>,
-  "currency": "USD",
+  "currency": "EUR",
   "in_stock": <true, false, or null>,
   "price_confidence": <0.0 to 1.0>,
   "in_stock_confidence": <0.0 to 1.0>,
