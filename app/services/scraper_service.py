@@ -452,4 +452,7 @@ class ScraperService:
         finally:
             # Si on a créé un manager playwright local, on l'arrête
             if playwright_manager:
-                await playwright_manager.stop()
+                try:
+                    await playwright_manager.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.debug(f"Error stopping playwright manager: {e}")
