@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { X } from 'lucide-react';
 
 const API_URL = '/api';
 
-export function ItemModal({ item, onClose, onSaved, open }) {
+export function ItemModal({ item, onClose, onSaved, open, categories = [] }) {
     const { t } = useTranslation();
     const [formData, setFormData] = useState({
         url: '',
@@ -18,9 +19,11 @@ export function ItemModal({ item, onClose, onSaved, open }) {
         target_price: '',
         tags: '',
         description: '',
-        notification_channel_id: 'none'
+        notification_channel_id: 'none',
+        category: ''
     });
     const [channels, setChannels] = useState([]);
+    const [showCustomInput, setShowCustomInput] = useState(false);
 
     useEffect(() => {
         const fetchChannels = async () => {
@@ -45,8 +48,10 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 target_price: item.target_price || '',
                 tags: item.tags || '',
                 description: item.description || '',
-                notification_channel_id: item.notification_channel_id ? item.notification_channel_id.toString() : 'none'
+                notification_channel_id: item.notification_channel_id ? item.notification_channel_id.toString() : 'none',
+                category: item.category || ''
             });
+            setShowCustomInput(!!item.category && !categories.includes(item.category));
         } else {
             setFormData({
                 url: '',
@@ -54,10 +59,12 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 target_price: '',
                 tags: '',
                 description: '',
-                notification_channel_id: 'none'
+                notification_channel_id: 'none',
+                category: ''
             });
+            setShowCustomInput(false);
         }
-    }, [item, open]);
+    }, [item, open, categories]);
 
 
 
@@ -123,6 +130,58 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                             value={formData.target_price}
                             onChange={e => setFormData({ ...formData, target_price: e.target.value })}
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="category">{t('itemModal.category') || 'Category'}</Label>
+                        {showCustomInput ? (
+                            <div className="flex gap-2">
+                                <Input
+                                    id="custom_category"
+                                    placeholder="Enter new category"
+                                    value={formData.category}
+                                    onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                    autoFocus
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                        setShowCustomInput(false);
+                                        setFormData({ ...formData, category: '' });
+                                    }}
+                                    title="Select existing category"
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        ) : (
+                            <Select
+                                value={categories.includes(formData.category) ? formData.category : (formData.category ? '__custom__' : 'none')}
+                                onValueChange={(val) => {
+                                    if (val === '__custom__') {
+                                        setShowCustomInput(true);
+                                        setFormData({ ...formData, category: '' });
+                                    } else if (val === 'none') {
+                                        setFormData({ ...formData, category: '' });
+                                    } else {
+                                        setFormData({ ...formData, category: val });
+                                    }
+                                }}
+                            >
+                                <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="Select a category" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">None</SelectItem>
+                                    {categories.map(cat => (
+                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                    ))}
+                                    <SelectItem value="__custom__">Custom...</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}
                     </div>
 
                     <div className="space-y-2">
