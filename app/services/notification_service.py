@@ -64,9 +64,26 @@ class NotificationService:
                 return config.get("webhook_url")
                 
             elif channel.type == "mattermost":
-                # mattermost://hostname/token
-                # Or the full webhook URL
-                return config.get("webhook_url")
+                webhook_url = config.get("webhook_url", "")
+                if not webhook_url:
+                    return None
+                    
+                # If it's already a mattermost:// URL, return it
+                if webhook_url.startswith("mattermost://"):
+                    return webhook_url
+                
+                # Parse standard webhook URL: https://mattermost.example.com/hooks/TOKEN
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(webhook_url)
+                    path_parts = parsed.path.strip('/').split('/')
+                    token = path_parts[-1]
+                    host = parsed.netloc
+                    
+                    # Apprise format: mattermost://host/token
+                    return f"mattermost://{host}/{token}"
+                except Exception:
+                    return webhook_url
                 
             return None
             
