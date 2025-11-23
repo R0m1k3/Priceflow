@@ -174,15 +174,14 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        # URL de recherche Amazon
         "search_url": "https://www.amazon.fr/s?k={query}",
         "product_selector": (
-            # Sélecteurs très spécifiques pour Amazon (liens /dp/ avec ASIN)
-            "a[href*='/dp/'][href*='/ref=']:not([href*='logo']):not([href*='nav']), "
-            "div[data-asin]:not([data-asin='']) h2 a[href*='/dp/'], "
-            ".s-result-item[data-asin] h2 a"
+            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            "div[data-asin]:not([data-asin='']) h2 a, "
+            ".s-result-item[data-asin] h2 a, "
+            "[data-component-type='s-search-result'] h2 a"
         ),
-        "wait_selector": ".s-main-slot .s-result-item[data-asin]",
+        "wait_selector": "[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
@@ -229,12 +228,12 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Amazon US",
         "search_url": "https://www.amazon.com/s?k={query}",
         "product_selector": (
-            # Sélecteurs très spécifiques pour Amazon (liens /dp/ avec ASIN)
-            "a[href*='/dp/'][href*='/ref=']:not([href*='logo']):not([href*='nav']), "
-            "div[data-asin]:not([data-asin='']) h2 a[href*='/dp/'], "
-            ".s-result-item[data-asin] h2 a"
+            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            "div[data-asin]:not([data-asin='']) h2 a, "
+            ".s-result-item[data-asin] h2 a, "
+            "[data-component-type='s-search-result'] h2 a"
         ),
-        "wait_selector": ".s-main-slot .s-result-item[data-asin]",
+        "wait_selector": "[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 99,
@@ -751,6 +750,9 @@ def _is_navigation_link(href: str) -> bool:
         # Amazon spécifique
         "/ref=cs_", "/logo", "/nav_", "/gp/help",
         "/gp/css", "/gp/redirect", "/hz/",
+        "/ref=nb_", "/ref=sr_", "amazon.fr/ref=", "amazon.com/ref=",
+        "/ap/signin", "/gp/yourstore", "/gp/cart",
+        "/503", "/error", "/robot",
         # Liens génériques à exclure
         "/home", "/accueil", "/index",
         "/newsletter", "/subscribe",
@@ -838,13 +840,28 @@ def _clean_domain(domain: str) -> str:
 
 def _is_non_product_url(url: str) -> bool:
     """Vérifie si l'URL n'est pas une page produit"""
+    url_lower = url.lower()
+
+    # Pour Amazon, on vérifie que l'URL contient /dp/ (page produit)
+    if "amazon" in url_lower:
+        # Si c'est Amazon mais pas un lien /dp/, c'est pas un produit
+        if "/dp/" not in url_lower and "/gp/product/" not in url_lower:
+            return True
+        # Exclure les liens d'erreur/redirection Amazon
+        if "/ref=cs_" in url_lower or "/ref=nb_sb" in url_lower:
+            return True
+        if "amazon.fr/ref=" in url_lower or "amazon.com/ref=" in url_lower:
+            if "/dp/" not in url_lower:
+                return True
+
     non_product_patterns = [
         "/search", "/category", "/categories", "/brand", "/brands",
         "/help", "/contact", "/about", "/account", "/cart", "/checkout",
         "/login", "/register", "/wishlist", "/compare", "/reviews",
         "/terms", "/privacy", "/faq", "/shipping", "/returns",
+        "/503", "/error", "/robot", "/captcha",
+        "/application", "/courses", "/app/",
     ]
-    url_lower = url.lower()
     return any(pattern in url_lower for pattern in non_product_patterns)
 
 
