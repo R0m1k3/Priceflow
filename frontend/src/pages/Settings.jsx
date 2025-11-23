@@ -680,7 +680,7 @@ export default function Settings() {
             {/* Notification Profiles */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Notification Profiles</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />TEST 2025 - Notification Profiles</CardTitle>
                     <CardDescription>Manage notification settings for different groups of items.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-8">
