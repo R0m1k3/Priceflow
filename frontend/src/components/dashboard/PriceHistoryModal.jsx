@@ -125,12 +125,7 @@ export function PriceHistoryModal({ open, onClose, item }) {
         <Dialog open={open} onOpenChange={onClose}>
             <DialogContent className="max-w-3xl">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center justify-between">
-                        <span>Historique des prix</span>
-                        <Button variant="ghost" size="icon" onClick={onClose}>
-                            <X className="h-4 w-4" />
-                        </Button>
-                    </DialogTitle>
+                    <DialogTitle>Historique des prix</DialogTitle>
                 </DialogHeader>
 
                 <div className="space-y-4">
