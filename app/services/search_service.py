@@ -228,16 +228,22 @@ async def search_products(
         # Nettoyage global des ressources
         if browser:
             try:
-                await browser.close()
+                if browser.is_connected():
+                    await browser.close()
                 logger.info("Navigateur global fermé")
             except Exception as e:
                 logger.error(f"Erreur fermeture navigateur: {e}")
+        
+        # Petit délai pour laisser le temps aux connexions de se fermer proprement
+        await asyncio.sleep(0.5)
                 
         if playwright:
             try:
                 await playwright.stop()
             except Exception as e:
-                logger.error(f"Erreur arrêt Playwright: {e}")
+                # Ignorer les erreurs courantes lors de l'arrêt si déjà fermé
+                if "Event loop is closed" not in str(e):
+                    logger.error(f"Erreur arrêt Playwright: {e}")
 
 
 async def _scrape_with_browserless(
