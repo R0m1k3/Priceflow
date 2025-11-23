@@ -41,7 +41,8 @@ export default function Admin() {
     const [adminPasswordChange, setAdminPasswordChange] = useState({ userId: null, newPassword: '' });
 
     // Settings state (from Settings.jsx)
-    const [profiles, setProfiles] = useState([]);
+    // Settings state (from Settings.jsx)
+    const [channels, setChannels] = useState([]);
     const [jobConfig, setJobConfig] = useState({ refresh_interval_minutes: 60, next_run: null, running: false });
     const [config, setConfig] = useState({
         ai_provider: 'ollama',
@@ -59,16 +60,20 @@ export default function Admin() {
         text_context_length: 5000,
         scraper_timeout: 90000
     });
-    const [newProfile, setNewProfile] = useState({
+    const [newChannel, setNewChannel] = useState({
         name: '',
-        apprise_url: '',
-        check_interval_minutes: 60,
-        notify_on_price_drop: true,
-        notify_on_target_price: true,
-        price_drop_threshold_percent: 10,
-        notify_on_stock_change: true
+        type: 'email',
+        configuration: '',
+        // Helper fields for UI
+        email_user: '',
+        email_pass: '',
+        email_host: '',
+        email_port: '',
+        discord_webhook: '',
+        mattermost_webhook: '',
+        is_active: true
     });
-    const [editingProfileId, setEditingProfileId] = useState(null);
+    const [editingChannelId, setEditingChannelId] = useState(null);
     const [showAdvancedAI, setShowAdvancedAI] = useState(false);
     const [searchSites, setSearchSites] = useState([]);
     const [resettingSites, setResettingSites] = useState(false);
@@ -101,16 +106,16 @@ export default function Admin() {
     const fetchAll = async () => {
         try {
             const headers = getAuthHeaders();
-            const [usersRes, profilesRes, settingsRes, jobRes, sitesRes] = await Promise.all([
+            const [usersRes, channelsRes, settingsRes, jobRes, sitesRes] = await Promise.all([
                 axios.get(`${API_URL}/auth/users`, { headers }),
-                axios.get(`${API_URL}/notification-profiles`),
+                axios.get(`${API_URL}/notifications/channels`),
                 axios.get(`${API_URL}/settings`),
                 axios.get(`${API_URL}/jobs/config`),
                 axios.get(`${API_URL}/search-sites`)
             ]);
 
             setUsers(usersRes.data);
-            setProfiles(profilesRes.data);
+            setChannels(channelsRes.data);
             setJobConfig(jobRes.data);
             setSearchSites(sitesRes.data);
 
@@ -254,60 +259,128 @@ export default function Admin() {
         }
     };
 
-    // Profile functions
-    const handleProfileSubmit = async (e) => {
+    // Channel functions
+    const handleChannelSubmit = async (e) => {
         e.preventDefault();
         try {
-            if (editingProfileId) {
-                await axios.put(`${API_URL}/notification-profiles/${editingProfileId}`, newProfile);
-                toast.success('Profil mis à jour');
-            } else {
-                await axios.post(`${API_URL}/notification-profiles`, newProfile);
-                toast.success('Profil créé');
+            let configuration = newChannel.configuration;
+
+            // Construct configuration based on type
+            if (newChannel.type === 'email') {
+                configuration = JSON.stringify({
+                    user: newChannel.email_user,
+                    password: newChannel.email_pass,
+                    host: newChannel.email_host,
+                    port: newChannel.email_port
+                });
+            } else if (newChannel.type === 'discord') {
+                configuration = JSON.stringify({
+                    webhook_url: newChannel.discord_webhook
+                });
+            } else if (newChannel.type === 'mattermost') {
+                configuration = JSON.stringify({
+                    webhook_url: newChannel.mattermost_webhook
+                });
             }
-            setNewProfile({
-                name: '', apprise_url: '', check_interval_minutes: 60,
-                notify_on_price_drop: true, notify_on_target_price: true,
-                price_drop_threshold_percent: 10, notify_on_stock_change: true
-            });
-            setEditingProfileId(null);
+
+            const channelData = {
+                name: newChannel.name,
+                type: newChannel.type,
+                configuration: configuration,
+                is_active: newChannel.is_active
+            };
+
+            if (editingChannelId) {
+                await axios.put(`${API_URL}/notifications/channels/${editingChannelId}`, channelData);
+                toast.success('Channel updated');
+            } else {
+                await axios.post(`${API_URL}/notifications/channels`, channelData);
+                toast.success('Channel created');
+            }
+
+            resetChannelForm();
             fetchAll();
         } catch (error) {
-            toast.error('Erreur lors de l\'enregistrement');
+            toast.error(editingChannelId ? 'Failed to update channel' : 'Failed to create channel');
         }
     };
 
-    const editProfile = (profile) => {
-        setNewProfile({
-            name: profile.name, apprise_url: profile.apprise_url,
-            check_interval_minutes: profile.check_interval_minutes,
-            notify_on_price_drop: profile.notify_on_price_drop,
-            notify_on_target_price: profile.notify_on_target_price,
-            price_drop_threshold_percent: profile.price_drop_threshold_percent,
-            notify_on_stock_change: profile.notify_on_stock_change
+    const resetChannelForm = () => {
+        setNewChannel({
+            name: '',
+            type: 'email',
+            configuration: '',
+            email_user: '',
+            email_pass: '',
+            email_host: '',
+            email_port: '',
+            discord_webhook: '',
+            mattermost_webhook: '',
+            is_active: true
         });
-        setEditingProfileId(profile.id);
+        setEditingChannelId(null);
     };
 
-    const cancelEdit = () => {
-        setNewProfile({
-            name: '', apprise_url: '', check_interval_minutes: 60,
-            notify_on_price_drop: true, notify_on_target_price: true,
-            price_drop_threshold_percent: 10, notify_on_stock_change: true
+    const editChannel = (channel) => {
+        let email_user = '';
+        let email_pass = '';
+        let email_host = '';
+        let email_port = '';
+        let discord_webhook = '';
+        let mattermost_webhook = '';
+
+        try {
+            const config = JSON.parse(channel.configuration);
+            if (channel.type === 'email') {
+                email_user = config.user || '';
+                email_pass = config.password || '';
+                email_host = config.host || '';
+                email_port = config.port || '';
+            } else if (channel.type === 'discord') {
+                discord_webhook = config.webhook_url || '';
+            } else if (channel.type === 'mattermost') {
+                mattermost_webhook = config.webhook_url || '';
+            }
+        } catch (e) {
+            // If config is not JSON, maybe it's a raw URL
+        }
+
+        setNewChannel({
+            name: channel.name,
+            type: channel.type,
+            configuration: channel.configuration,
+            email_user,
+            email_pass,
+            email_host,
+            email_port,
+            discord_webhook,
+            mattermost_webhook,
+            is_active: channel.is_active
         });
-        setEditingProfileId(null);
+        setEditingChannelId(channel.id);
     };
 
-    const deleteProfile = async (id) => {
-        if (confirm('Êtes-vous sûr de vouloir supprimer ce profil ?')) {
+    const deleteChannel = async (id) => {
+        if (confirm('Are you sure you want to delete this channel?')) {
             try {
-                await axios.delete(`${API_URL}/notification-profiles/${id}`);
-                toast.success('Profil supprimé');
-                if (editingProfileId === id) cancelEdit();
+                await axios.delete(`${API_URL}/notifications/channels/${id}`);
+                toast.success('Channel deleted');
+                if (editingChannelId === id) {
+                    resetChannelForm();
+                }
                 fetchAll();
             } catch (error) {
-                toast.error('Erreur lors de la suppression');
+                toast.error('Failed to delete channel');
             }
+        }
+    };
+
+    const testChannel = async (id) => {
+        try {
+            await axios.post(`${API_URL}/notifications/channels/${id}/test`);
+            toast.success('Test notification queued');
+        } catch (error) {
+            toast.error('Failed to send test notification');
         }
     };
 
@@ -774,77 +847,117 @@ export default function Admin() {
             {activeTab === 'notifications' && (
                 <Card>
                     <CardHeader>
-                        <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Profils de notification</CardTitle>
+                        <CardTitle className="flex items-center gap-2"><Bell className="h-5 w-5" />Notification Channels</CardTitle>
+                        <CardDescription>Configure where you want to receive alerts (Email, Discord, Mattermost).</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-8">
-                        <form onSubmit={handleProfileSubmit} className="space-y-4 border-b pb-8">
+                        <form onSubmit={handleChannelSubmit} className="space-y-4 border-b pb-8">
                             <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-medium">{editingProfileId ? 'Modifier le profil' : 'Nouveau profil'}</h4>
-                                {editingProfileId && <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>Annuler</Button>}
+                                <h4 className="text-sm font-medium">{editingChannelId ? 'Edit Channel' : 'Create New Channel'}</h4>
+                                {editingChannelId && (
+                                    <Button type="button" variant="ghost" size="sm" onClick={resetChannelForm}>Cancel Edit</Button>
+                                )}
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label>Nom</Label>
-                                    <Input required value={newProfile.name} onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })} />
+                                    <Label>Name</Label>
+                                    <Input required value={newChannel.name} onChange={(e) => setNewChannel({ ...newChannel, name: e.target.value })} placeholder="e.g., My Discord" />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>URL Apprise</Label>
-                                    <Input required value={newProfile.apprise_url} onChange={(e) => setNewProfile({ ...newProfile, apprise_url: e.target.value })} />
+                                    <Label>Type</Label>
+                                    <Select
+                                        value={newChannel.type}
+                                        onValueChange={(val) => setNewChannel({ ...newChannel, type: val })}
+                                    >
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="email">Email</SelectItem>
+                                            <SelectItem value="discord">Discord</SelectItem>
+                                            <SelectItem value="mattermost">Mattermost</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Intervalle (min)</Label>
-                                    <Input type="number" min="1" value={newProfile.check_interval_minutes} onChange={(e) => setNewProfile({ ...newProfile, check_interval_minutes: parseInt(e.target.value) })} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Seuil de baisse (%)</Label>
-                                    <Input type="number" min="1" max="100" value={newProfile.price_drop_threshold_percent} onChange={(e) => setNewProfile({ ...newProfile, price_drop_threshold_percent: parseFloat(e.target.value) })} />
-                                </div>
+
+                            {/* Configuration Fields based on Type */}
+                            <div className="space-y-4 border p-4 rounded-lg bg-muted/20">
+                                {newChannel.type === 'email' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>SMTP User</Label>
+                                            <Input value={newChannel.email_user} onChange={(e) => setNewChannel({ ...newChannel, email_user: e.target.value })} placeholder="user@example.com" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>SMTP Password</Label>
+                                            <Input type="password" value={newChannel.email_pass} onChange={(e) => setNewChannel({ ...newChannel, email_pass: e.target.value })} />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>SMTP Host</Label>
+                                            <Input value={newChannel.email_host} onChange={(e) => setNewChannel({ ...newChannel, email_host: e.target.value })} placeholder="smtp.gmail.com" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>SMTP Port</Label>
+                                            <Input value={newChannel.email_port} onChange={(e) => setNewChannel({ ...newChannel, email_port: e.target.value })} placeholder="587" />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {newChannel.type === 'discord' && (
+                                    <div className="space-y-2">
+                                        <Label>Webhook URL</Label>
+                                        <Input value={newChannel.discord_webhook} onChange={(e) => setNewChannel({ ...newChannel, discord_webhook: e.target.value })} placeholder="https://discord.com/api/webhooks/..." />
+                                    </div>
+                                )}
+
+                                {newChannel.type === 'mattermost' && (
+                                    <div className="space-y-2">
+                                        <Label>Webhook URL</Label>
+                                        <Input value={newChannel.mattermost_webhook} onChange={(e) => setNewChannel({ ...newChannel, mattermost_webhook: e.target.value })} placeholder="https://mattermost.example.com/hooks/..." />
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex flex-wrap gap-4">
-                                <div className="flex items-center space-x-2">
-                                    <Switch checked={newProfile.notify_on_price_drop} onCheckedChange={(checked) => setNewProfile({ ...newProfile, notify_on_price_drop: checked })} />
-                                    <Label>Baisse de prix</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <Switch checked={newProfile.notify_on_target_price} onCheckedChange={(checked) => setNewProfile({ ...newProfile, notify_on_target_price: checked })} />
-                                    <Label>Prix cible</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <Switch checked={newProfile.notify_on_stock_change} onCheckedChange={(checked) => setNewProfile({ ...newProfile, notify_on_stock_change: checked })} />
-                                    <Label>Changement stock</Label>
-                                </div>
+
+                            <div className="flex items-center space-x-2">
+                                <Switch checked={newChannel.is_active} onCheckedChange={(checked) => setNewChannel({ ...newChannel, is_active: checked })} />
+                                <Label>Active</Label>
                             </div>
-                            <Button type="submit">{editingProfileId ? 'Mettre à jour' : 'Créer'}</Button>
+
+                            <Button type="submit">{editingChannelId ? 'Update Channel' : 'Create Channel'}</Button>
                         </form>
 
                         <div className="space-y-4">
-                            <h4 className="text-sm font-medium">Profils existants</h4>
-                            {profiles.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">Aucun profil créé.</p>
+                            <h4 className="text-sm font-medium">Existing Channels</h4>
+                            {channels.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No channels created yet.</p>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {profiles.map(profile => (
-                                        <div key={profile.id} className={cn("relative group rounded-xl border bg-card p-6 space-y-4", editingProfileId === profile.id && "ring-2 ring-primary")}>
-                                            <div className="flex items-start justify-between">
-                                                <div>
-                                                    <h3 className="font-semibold">{profile.name}</h3>
-                                                    <p className="text-sm text-muted-foreground truncate max-w-[200px]">{profile.apprise_url}</p>
+                                    {channels.map(channel => (
+                                        <div key={channel.id} className={cn(
+                                            "relative group overflow-hidden rounded-xl border bg-card text-card-foreground shadow transition-all hover:shadow-md",
+                                            editingChannelId === channel.id && "ring-2 ring-primary",
+                                            !channel.is_active && "opacity-60"
+                                        )}>
+                                            <div className="p-6 space-y-4">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <h3 className="font-semibold leading-none tracking-tight flex items-center gap-2">
+                                                            {channel.name}
+                                                            {!channel.is_active && <span className="text-xs font-normal text-muted-foreground">(Inactive)</span>}
+                                                        </h3>
+                                                        <p className="text-sm text-muted-foreground mt-1 capitalize">{channel.type}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => testChannel(channel.id)} title="Send Test Notification">
+                                                            <Bell className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => editChannel(channel)}>
+                                                            <Edit2 className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteChannel(channel.id)}>
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => editProfile(profile)}><Edit2 className="h-4 w-4" /></Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteProfile(profile.id)}><Trash2 className="h-4 w-4" /></Button>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                                <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-muted-foreground" /><span>{profile.check_interval_minutes}m</span></div>
-                                                <div className="flex items-center gap-2"><TrendingDown className="h-4 w-4 text-muted-foreground" /><span>{profile.price_drop_threshold_percent}%</span></div>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2 pt-2">
-                                                {profile.notify_on_price_drop && <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs bg-secondary"><DollarSign className="mr-1 h-3 w-3" />Baisse</span>}
-                                                {profile.notify_on_target_price && <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs bg-secondary"><CheckCircle2 className="mr-1 h-3 w-3" />Cible</span>}
-                                                {profile.notify_on_stock_change && <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs bg-secondary"><Package className="mr-1 h-3 w-3" />Stock</span>}
                                             </div>
                                         </div>
                                     ))}
@@ -854,6 +967,6 @@ export default function Admin() {
                     </CardContent>
                 </Card>
             )}
-        </div>
+        </div >
     );
 }
