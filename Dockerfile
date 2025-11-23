@@ -6,6 +6,8 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm install
 
+# Force cache invalidation for frontend source
+ARG CACHEBUST=1
 COPY frontend/ .
 RUN npm run build
 
