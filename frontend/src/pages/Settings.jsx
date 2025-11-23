@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Sun, Clock, Cpu, Settings as SettingsIcon, Bell, Trash2, ChevronDown, ChevronUp, Edit2, CheckCircle2, AlertCircle, TrendingDown, DollarSign, Package, RefreshCw, Filter, Eye, Code, Brain, Sparkles, Globe, Plus } from 'lucide-react';
+import { Sun, Clock, Cpu, Settings as SettingsIcon, Bell, Trash2, ChevronDown, ChevronUp, Edit2, CheckCircle2, AlertCircle, TrendingDown, DollarSign, Package, RefreshCw, Filter, Eye, Code, Brain, Sparkles, Globe, RotateCcw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,6 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
 const API_URL = '/api';
@@ -57,10 +56,7 @@ export default function Settings() {
 
     // Search Sites state
     const [searchSites, setSearchSites] = useState([]);
-    const [newSite, setNewSite] = useState({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
-    const [editingSiteId, setEditingSiteId] = useState(null);
-    const [siteModalOpen, setSiteModalOpen] = useState(false);
-    const [editSiteData, setEditSiteData] = useState(null);
+    const [resettingSites, setResettingSites] = useState(false);
 
     // OpenRouter state
     const [openrouterModels, setOpenrouterModels] = useState([]);
@@ -244,78 +240,28 @@ export default function Settings() {
     };
 
     // Search Sites functions
-    const handleSiteSubmit = async (e) => {
-        e.preventDefault();
-        try {
-            if (editingSiteId) {
-                await axios.put(`${API_URL}/search-sites/${editingSiteId}`, newSite);
-                toast.success('Site mis à jour');
-            } else {
-                await axios.post(`${API_URL}/search-sites`, newSite);
-                toast.success('Site ajouté');
-            }
-            setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
-            setEditingSiteId(null);
-            fetchAll();
-        } catch (error) {
-            toast.error('Erreur lors de l\'opération sur le site');
-        }
-    };
-
-    const editSite = (site) => {
-        setEditSiteData({
-            id: site.id,
-            name: site.name,
-            domain: site.domain,
-            category: site.category || '',
-            is_active: site.is_active,
-            priority: site.priority,
-            requires_js: site.requires_js,
-            price_selector: site.price_selector || ''
-        });
-        setSiteModalOpen(true);
-    };
-
-    const handleEditSiteSubmit = async (e) => {
-        e.preventDefault();
-        if (!editSiteData) return;
-        try {
-            await axios.put(`${API_URL}/search-sites/${editSiteData.id}`, editSiteData);
-            toast.success('Site mis à jour');
-            setSiteModalOpen(false);
-            setEditSiteData(null);
-            fetchAll();
-        } catch (error) {
-            toast.error('Erreur lors de la mise à jour');
-        }
-    };
-
-    const cancelSiteEdit = () => {
-        setNewSite({ name: '', domain: '', category: '', is_active: true, priority: 0, requires_js: false, price_selector: '' });
-        setEditingSiteId(null);
-    };
-
-    const deleteSite = async (id) => {
-        if (confirm('Êtes-vous sûr de vouloir supprimer ce site ?')) {
-            try {
-                await axios.delete(`${API_URL}/search-sites/${id}`);
-                toast.success('Site supprimé');
-                if (editingSiteId === id) {
-                    cancelSiteEdit();
-                }
-                fetchAll();
-            } catch (error) {
-                toast.error('Erreur lors de la suppression');
-            }
-        }
-    };
-
     const toggleSiteActive = async (site) => {
         try {
             await axios.put(`${API_URL}/search-sites/${site.id}`, { is_active: !site.is_active });
             fetchAll();
         } catch (error) {
             toast.error('Erreur lors de la mise à jour');
+        }
+    };
+
+    const resetSitesToDefaults = async () => {
+        if (!confirm('Êtes-vous sûr de vouloir réinitialiser tous les sites ? Cette action va remettre les valeurs par défaut.')) {
+            return;
+        }
+        setResettingSites(true);
+        try {
+            const response = await axios.post(`${API_URL}/search-sites/reset`);
+            toast.success(response.data.message);
+            fetchAll();
+        } catch (error) {
+            toast.error('Erreur lors de la réinitialisation');
+        } finally {
+            setResettingSites(false);
         }
     };
 
@@ -622,118 +568,55 @@ export default function Settings() {
             {/* Search Sites Configuration */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" />Sites de recherche</CardTitle>
-                    <CardDescription>Configurez les sites sur lesquels rechercher des produits.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-8">
-                    <form onSubmit={handleSiteSubmit} className="space-y-4 border-b pb-8">
-                        <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-medium">{editingSiteId ? 'Modifier le site' : 'Ajouter un site'}</h4>
-                            {editingSiteId && (
-                                <Button type="button" variant="ghost" size="sm" onClick={cancelSiteEdit}>Annuler</Button>
-                            )}
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" />Sites de recherche</CardTitle>
+                            <CardDescription>Sites e-commerce français configurés pour la recherche de produits.</CardDescription>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Nom du site</Label>
-                                <Input required value={newSite.name} onChange={(e) => setNewSite({ ...newSite, name: e.target.value })} placeholder="ex: Amazon France" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Domaine</Label>
-                                <Input required value={newSite.domain} onChange={(e) => setNewSite({ ...newSite, domain: e.target.value })} placeholder="ex: amazon.fr" />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Catégorie</Label>
-                                <Input value={newSite.category} onChange={(e) => setNewSite({ ...newSite, category: e.target.value })} placeholder="ex: Électronique, Déco, Généraliste" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Priorité</Label>
-                                <Input type="number" min="0" value={newSite.priority} onChange={(e) => setNewSite({ ...newSite, priority: parseInt(e.target.value) || 0 })} />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Sélecteur CSS (prix)</Label>
-                            <Input value={newSite.price_selector} onChange={(e) => setNewSite({ ...newSite, price_selector: e.target.value })} placeholder="ex: .price, #product-price, [data-price]" />
-                            <p className="text-xs text-muted-foreground">Sélecteur CSS pour extraire le prix sur ce site (optionnel)</p>
-                        </div>
-                        <div className="flex flex-wrap gap-4">
-                            <div className="flex items-center space-x-2">
-                                <Switch checked={newSite.is_active} onCheckedChange={(checked) => setNewSite({ ...newSite, is_active: checked })} />
-                                <Label>Actif</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                <Switch checked={newSite.requires_js} onCheckedChange={(checked) => setNewSite({ ...newSite, requires_js: checked })} />
-                                <Label>Nécessite JavaScript</Label>
-                            </div>
-                        </div>
-                        <Button type="submit">
-                            <Plus className="h-4 w-4 mr-2" />
-                            {editingSiteId ? 'Mettre à jour' : 'Ajouter le site'}
+                        <Button variant="outline" size="sm" onClick={resetSitesToDefaults} disabled={resettingSites}>
+                            <RotateCcw className={cn("h-4 w-4 mr-2", resettingSites && "animate-spin")} />
+                            Réinitialiser
                         </Button>
-                    </form>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                        <span>{searchSites.filter(s => s.is_active).length} site(s) actif(s) sur {searchSites.length}</span>
+                    </div>
 
-                    <div className="space-y-4">
-                        <h4 className="text-sm font-medium">Sites configurés ({searchSites.length})</h4>
-                        {searchSites.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">Aucun site configuré.</p>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {searchSites.map(site => (
-                                    <div key={site.id} className={cn(
-                                        "relative group overflow-hidden rounded-xl border bg-card text-card-foreground shadow transition-all hover:shadow-md",
-                                        editingSiteId === site.id && "ring-2 ring-primary",
-                                        !site.is_active && "opacity-60"
-                                    )}>
-                                        <div className="p-4 space-y-3">
-                                            <div className="flex items-start justify-between">
-                                                <div>
-                                                    <h3 className="font-semibold leading-none tracking-tight flex items-center gap-2">
-                                                        {site.name}
-                                                        {site.is_active ? (
-                                                            <span className="px-2 py-0.5 bg-green-500/10 text-green-700 dark:text-green-400 rounded text-xs">Actif</span>
-                                                        ) : (
-                                                            <span className="px-2 py-0.5 bg-red-500/10 text-red-700 dark:text-red-400 rounded text-xs">Inactif</span>
-                                                        )}
-                                                    </h3>
-                                                    <p className="text-sm text-muted-foreground mt-1">{site.domain}</p>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => editSite(site)} title="Modifier">
-                                                        <Edit2 className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteSite(site.id)} title="Supprimer">
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
+                    {searchSites.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-4 text-center">Aucun site configuré. Cliquez sur "Réinitialiser" pour charger les sites par défaut.</p>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {searchSites.map(site => (
+                                <div key={site.id} className={cn(
+                                    "relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all",
+                                    !site.is_active && "opacity-50"
+                                )}>
+                                    <div className="p-3 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-medium text-sm truncate">{site.name}</h3>
+                                                <p className="text-xs text-muted-foreground truncate">{site.domain}</p>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {site.category && (
-                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground">
-                                                        {site.category}
-                                                    </span>
-                                                )}
-                                                {site.requires_js && (
-                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-blue-500/10 text-blue-700 dark:text-blue-400">
-                                                        JavaScript
-                                                    </span>
-                                                )}
-                                                {site.price_selector && (
-                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-purple-500/10 text-purple-700 dark:text-purple-400" title={site.price_selector}>
-                                                        CSS: {site.price_selector.length > 15 ? site.price_selector.substring(0, 15) + '...' : site.price_selector}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="pt-2">
-                                                <Switch checked={site.is_active} onCheckedChange={() => toggleSiteActive(site)} />
-                                            </div>
+                                            <Switch
+                                                checked={site.is_active}
+                                                onCheckedChange={() => toggleSiteActive(site)}
+                                                className="ml-2"
+                                            />
+                                        </div>
+                                        <div className="flex flex-wrap gap-1">
+                                            {site.category && (
+                                                <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-secondary text-secondary-foreground">
+                                                    {site.category}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -855,88 +738,6 @@ export default function Settings() {
                 </CardContent>
             </Card>
 
-            {/* Modal d'édition de site */}
-            <Dialog open={siteModalOpen} onOpenChange={setSiteModalOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle>Modifier le site</DialogTitle>
-                    </DialogHeader>
-                    {editSiteData && (
-                        <form onSubmit={handleEditSiteSubmit} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Nom du site</Label>
-                                    <Input
-                                        required
-                                        value={editSiteData.name}
-                                        onChange={(e) => setEditSiteData({ ...editSiteData, name: e.target.value })}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Domaine</Label>
-                                    <Input
-                                        required
-                                        value={editSiteData.domain}
-                                        onChange={(e) => setEditSiteData({ ...editSiteData, domain: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label>Catégorie</Label>
-                                    <Input
-                                        value={editSiteData.category}
-                                        onChange={(e) => setEditSiteData({ ...editSiteData, category: e.target.value })}
-                                        placeholder="ex: Électronique"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Priorité</Label>
-                                    <Input
-                                        type="number"
-                                        min="0"
-                                        value={editSiteData.priority}
-                                        onChange={(e) => setEditSiteData({ ...editSiteData, priority: parseInt(e.target.value) || 0 })}
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Sélecteur CSS (prix)</Label>
-                                <Input
-                                    value={editSiteData.price_selector}
-                                    onChange={(e) => setEditSiteData({ ...editSiteData, price_selector: e.target.value })}
-                                    placeholder="ex: .price, #product-price"
-                                />
-                                <p className="text-xs text-muted-foreground">Sélecteur CSS pour extraire le prix</p>
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="flex items-center space-x-2">
-                                    <Switch
-                                        checked={editSiteData.is_active}
-                                        onCheckedChange={(checked) => setEditSiteData({ ...editSiteData, is_active: checked })}
-                                    />
-                                    <Label>Actif</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <Switch
-                                        checked={editSiteData.requires_js}
-                                        onCheckedChange={(checked) => setEditSiteData({ ...editSiteData, requires_js: checked })}
-                                    />
-                                    <Label>Nécessite JavaScript</Label>
-                                </div>
-                            </div>
-                            <DialogFooter>
-                                <Button type="button" variant="outline" onClick={() => setSiteModalOpen(false)}>
-                                    Annuler
-                                </Button>
-                                <Button type="submit">
-                                    Enregistrer
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    )}
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

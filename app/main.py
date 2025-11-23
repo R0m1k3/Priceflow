@@ -11,10 +11,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
-from app.database import engine
+from app.database import SessionLocal, engine
 from app.limiter import limiter
 from app.routers import items, jobs, notifications, openrouter, search, search_sites, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
+from app.services import search_service
 
 # Configure logging
 logging.basicConfig(
@@ -79,6 +80,21 @@ async def lifespan(app: FastAPI):
         logger.info("Database migrations completed")
     except Exception as e:
         logger.error(f"Migration error: {e}")
+
+    # Seed default sites
+    logger.info("Seeding default search sites...")
+    try:
+        db = SessionLocal()
+        try:
+            created = search_service.seed_default_sites(db)
+            if created > 0:
+                logger.info(f"{created} site(s) de recherche créé(s)")
+            else:
+                logger.info("Sites de recherche déjà initialisés")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error seeding sites: {e}")
 
     logger.info("Starting smart scheduler (Heartbeat: 1 minute)")
     scheduler.add_job(scheduled_refresh, IntervalTrigger(minutes=1), id="refresh_job", replace_existing=True)
