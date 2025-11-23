@@ -9,6 +9,7 @@ class ItemCreate(BaseModel):
     selector: str | None = None
     target_price: float | None = None
     check_interval_minutes: int = 60
+    category: str | None = None
     tags: str | None = None
     description: str | None = None
 
