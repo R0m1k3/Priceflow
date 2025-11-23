@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { useTranslation } from 'react-i18n';
+import { useTranslation } from 'react-i18next';
 import { Search as SearchIcon, Loader2, ExternalLink, TrendingUp, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
