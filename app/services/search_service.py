@@ -172,9 +172,8 @@ async def search_products(
             completed += 1
 
             if result:
-                # N'ajouter que les résultats avec un prix
-                if result.price is not None:
-                    results.append(result)
+                # Ajouter tous les résultats, même sans prix (le frontend affichera "Prix non disponible")
+                results.append(result)
 
                 yield SearchProgress(
                     status="scraping",
