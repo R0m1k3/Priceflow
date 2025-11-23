@@ -28,11 +28,23 @@ USER_AGENT = (
 class SearchResult:
     """Résultat de recherche"""
 
-    def __init__(self, url: str, title: str, snippet: str, source: str):
+    def __init__(
+        self,
+        url: str,
+        title: str,
+        snippet: str,
+        source: str,
+        price: float | None = None,
+        currency: str = "EUR",
+        in_stock: bool | None = None,
+    ):
         self.url = url
         self.title = title
         self.snippet = snippet
         self.source = source
+        self.price = price
+        self.currency = currency
+        self.in_stock = in_stock
 
     def __repr__(self):
         return f"SearchResult(url={self.url}, title={self.title[:30]}...)"
@@ -423,19 +435,55 @@ async def search(
     all_results = []
     results_per_site = max(5, max_results // len(sites))
 
-    # Rechercher sur chaque site en séquence (pour éviter de surcharger Browserless)
-    for site in sites:
-        try:
-            results = await _search_site_browserless(query, site, results_per_site, timeout)
-            all_results.extend(results)
-            logger.info(f"Site {site.get('domain')}: {len(results)} résultats")
-        except Exception as e:
-            logger.error(f"Erreur recherche sur {site.get('domain')}: {e}")
+    logger.info(f"Démarrage recherche parallèle sur {len(sites)} sites pour '{query}'")
 
-        if len(all_results) >= max_results:
-            break
+    try:
+        async with async_playwright() as p:
+            # Se connecter à Browserless UNE SEULE FOIS pour tous les sites
+            logger.info(f"Connexion à Browserless: {BROWSERLESS_URL}")
+            browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
 
-    logger.info(f"Recherche Browserless: {len(all_results)} résultats totaux")
+            try:
+                # Créer des tâches pour chaque site
+                tasks = []
+                for site in sites:
+                    task = _search_site_browserless(
+                        query=query,
+                        site=site,
+                        max_results=results_per_site,
+                        timeout=timeout,
+                        browser=browser,  # Passer l'instance du navigateur
+                    )
+                    tasks.append(task)
+
+                # Exécuter en parallèle avec asyncio.gather
+                # return_exceptions=True permet de continuer même si un site plante
+                results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Agréger les résultats
+                for i, result in enumerate(results_list):
+                    site_domain = sites[i].get("domain", "inconnu")
+                    
+                    if isinstance(result, Exception):
+                        logger.error(f"Erreur fatale recherche {site_domain}: {result}")
+                        continue
+                        
+                    if result:
+                        all_results.extend(result)
+                        logger.info(f"Site {site_domain}: {len(result)} résultats")
+                    else:
+                        logger.info(f"Site {site_domain}: 0 résultat")
+
+            finally:
+                # Fermer le navigateur à la fin
+                if browser:
+                    await browser.close()
+                    logger.info("Navigateur Browserless fermé")
+
+    except Exception as e:
+        logger.error(f"Erreur globale recherche Browserless: {e}")
+
+    logger.info(f"Recherche Browserless terminée: {len(all_results)} résultats totaux")
     return all_results[:max_results]
 
 
@@ -444,6 +492,7 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
     site: dict,
     max_results: int,
     timeout: float,
+    browser,  # Instance de navigateur partagée
 ) -> list[SearchResult]:
     """Recherche sur un site via Browserless (Playwright)"""
     raw_domain = site.get("domain", "").lower()
@@ -464,47 +513,42 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
     logger.info(f"Recherche Browserless sur {domain}: {final_url}")
 
+    context = None
+    page = None
+
     try:
-        async with async_playwright() as p:
-            # Se connecter à Browserless
-            browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
+        # Créer un nouveau contexte isolé pour ce site
+        context = await browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=USER_AGENT,
+            locale="fr-FR",
+        )
+        
+        # Bloquer les ressources inutiles
+        await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+        await context.route("**/analytics*", lambda route: route.abort())
+        await context.route("**/tracking*", lambda route: route.abort())
+        
+        page = await context.new_page()
 
+        # Naviguer vers la page de recherche
+        await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+
+        # Accepter les cookies si nécessaire
+        await _accept_cookies(page, domain)
+
+        # Attendre que les résultats se chargent
+        if wait_selector:
             try:
-                context = await browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=USER_AGENT,
-                    locale="fr-FR",
-                )
-                page = await context.new_page()
+                await page.wait_for_selector(wait_selector, timeout=10000)
+            except Exception:
+                logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
 
-                # Bloquer les ressources inutiles pour accélérer
-                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-                await page.route("**/analytics*", lambda route: route.abort())
-                await page.route("**/tracking*", lambda route: route.abort())
+        # Attendre un peu pour le JS (réduit pour parallélisation)
+        await asyncio.sleep(1.5)
 
-                # Naviguer vers la page de recherche
-                await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
-
-                # Accepter les cookies si nécessaire
-                await _accept_cookies(page, domain)
-
-                # Attendre que les résultats se chargent
-                if wait_selector:
-                    try:
-                        await page.wait_for_selector(wait_selector, timeout=10000)
-                    except Exception:
-                        logger.debug(f"Selector {wait_selector} non trouvé, on continue...")
-
-                # Attendre un peu pour le JS
-                await asyncio.sleep(2)
-
-                # Extraire le HTML
-                html_content = await page.content()
-
-                await context.close()
-
-            finally:
-                await browser.close()
+        # Extraire le HTML
+        html_content = await page.content()
 
         # Parser le HTML avec BeautifulSoup
         soup = BeautifulSoup(html_content, "lxml")
@@ -568,6 +612,8 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
                 title=title,
                 snippet="",
                 source=domain,
+                # On ne peut pas extraire le prix facilement ici sans scraper chaque page
+                # Le scraping détaillé se fera dans la phase 2
             ))
 
             if len(results) >= max_results:
@@ -579,6 +625,16 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
     except Exception as e:
         logger.error(f"Erreur Browserless sur {domain}: {e}")
         return []
+        
+    finally:
+        # Fermer le contexte et la page, mais PAS le navigateur
+        try:
+            if page:
+                await page.close()
+            if context:
+                await context.close()
+        except Exception as e:
+            logger.debug(f"Erreur fermeture contexte {domain}: {e}")
 
 
 def _get_default_search_url(domain: str) -> str | None:

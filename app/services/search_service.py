@@ -89,18 +89,29 @@ async def search_products(
         results=[],
     )
 
-    search_results = await direct_search_service.search(
-        query=query,
-        sites=sites_data,
-        max_results=max_results,
-    )
-
-    if not search_results:
+    try:
+        search_results = await direct_search_service.search(
+            query=query,
+            sites=sites_data,
+            max_results=max_results,
+        )
+    except Exception as e:
+        logger.error(f"Erreur critique lors de la recherche directe: {e}")
         yield SearchProgress(
             status="error",
             total=0,
             completed=0,
-            message="Aucun résultat trouvé",
+            message=f"Erreur de recherche: {str(e)}",
+            results=[],
+        )
+        return
+
+    if not search_results:
+        yield SearchProgress(
+            status="completed", # Changed from error to completed to avoid scary red alerts for just 0 results
+            total=0,
+            completed=0,
+            message="Aucun résultat trouvé sur les sites configurés",
             results=[],
         )
         return
