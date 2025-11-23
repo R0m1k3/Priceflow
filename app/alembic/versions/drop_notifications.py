@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'drop_notifications'
-down_revision = None  # Update this if there are other migrations
+down_revision = 'add_category_field'  # Points to the last migration
 branch_labels = None
 depends_on = None
 
