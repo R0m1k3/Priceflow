@@ -126,39 +126,44 @@ DEFAULT_SITE_CONFIGS = {
     # === GRANDES SURFACES ===
     "e.leclerc": {
         "name": "E.Leclerc",
-        "search_url": "https://www.e.leclerc/cat/recherche~q={query}",
+        # URL correcte: https://www.e.leclerc/recherche?q=lutin
+        "search_url": "https://www.e.leclerc/recherche?q={query}",
         "product_selector": (
             ".product-card a, .product-thumbnail a, "
-            "a[href*='/fp/'], a[href*='/cat/'], .product-tile a, "
-            "[data-testid='product-card'] a"
+            "a[href*='/fp/'], .product-tile a, "
+            "[data-testid='product-card'] a, .search-product-card a"
         ),
-        "wait_selector": ".product-card, .products-grid, [data-testid='product-grid']",
+        "wait_selector": ".product-card, .search-results, [data-testid='product-grid'], .products-grid",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 8,
     },
     "auchan.fr": {
         "name": "Auchan",
+        # URL correcte: https://www.auchan.fr/recherche?text=lutin
         "search_url": "https://www.auchan.fr/recherche?text={query}",
         "product_selector": (
             ".product-thumbnail a, .product-card__link, "
             "a[href*='/p/'], .list-product__item a, "
-            "[data-testid='product-card'] a, .product-card a"
+            "[data-testid='product-card'] a, .product-card a, "
+            ".product-grid-item a"
         ),
-        "wait_selector": ".list-product, .product-grid, [data-testid='product-grid']",
+        "wait_selector": ".list-product, .product-grid, [data-testid='product-grid'], .search-results",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 9,
     },
     "carrefour.fr": {
         "name": "Carrefour",
+        # URL correcte: https://www.carrefour.fr/s?q=lutin
         "search_url": "https://www.carrefour.fr/s?q={query}",
         "product_selector": (
             ".product-card-title a, .product-card__link, "
             "a[href*='/p/'], .product-thumbnail a, "
-            "[data-testid='product-card'] a, .product-card a"
+            "[data-testid='product-card'] a, .product-card a, "
+            ".product-grid-item a"
         ),
-        "wait_selector": ".product-grid, .product-list, [data-testid='product-grid']",
+        "wait_selector": ".product-grid, .product-list, [data-testid='product-grid'], .search-results",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 10,
@@ -166,22 +171,16 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        # URL de recherche Amazon avec paramètres pour éviter les redirections
-        "search_url": "https://www.amazon.fr/s?k={query}&ref=nb_sb_noss",
+        # URL simple sans paramètres supplémentaires
+        "search_url": "https://www.amazon.fr/s?k={query}",
         "product_selector": (
-            # Sélecteurs multiples pour robustesse
-            "div[data-component-type='s-search-result'] h2 a.a-link-normal, "
-            "div[data-asin] h2 a.a-link-normal, "
-            ".s-result-item h2 a.a-link-normal, "
-            "[data-asin]:not([data-asin='']) h2 a, "
-            ".s-main-slot .s-result-item a.a-link-normal.s-no-outline"
+            "div[data-component-type='s-search-result'] h2 a, "
+            "[data-asin] h2 a, .s-result-item h2 a"
         ),
-        "wait_selector": "[data-component-type='s-search-result'], .s-main-slot .s-result-item",
+        "wait_selector": "div[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
-        # Amazon nécessite une attention particulière pour les cookies
-        "needs_cookie_accept": True,
     },
     "cdiscount.com": {
         "name": "Cdiscount",
@@ -223,18 +222,15 @@ DEFAULT_SITE_CONFIGS = {
     # === AUTRES (conservés pour compatibilité) ===
     "amazon.com": {
         "name": "Amazon US",
-        "search_url": "https://www.amazon.com/s?k={query}&ref=nb_sb_noss",
+        "search_url": "https://www.amazon.com/s?k={query}",
         "product_selector": (
-            "div[data-component-type='s-search-result'] h2 a.a-link-normal, "
-            "div[data-asin] h2 a.a-link-normal, "
-            ".s-result-item h2 a.a-link-normal, "
-            "[data-asin]:not([data-asin='']) h2 a"
+            "div[data-component-type='s-search-result'] h2 a, "
+            "[data-asin] h2 a, .s-result-item h2 a"
         ),
-        "wait_selector": "[data-component-type='s-search-result'], .s-main-slot .s-result-item",
+        "wait_selector": "div[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 99,
-        "needs_cookie_accept": True,
     },
     "fnac.com": {
         "name": "Fnac",
@@ -449,51 +445,21 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
     logger.info(f"Recherche Browserless sur {domain}: {final_url}")
 
-    # Détecter si c'est Amazon (protection anti-bot forte)
-    is_amazon = "amazon" in domain
-
     try:
         async with async_playwright() as p:
             # Se connecter à Browserless
             browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
 
             try:
-                # Configuration spéciale pour Amazon
-                if is_amazon:
-                    context = await browser.new_context(
-                        viewport={"width": 1920, "height": 1080},
-                        user_agent=(
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        ),
-                        locale="fr-FR",
-                        timezone_id="Europe/Paris",
-                        extra_http_headers={
-                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-                            "Accept-Encoding": "gzip, deflate, br",
-                            "Connection": "keep-alive",
-                            "Upgrade-Insecure-Requests": "1",
-                            "Sec-Fetch-Dest": "document",
-                            "Sec-Fetch-Mode": "navigate",
-                            "Sec-Fetch-Site": "none",
-                            "Sec-Fetch-User": "?1",
-                        },
-                    )
-                else:
-                    context = await browser.new_context(
-                        viewport={"width": 1920, "height": 1080},
-                        user_agent=USER_AGENT,
-                        locale="fr-FR",
-                    )
-
+                context = await browser.new_context(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent=USER_AGENT,
+                    locale="fr-FR",
+                )
                 page = await context.new_page()
 
-                # Pour Amazon, ne pas bloquer les images (détection anti-bot)
-                if not is_amazon:
-                    await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-
+                # Bloquer les ressources inutiles pour accélérer
+                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
                 await page.route("**/analytics*", lambda route: route.abort())
                 await page.route("**/tracking*", lambda route: route.abort())
 
@@ -502,13 +468,6 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
                 # Accepter les cookies si nécessaire
                 await _accept_cookies(page, domain)
-
-                # Pour Amazon, attendre plus longtemps et scroller
-                if is_amazon:
-                    await asyncio.sleep(3)
-                    # Scroll pour charger le contenu lazy-loaded
-                    await page.evaluate("window.scrollBy(0, 500)")
-                    await asyncio.sleep(1)
 
                 # Attendre que les résultats se chargent
                 if wait_selector:
