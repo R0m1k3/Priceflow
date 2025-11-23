@@ -25,6 +25,7 @@ dependencies = [
     "slowapi",
     "beautifulsoup4",
     "lxml",
+    "pyjwt",
 ]
 
 [build-system]

@@ -129,11 +129,12 @@ DEFAULT_SITE_CONFIGS = {
         # URL correcte: https://www.e.leclerc/recherche?q=lutin
         "search_url": "https://www.e.leclerc/recherche?q={query}",
         "product_selector": (
-            ".product-card a, .product-thumbnail a, "
-            "a[href*='/fp/'], .product-tile a, "
-            "[data-testid='product-card'] a, .search-product-card a"
+            # Sélecteurs spécifiques aux produits E.Leclerc (liens /fp/)
+            "a[href*='/fp/'][href*='-']:not([href*='promo']):not([href*='promotion']), "
+            ".product-card a[href*='/fp/'], "
+            "[data-testid='product-card'] a[href*='/fp/']"
         ),
-        "wait_selector": ".product-card, .search-results, [data-testid='product-grid'], .products-grid",
+        "wait_selector": "[data-testid='product-grid'], .search-results-list, .products-grid",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 8,
@@ -143,12 +144,13 @@ DEFAULT_SITE_CONFIGS = {
         # URL correcte: https://www.auchan.fr/recherche?text=lutin
         "search_url": "https://www.auchan.fr/recherche?text={query}",
         "product_selector": (
-            ".product-thumbnail a, .product-card__link, "
-            "a[href*='/p/'], .list-product__item a, "
-            "[data-testid='product-card'] a, .product-card a, "
-            ".product-grid-item a"
+            # Sélecteurs spécifiques aux produits Auchan (liens /p/ avec ID produit)
+            "a[href*='/p/'][href$='.html'], "
+            "a[href*='/p/'][href*='-p-'], "
+            ".product-thumbnail a[href*='/p/'], "
+            "[data-testid='product-card'] a[href*='/p/']"
         ),
-        "wait_selector": ".list-product, .product-grid, [data-testid='product-grid'], .search-results",
+        "wait_selector": ".search-results, .product-grid, [data-testid='search-results']",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 9,
@@ -158,12 +160,13 @@ DEFAULT_SITE_CONFIGS = {
         # URL correcte: https://www.carrefour.fr/s?q=lutin
         "search_url": "https://www.carrefour.fr/s?q={query}",
         "product_selector": (
-            ".product-card-title a, .product-card__link, "
-            "a[href*='/p/'], .product-thumbnail a, "
-            "[data-testid='product-card'] a, .product-card a, "
-            ".product-grid-item a"
+            # Sélecteurs spécifiques aux produits Carrefour (liens /p/)
+            "a[href*='/p/'][href$='.html'], "
+            "a[href*='/p/'][href*='-p-'], "
+            ".product-card a[href*='/p/'], "
+            "[data-testid='product-card'] a[href*='/p/']"
         ),
-        "wait_selector": ".product-grid, .product-list, [data-testid='product-grid'], .search-results",
+        "wait_selector": ".search-results, .product-grid, [data-testid='search-results']",
         "category": "Grande Surface",
         "requires_js": True,
         "priority": 10,
@@ -171,13 +174,14 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        # URL simple sans paramètres supplémentaires
         "search_url": "https://www.amazon.fr/s?k={query}",
         "product_selector": (
-            "div[data-component-type='s-search-result'] h2 a, "
-            "[data-asin] h2 a, .s-result-item h2 a"
+            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            "div[data-asin]:not([data-asin='']) h2 a, "
+            ".s-result-item[data-asin] h2 a, "
+            "[data-component-type='s-search-result'] h2 a"
         ),
-        "wait_selector": "div[data-component-type='s-search-result']",
+        "wait_selector": "[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
@@ -224,10 +228,12 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Amazon US",
         "search_url": "https://www.amazon.com/s?k={query}",
         "product_selector": (
-            "div[data-component-type='s-search-result'] h2 a, "
-            "[data-asin] h2 a, .s-result-item h2 a"
+            # Sélecteurs simples pour Amazon - les produits ont data-asin
+            "div[data-asin]:not([data-asin='']) h2 a, "
+            ".s-result-item[data-asin] h2 a, "
+            "[data-component-type='s-search-result'] h2 a"
         ),
-        "wait_selector": "div[data-component-type='s-search-result']",
+        "wait_selector": "[data-component-type='s-search-result']",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 99,
@@ -714,6 +720,7 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
 def _is_navigation_link(href: str) -> bool:
     """Vérifie si un lien est un lien de navigation (pas un produit)"""
     nav_patterns = [
+        # Catégories et navigation
         "/category", "/categories", "/categorie",
         "/brand", "/brands", "/marque",
         "/page/", "/pages/",
@@ -729,6 +736,28 @@ def _is_navigation_link(href: str) -> bool:
         "/returns", "/retours",
         "javascript:", "mailto:", "tel:",
         "#", "?page=", "&page=",
+        # URLs non-produit spécifiques aux sites français
+        "/application", "/app/", "/apps/",
+        "/courses", "/course/",
+        "/ep-", "/endpoint",
+        "/promo/", "/promotions/", "/promotion/",
+        "/offres/", "/offre/",
+        "/services/", "/service/",
+        "/magasin", "/magasins", "/stores/", "/store/",
+        "/blog", "/actualites", "/news",
+        "/recettes", "/recipes",
+        "/conseils", "/tips",
+        # Amazon spécifique
+        "/ref=cs_", "/logo", "/nav_", "/gp/help",
+        "/gp/css", "/gp/redirect", "/hz/",
+        "/ref=nb_", "/ref=sr_", "amazon.fr/ref=", "amazon.com/ref=",
+        "/ap/signin", "/gp/yourstore", "/gp/cart",
+        "/503", "/error", "/robot",
+        # Liens génériques à exclure
+        "/home", "/accueil", "/index",
+        "/newsletter", "/subscribe",
+        "/wishlist", "/liste-envies",
+        "/compare", "/comparaison",
     ]
     href_lower = href.lower()
     return any(pattern in href_lower for pattern in nav_patterns)
@@ -811,13 +840,28 @@ def _clean_domain(domain: str) -> str:
 
 def _is_non_product_url(url: str) -> bool:
     """Vérifie si l'URL n'est pas une page produit"""
+    url_lower = url.lower()
+
+    # Pour Amazon, on vérifie que l'URL contient /dp/ (page produit)
+    if "amazon" in url_lower:
+        # Si c'est Amazon mais pas un lien /dp/, c'est pas un produit
+        if "/dp/" not in url_lower and "/gp/product/" not in url_lower:
+            return True
+        # Exclure les liens d'erreur/redirection Amazon
+        if "/ref=cs_" in url_lower or "/ref=nb_sb" in url_lower:
+            return True
+        if "amazon.fr/ref=" in url_lower or "amazon.com/ref=" in url_lower:
+            if "/dp/" not in url_lower:
+                return True
+
     non_product_patterns = [
         "/search", "/category", "/categories", "/brand", "/brands",
         "/help", "/contact", "/about", "/account", "/cart", "/checkout",
         "/login", "/register", "/wishlist", "/compare", "/reviews",
         "/terms", "/privacy", "/faq", "/shipping", "/returns",
+        "/503", "/error", "/robot", "/captcha",
+        "/application", "/courses", "/app/",
     ]
-    url_lower = url.lower()
     return any(pattern in url_lower for pattern in non_product_patterns)
 
 

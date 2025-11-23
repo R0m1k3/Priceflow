@@ -13,9 +13,9 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import items, jobs, notifications, openrouter, search, search_sites, settings
+from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
-from app.services import search_service
+from app.services import auth_service, search_service
 
 # Configure logging
 logging.basicConfig(
@@ -28,6 +28,27 @@ logger = logging.getLogger(__name__)
 def run_migrations():
     """Run database migrations for missing tables and columns"""
     with engine.connect() as conn:
+        # 0. Create users table if it doesn't exist
+        result = conn.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'users'"
+        ))
+        if not result.fetchone():
+            logger.info("Creating users table...")
+            conn.execute(text("""
+                CREATE TABLE users (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(512) NOT NULL,
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
+            conn.commit()
+            logger.info("users table created")
+
         # 1. Create search_sites table if it doesn't exist
         result = conn.execute(text(
             "SELECT 1 FROM information_schema.tables WHERE table_name = 'search_sites'"
@@ -81,20 +102,27 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Migration error: {e}")
 
-    # Seed default sites
-    logger.info("Seeding default search sites...")
+    # Seed default sites and admin user
+    logger.info("Seeding default data...")
     try:
         db = SessionLocal()
         try:
+            # Seed search sites
             created = search_service.seed_default_sites(db)
             if created > 0:
                 logger.info(f"{created} site(s) de recherche créé(s)")
             else:
                 logger.info("Sites de recherche déjà initialisés")
+
+            # Seed default admin user
+            if auth_service.seed_default_admin(db):
+                logger.info("Utilisateur admin par défaut créé (admin/admin)")
+            else:
+                logger.info("Utilisateurs déjà initialisés")
         finally:
             db.close()
     except Exception as e:
-        logger.error(f"Error seeding sites: {e}")
+        logger.error(f"Error seeding data: {e}")
 
     logger.info("Starting smart scheduler (Heartbeat: 1 minute)")
     scheduler.add_job(scheduled_refresh, IntervalTrigger(minutes=1), id="refresh_job", replace_existing=True)
@@ -141,6 +169,9 @@ for router in [notifications.router, items.router, settings.router, jobs.router,
 # Search routers (already have /api prefix)
 app.include_router(search.router)
 app.include_router(search_sites.router)
+
+# Auth router (already has /api prefix)
+app.include_router(auth.router)
 
 
 @app.get("/api/")

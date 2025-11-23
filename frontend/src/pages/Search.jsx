@@ -2,14 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Search as SearchIcon, Loader2, Plus, ExternalLink, Settings } from 'lucide-react';
+import { Search as SearchIcon, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SearchResultCard } from '@/components/search/SearchResultCard';
-import { Link } from 'react-router-dom';
 
 const API_URL = '/api';
 
@@ -17,7 +16,7 @@ export default function Search() {
     const { t } = useTranslation();
     const [query, setQuery] = useState('');
     const [sites, setSites] = useState([]);
-    const [selectedSites, setSelectedSites] = useState([]);
+    const [selectedSiteId, setSelectedSiteId] = useState(null);
     const [isSearching, setIsSearching] = useState(false);
     const [progress, setProgress] = useState(null);
     const [results, setResults] = useState([]);
@@ -31,31 +30,22 @@ export default function Search() {
     const loadSites = async () => {
         try {
             const response = await axios.get(`${API_URL}/search-sites`);
-            setSites(response.data);
-            // Sélectionner tous les sites actifs par défaut
-            setSelectedSites(
-                response.data
-                    .filter(site => site.is_active)
-                    .map(site => site.id)
-            );
+            const activeSites = response.data.filter(site => site.is_active);
+            setSites(activeSites);
+            // Sélectionner le premier site actif par défaut
+            if (activeSites.length > 0 && !selectedSiteId) {
+                setSelectedSiteId(activeSites[0].id.toString());
+            }
         } catch (error) {
             console.error('Error loading sites:', error);
             toast.error('Erreur lors du chargement des sites');
         }
     };
 
-    const toggleSite = (siteId) => {
-        setSelectedSites(prev =>
-            prev.includes(siteId)
-                ? prev.filter(id => id !== siteId)
-                : [...prev, siteId]
-        );
-    };
-
     const handleSearch = async (e) => {
         e.preventDefault();
-        if (!query.trim() || selectedSites.length === 0) {
-            toast.error('Veuillez entrer une recherche et sélectionner au moins un site');
+        if (!query.trim() || !selectedSiteId) {
+            toast.error('Veuillez entrer une recherche et sélectionner un site');
             return;
         }
 
@@ -66,12 +56,12 @@ export default function Search() {
 
         setIsSearching(true);
         setResults([]);
-        setProgress({ status: 'searching', total: 0, completed: 0 });
+        setProgress({ status: 'searching', total: 1, completed: 0 });
 
         // Construire l'URL avec les paramètres
         const params = new URLSearchParams({
             q: query.trim(),
-            sites: selectedSites.join(','),
+            sites: selectedSiteId,
             max_results: 20,
         });
 
@@ -126,6 +116,8 @@ export default function Search() {
         ? Math.round((progress.completed / Math.max(progress.total, 1)) * 100)
         : 0;
 
+    const selectedSite = sites.find(s => s.id.toString() === selectedSiteId);
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             {/* Header */}
@@ -133,21 +125,47 @@ export default function Search() {
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Recherche de produits</h2>
                     <p className="text-muted-foreground">
-                        Recherchez des produits sur plusieurs sites et ajoutez-les au monitoring
+                        Recherchez des produits sur un site et ajoutez-les au monitoring
                     </p>
                 </div>
-                <Link to="/settings">
-                    <Button variant="outline" size="sm">
-                        <Settings className="h-4 w-4 mr-2" />
-                        Gérer les sites
-                    </Button>
-                </Link>
             </div>
 
             {/* Search Form */}
             <Card>
                 <CardContent className="pt-6">
                     <form onSubmit={handleSearch} className="space-y-4">
+                        {/* Site Selection */}
+                        <div className="space-y-2">
+                            <p className="text-sm font-medium">Site de recherche :</p>
+                            {sites.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">
+                                    Aucun site configuré. Contactez l'administrateur pour activer des sites.
+                                </p>
+                            ) : (
+                                <Select
+                                    value={selectedSiteId || ''}
+                                    onValueChange={setSelectedSiteId}
+                                    disabled={isSearching}
+                                >
+                                    <SelectTrigger className="w-full md:w-[300px]">
+                                        <SelectValue placeholder="Sélectionner un site" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sites.map(site => (
+                                            <SelectItem key={site.id} value={site.id.toString()}>
+                                                <div className="flex items-center gap-2">
+                                                    <span>{site.name}</span>
+                                                    {site.category && (
+                                                        <span className="text-xs text-muted-foreground">({site.category})</span>
+                                                    )}
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
                         {/* Search Input */}
                         <div className="flex gap-2">
                             <div className="relative flex-1">
@@ -161,7 +179,7 @@ export default function Search() {
                                     disabled={isSearching}
                                 />
                             </div>
-                            <Button type="submit" disabled={isSearching || !query.trim()}>
+                            <Button type="submit" disabled={isSearching || !query.trim() || !selectedSiteId}>
                                 {isSearching ? (
                                     <>
                                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -176,36 +194,12 @@ export default function Search() {
                             </Button>
                         </div>
 
-                        {/* Site Selection */}
-                        <div className="space-y-2">
-                            <p className="text-sm font-medium">Sites de recherche :</p>
-                            <div className="flex flex-wrap gap-3">
-                                {sites.filter(s => s.is_active).map(site => (
-                                    <label
-                                        key={site.id}
-                                        className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
-                                            selectedSites.includes(site.id)
-                                                ? 'bg-primary/10 border-primary'
-                                                : 'bg-background border-border hover:bg-muted'
-                                        }`}
-                                    >
-                                        <Checkbox
-                                            checked={selectedSites.includes(site.id)}
-                                            onCheckedChange={() => toggleSite(site.id)}
-                                        />
-                                        <span className="text-sm">{site.name}</span>
-                                    </label>
-                                ))}
-                                {sites.filter(s => s.is_active).length === 0 && (
-                                    <p className="text-sm text-muted-foreground">
-                                        Aucun site configuré.{' '}
-                                        <Link to="/settings" className="text-primary underline">
-                                            Ajouter des sites
-                                        </Link>
-                                    </p>
-                                )}
-                            </div>
-                        </div>
+                        {/* Selected site info */}
+                        {selectedSite && (
+                            <p className="text-sm text-muted-foreground">
+                                Recherche sur <span className="font-medium">{selectedSite.name}</span> ({selectedSite.domain})
+                            </p>
+                        )}
                     </form>
                 </CardContent>
             </Card>
@@ -217,7 +211,7 @@ export default function Search() {
                         <div className="space-y-2">
                             <div className="flex justify-between text-sm">
                                 <span>{progress.message || 'Recherche en cours...'}</span>
-                                <span>{progress.completed}/{progress.total}</span>
+                                <span>{progressPercent}%</span>
                             </div>
                             <Progress value={progressPercent} />
                         </div>
@@ -252,7 +246,7 @@ export default function Search() {
                         <SearchIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                         <h3 className="text-lg font-medium mb-2">Aucun produit trouvé</h3>
                         <p className="text-muted-foreground">
-                            Essayez avec d'autres termes de recherche ou sélectionnez plus de sites
+                            Essayez avec d'autres termes de recherche ou sélectionnez un autre site
                         </p>
                     </CardContent>
                 </Card>
