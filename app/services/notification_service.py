@@ -38,12 +38,8 @@ class NotificationService:
     @staticmethod
     def _get_config_url(channel: models.NotificationChannel) -> str | None:
         """Construct Apprise URL from channel configuration."""
+        # Try to parse as JSON first
         try:
-            # If configuration is already a URL (e.g. for simple webhooks), use it
-            if channel.configuration.startswith("http") or "://" in channel.configuration:
-                return channel.configuration
-            
-            # If it's JSON, parse it
             config = json.loads(channel.configuration)
             
             if channel.type == "email":
@@ -85,6 +81,14 @@ class NotificationService:
                 except Exception:
                     return webhook_url
                 
+            return None
+            
+        except json.JSONDecodeError:
+            # If not JSON, check if it's a raw URL
+            if channel.configuration.startswith("http") or "://" in channel.configuration:
+                return channel.configuration
+            
+            logger.error(f"Invalid configuration format for channel {channel.name}")
             return None
             
         except Exception as e:
