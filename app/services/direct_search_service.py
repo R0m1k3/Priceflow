@@ -166,15 +166,22 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        "search_url": "https://www.amazon.fr/s?k={query}&language=fr_FR",
+        # URL de recherche Amazon avec paramètres pour éviter les redirections
+        "search_url": "https://www.amazon.fr/s?k={query}&ref=nb_sb_noss",
         "product_selector": (
-            "div[data-component-type='s-search-result'] h2 a, "
-            ".s-result-item h2 a, [data-asin] h2 a"
+            # Sélecteurs multiples pour robustesse
+            "div[data-component-type='s-search-result'] h2 a.a-link-normal, "
+            "div[data-asin] h2 a.a-link-normal, "
+            ".s-result-item h2 a.a-link-normal, "
+            "[data-asin]:not([data-asin='']) h2 a, "
+            ".s-main-slot .s-result-item a.a-link-normal.s-no-outline"
         ),
-        "wait_selector": "div[data-component-type='s-search-result'], .s-result-item",
+        "wait_selector": "[data-component-type='s-search-result'], .s-main-slot .s-result-item",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 11,
+        # Amazon nécessite une attention particulière pour les cookies
+        "needs_cookie_accept": True,
     },
     "cdiscount.com": {
         "name": "Cdiscount",
@@ -216,12 +223,18 @@ DEFAULT_SITE_CONFIGS = {
     # === AUTRES (conservés pour compatibilité) ===
     "amazon.com": {
         "name": "Amazon US",
-        "search_url": "https://www.amazon.com/s?k={query}",
-        "product_selector": "div[data-component-type='s-search-result'] h2 a",
-        "wait_selector": "div[data-component-type='s-search-result']",
+        "search_url": "https://www.amazon.com/s?k={query}&ref=nb_sb_noss",
+        "product_selector": (
+            "div[data-component-type='s-search-result'] h2 a.a-link-normal, "
+            "div[data-asin] h2 a.a-link-normal, "
+            ".s-result-item h2 a.a-link-normal, "
+            "[data-asin]:not([data-asin='']) h2 a"
+        ),
+        "wait_selector": "[data-component-type='s-search-result'], .s-main-slot .s-result-item",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 99,
+        "needs_cookie_accept": True,
     },
     "fnac.com": {
         "name": "Fnac",
@@ -436,21 +449,51 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
     logger.info(f"Recherche Browserless sur {domain}: {final_url}")
 
+    # Détecter si c'est Amazon (protection anti-bot forte)
+    is_amazon = "amazon" in domain
+
     try:
         async with async_playwright() as p:
             # Se connecter à Browserless
             browser = await p.chromium.connect_over_cdp(BROWSERLESS_URL)
 
             try:
-                context = await browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=USER_AGENT,
-                    locale="fr-FR",
-                )
+                # Configuration spéciale pour Amazon
+                if is_amazon:
+                    context = await browser.new_context(
+                        viewport={"width": 1920, "height": 1080},
+                        user_agent=(
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                        locale="fr-FR",
+                        timezone_id="Europe/Paris",
+                        extra_http_headers={
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "Connection": "keep-alive",
+                            "Upgrade-Insecure-Requests": "1",
+                            "Sec-Fetch-Dest": "document",
+                            "Sec-Fetch-Mode": "navigate",
+                            "Sec-Fetch-Site": "none",
+                            "Sec-Fetch-User": "?1",
+                        },
+                    )
+                else:
+                    context = await browser.new_context(
+                        viewport={"width": 1920, "height": 1080},
+                        user_agent=USER_AGENT,
+                        locale="fr-FR",
+                    )
+
                 page = await context.new_page()
 
-                # Bloquer les ressources inutiles pour accélérer
-                await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+                # Pour Amazon, ne pas bloquer les images (détection anti-bot)
+                if not is_amazon:
+                    await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+
                 await page.route("**/analytics*", lambda route: route.abort())
                 await page.route("**/tracking*", lambda route: route.abort())
 
@@ -459,6 +502,13 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
                 # Accepter les cookies si nécessaire
                 await _accept_cookies(page, domain)
+
+                # Pour Amazon, attendre plus longtemps et scroller
+                if is_amazon:
+                    await asyncio.sleep(3)
+                    # Scroll pour charger le contenu lazy-loaded
+                    await page.evaluate("window.scrollBy(0, 500)")
+                    await asyncio.sleep(1)
 
                 # Attendre que les résultats se chargent
                 if wait_selector:
