@@ -146,15 +146,15 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
                         ) : null}
                         {onCategoryUpdate && (
                             <Select
-                                value={item.category || ''}
-                                onValueChange={(value) => onCategoryUpdate(item.id, value || null)}
+                                value={item.category || '_none_'}
+                                onValueChange={(value) => onCategoryUpdate(item.id, value === '_none_' ? null : value)}
                             >
                                 <SelectTrigger className="h-6 w-[120px] text-[10px]">
                                     <Tag className="h-2.5 w-2.5 mr-1" />
                                     <SelectValue placeholder="Catégorie" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="">Aucune</SelectItem>
+                                    <SelectItem value="_none_">Aucune</SelectItem>
                                     {categories && categories.map(cat => (
                                         <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                     ))}
