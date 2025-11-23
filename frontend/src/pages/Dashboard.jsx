@@ -178,14 +178,16 @@ export default function Dashboard() {
             <ItemModal
                 open={showAddModal}
                 onClose={() => setShowAddModal(false)}
-                onSaved={refreshItems}
+                onSaved={() => { refreshItems(); loadCategories(); }}
+                categories={categories}
             />
 
             <ItemModal
                 open={!!editingItem}
                 item={editingItem}
                 onClose={() => setEditingItem(null)}
-                onSaved={refreshItems}
+                onSaved={() => { refreshItems(); loadCategories(); }}
+                categories={categories}
             />
 
             <DeleteConfirmationModal
