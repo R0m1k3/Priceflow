@@ -69,3 +69,21 @@ def check_item(
 
     background_tasks.add_task(process_item_check, item_id)
     return {"message": "Check triggered"}
+
+
+@router.get("/{item_id}/price-history", response_model=list[schemas.PriceHistoryResponse])
+def get_price_history(item_id: int, db: Session = Depends(database.get_db)):
+    """Get price history for a specific item"""
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    # Get price history sorted by timestamp descending (most recent first)
+    price_history = (
+        db.query(models.PriceHistory)
+        .filter(models.PriceHistory.item_id == item_id)
+        .order_by(models.PriceHistory.timestamp.desc())
+        .all()
+    )
+    
+    return price_history
