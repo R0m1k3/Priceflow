@@ -763,6 +763,23 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
         ".thumb a",
     ]
 
+    # Textes de liens à exclure (navigation, actions, etc.)
+    bad_texts = [
+        "voir plus", "voir tout", "tout voir", "afficher plus",
+        "suivant", "précédent", "next", "previous", "back",
+        "accueil", "home", "menu", "filtrer", "trier",
+        "conditions", "mentions", "contact", "aide",
+        "connexion", "inscription", "panier", "compte",
+        "retour", "livraison", "cgv", "cgu",
+        "top ventes", "nouveautés", "promotions", "soldes",
+        "nos magasins", "découvrir", "en savoir plus",
+        "valider", "ok", "fermer", "accepter",
+        "choisir", "modifier", "supprimer", "ajouter",
+        "comparer", "wishlist", "favoris",
+        "imprimer", "partager", "envoyer",
+        "plan du site", "sitemap",
+    ]
+
     for pattern in patterns:
         try:
             found = soup.select(pattern)
@@ -789,14 +806,27 @@ def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
                     if link.find("img") or len(link.get_text(strip=True)) > MIN_LINK_TEXT_LENGTH:
                         links.append(link)
 
-    # Dédupliquer
+    # Dédupliquer et filtrer par texte
     seen = set()
     unique_links = []
     for link in links:
         href = link.get("href", "")
-        if href and href not in seen:
-            seen.add(href)
-            unique_links.append(link)
+        if not href or href in seen:
+            continue
+            
+        # Vérification du texte du lien
+        link_text = link.get_text(strip=True).lower()
+        
+        # Si le texte correspond exactement à un texte banni
+        if any(bad_text == link_text for bad_text in bad_texts):
+            continue
+            
+        # Si le texte contient des indicateurs de navigation forts
+        if "voir tout" in link_text or "tous les produits" in link_text or "voir la gamme" in link_text:
+            continue
+            
+        seen.add(href)
+        unique_links.append(link)
 
     return unique_links
 
@@ -806,8 +836,14 @@ def _is_navigation_link(href: str) -> bool:
     nav_patterns = [
         # Catégories et navigation
         "/category", "/categories", "/categorie", "/c/",
-        "/rayon", "/rayons", "/univers",
-        "/brand", "/brands", "/marque", "/marques",
+        "/rayon", "/rayons", "/univers", "/famille", "/groupe",
+        "/brand", "/brands", "/marque", "/marques", "/fabricant",
+        "/boutique", "/boutiques", "/shop", "/store",
+        "/collection", "/collections", "/theme", "/themes",
+        "/liste", "/list", "/listing",
+        "/tag", "/tags", "/sujet", "/topic",
+        "/catalog", "/catalogue",
+        "/view-all", "/tous-les-produits", "/tout-voir",
         "/page/", "/pages/",
         "/cart", "/panier", "/basket",
         "/checkout", "/commande",
@@ -842,7 +878,7 @@ def _is_navigation_link(href: str) -> bool:
         # Patterns e-commerce spécifiques
         "/l-", "/lp-", "/landing",  # Landing pages (Cdiscount, etc.)
         "/selection", "/selections",
-        "/top-", "/best-",
+        "/top-", "/best-", "/nouveautes",
         # Amazon spécifique
         "/ref=cs_", "/logo", "/nav_", "/gp/help",
         "/gp/css", "/gp/redirect", "/hz/",
@@ -954,21 +990,30 @@ def _is_non_product_url(url: str) -> bool:
     non_product_patterns = [
         # Navigation et catégories
         "/search", "/category", "/categories", "/categorie", "/c/",
-        "/rayon", "/rayons", "/univers",
-        "/brand", "/brands", "/marque", "/marques",
+        "/rayon", "/rayons", "/univers", "/famille", "/groupe",
+        "/brand", "/brands", "/marque", "/marques", "/fabricant",
+        "/boutique", "/boutiques", "/shop", "/store",
+        "/collection", "/collections", "/theme", "/themes",
+        "/liste", "/list", "/listing",
+        "/tag", "/tags", "/sujet", "/topic",
+        "/catalog", "/catalogue",
+        "/view-all", "/tous-les-produits", "/tout-voir",
         # Pages utilisateur
         "/help", "/contact", "/about", "/account", "/cart", "/checkout",
         "/login", "/register", "/wishlist", "/compare", "/reviews",
+        "/mon-compte", "/connexion", "/inscription", "/panier",
         # Pages légales
         "/terms", "/privacy", "/faq", "/shipping", "/returns",
+        "/cgv", "/cgu", "/mentions-legales", "/donnees-personnelles",
         # Erreurs
         "/503", "/error", "/robot", "/captcha",
         # Applications et services
-        "/application", "/courses", "/app/",
+        "/application", "/courses", "/app/", "/mobile",
         # Landing pages et promotions (patterns spécifiques e-commerce français)
         "/l-", "/lp-", "/landing",  # Cdiscount landing pages
         "/promo/", "/soldes/", "/bon-plan", "/offre-", "/deals/",
-        "/selection", "/top-", "/best-",
+        "/selection", "/top-", "/best-", "/nouveautes",
+        "/guide", "/conseil", "/blog", "/actualites",
     ]
     return any(pattern in url_lower for pattern in non_product_patterns)
 
