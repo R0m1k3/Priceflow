@@ -34,16 +34,17 @@ def delete_item(item_id: int, db: Session = Depends(database.get_db)):
 
 
 @router.patch("/{item_id}/category")
-def update_item_category(item_id: int, category: str | None, db: Session = Depends(database.get_db)):
+def update_item_category(item_id: int, category: str | None = None, db: Session = Depends(database.get_db)):
     """Update the category of an item"""
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     
-    item.category = category
+    # Treat empty string as None
+    item.category = category if category and category.strip() else None
     db.commit()
     db.refresh(item)
-    return {"message": "Category updated", "category": category}
+    return {"message": "Category updated", "category": item.category}
 
 
 @router.get("/categories/list")
