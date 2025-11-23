@@ -73,14 +73,28 @@ class AIExtractionResponse(BaseModel):
     @field_validator("price", mode="before")
     @classmethod
     def normalize_price(cls, v):
-        """Normalize price to float or None."""
+        """Normalize price to float or None, handling French format."""
         if v is None or v in ("null", ""):
             return None
         if isinstance(v, str):
-            # Remove currency symbols and commas
-            cleaned = re.sub(r"[^\d.]", "", v)
+            # Handle French format: "1 234,56" -> "1234.56"
+            # First, remove spaces (thousand separators)
+            cleaned = v.replace(" ", "").replace("\u00a0", "")
+            # Replace comma with dot (French decimal separator)
+            # But only if there's no dot already (to handle "1.234,56" format)
+            if "," in cleaned and "." in cleaned:
+                # Format "1.234,56" - remove dots, replace comma with dot
+                cleaned = cleaned.replace(".", "").replace(",", ".")
+            elif "," in cleaned:
+                # Format "12,99" - just replace comma with dot
+                cleaned = cleaned.replace(",", ".")
+            # Remove currency symbols and other non-numeric chars (except dot)
+            cleaned = re.sub(r"[^\d.]", "", cleaned)
             if cleaned:
-                return float(cleaned)
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    return None
             return None
         return float(v)
 
@@ -116,23 +130,27 @@ class AIExtractionMetadata(BaseModel):
 
 
 # Prompt template for schema-first extraction
-EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from the image.
+EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this French e-commerce page.
 
-**PRICE:**
-- Find the main current price
-- Ignore crossed-out prices
-- Extract number only (no symbols)
+**PRICE (IMPORTANT - French format):**
+- French prices use COMMA for decimals: "12,99 €" means 12.99
+- Thousands separator is SPACE or DOT: "1 234,56 €" or "1.234,56 €" means 1234.56
+- Currency symbol is usually € at the end
+- Look for: price tags, "Prix:", "€", numbers near "Ajouter au panier"
+- Extract as DECIMAL NUMBER (convert comma to dot): 12,99 -> 12.99
+- Ignore crossed-out/barré prices (old prices)
+- If multiple prices, take the current/main price (not the original)
 - If unclear: set null and confidence < 0.5
 
 **STOCK:**
-- TRUE if: "Add to Cart", "Buy Now", "In Stock", "Available"
-- FALSE if: "Out of Stock", "Sold Out", "Unavailable", "Notify Me"
+- TRUE if: "Ajouter au panier", "Acheter", "En stock", "Disponible", "Add to Cart"
+- FALSE if: "Rupture", "Indisponible", "Épuisé", "Out of Stock", "Notify Me"
 - NULL if unclear or not shown
 
 **CONFIDENCE (0.0 to 1.0):**
-- 0.9-1.0: Very certain
-- 0.5-0.8: Moderately certain
-- Below 0.5: Unsure
+- 0.9-1.0: Price clearly visible
+- 0.5-0.8: Price found but partially obscured or uncertain
+- Below 0.5: Cannot find price reliably
 
 Respond ONLY with valid JSON:
 {{
