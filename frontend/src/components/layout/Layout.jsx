@@ -37,7 +37,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
                 <div className="flex h-full flex-col">
                     <div className="flex h-14 items-center border-b px-6">
                         <Link to="/" className="flex items-center gap-2 font-semibold">
-                            <img src="/logo.svg" alt="PriceFlow Logo" className="h-8 w-8 rounded-lg" />
+                            <img src="/logo.png" alt="PriceFlow Logo" className="h-8 w-8 rounded-lg" />
                             <span className="text-xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
                                 PriceFlow
                             </span>
@@ -166,7 +166,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
                     </SheetContent>
                 </Sheet>
                 <Link to="/" className="flex items-center gap-2 font-semibold">
-                    <img src="/logo.svg" alt="PriceFlow Logo" className="h-6 w-6 rounded" />
+                    <img src="/logo.png" alt="PriceFlow Logo" className="h-6 w-6 rounded" />
                     PriceFlow
                 </Link>
                 <div className="ml-auto flex items-center gap-2">

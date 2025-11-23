@@ -173,17 +173,43 @@ export default function Settings() {
     const handleProfileSubmit = async (e) => {
         e.preventDefault();
         try {
+            let finalAppriseUrl = newProfile.apprise_url;
+
+            // Construct Apprise URL based on provider
+            if (newProfile.provider === 'discord' && newProfile.discord_webhook) {
+                // Parse Discord Webhook: https://discord.com/api/webhooks/{id}/{token} -> discord://{id}/{token}
+                const match = newProfile.discord_webhook.match(/webhooks\/(\d+)\/(.+)/);
+                if (match) {
+                    finalAppriseUrl = `discord://${match[1]}/${match[2]}`;
+                } else {
+                    toast.error('Invalid Discord Webhook URL');
+                    return;
+                }
+            } else if (newProfile.provider === 'telegram' && newProfile.telegram_token && newProfile.telegram_chat_id) {
+                // Construct Telegram URL: tgram://{token}/{chat_id}
+                finalAppriseUrl = `tgram://${newProfile.telegram_token}/${newProfile.telegram_chat_id}`;
+            }
+
+            const profileData = {
+                ...newProfile,
+                apprise_url: finalAppriseUrl
+            };
+
             if (editingProfileId) {
-                await axios.put(`${API_URL}/notification-profiles/${editingProfileId}`, newProfile);
+                await axios.put(`${API_URL}/notification-profiles/${editingProfileId}`, profileData);
                 toast.success('Profile updated');
             } else {
-                await axios.post(`${API_URL}/notification-profiles`, newProfile);
+                await axios.post(`${API_URL}/notification-profiles`, profileData);
                 toast.success('Profile created');
             }
 
             setNewProfile({
                 name: '',
                 apprise_url: '',
+                discord_webhook: '',
+                telegram_token: '',
+                telegram_chat_id: '',
+                provider: 'custom',
                 check_interval_minutes: 60,
                 notify_on_price_drop: true,
                 notify_on_target_price: true,
@@ -198,9 +224,36 @@ export default function Settings() {
     };
 
     const editProfile = (profile) => {
+        let provider = 'custom';
+        let discord_webhook = '';
+        let telegram_token = '';
+        let telegram_chat_id = '';
+
+        // Deconstruct Apprise URL
+        if (profile.apprise_url.startsWith('discord://')) {
+            provider = 'discord';
+            // discord://{id}/{token} -> https://discord.com/api/webhooks/{id}/{token}
+            const parts = profile.apprise_url.replace('discord://', '').split('/');
+            if (parts.length >= 2) {
+                discord_webhook = `https://discord.com/api/webhooks/${parts[0]}/${parts[1]}`;
+            }
+        } else if (profile.apprise_url.startsWith('tgram://')) {
+            provider = 'telegram';
+            // tgram://{token}/{chat_id}
+            const parts = profile.apprise_url.replace('tgram://', '').split('/');
+            if (parts.length >= 2) {
+                telegram_token = parts[0];
+                telegram_chat_id = parts[1];
+            }
+        }
+
         setNewProfile({
             name: profile.name,
             apprise_url: profile.apprise_url,
+            provider,
+            discord_webhook,
+            telegram_token,
+            telegram_chat_id,
             check_interval_minutes: profile.check_interval_minutes,
             notify_on_price_drop: profile.notify_on_price_drop,
             notify_on_target_price: profile.notify_on_target_price,
@@ -639,36 +692,87 @@ export default function Settings() {
                                 <Label>Name</Label>
                                 <Input required value={newProfile.name} onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })} placeholder="e.g., Email Alerts" />
                             </div>
-                            <div className="space-y-2 md:col-span-2">
-                                <Label>Apprise URL</Label>
-                                <Input 
-                                    required 
-                                    value={newProfile.apprise_url} 
-                                    onChange={(e) => setNewProfile({ ...newProfile, apprise_url: e.target.value })} 
-                                    placeholder="mailto://user:pass@gmail.com"
-                                    className="font-mono text-sm"
-                                />
-                                <div className="space-y-1 text-xs text-muted-foreground">
-                                    <p className="font-medium">Exemples d'URLs Apprise :</p>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1 pl-3">
-                                        <p>• <span className="font-mono">mailto://user:pass@gmail.com</span> - Email</p>
-                                        <p>• <span className="font-mono">tgram://bottoken/ChatID</span> - Telegram</p>
-                                        <p>• <span className="font-mono">discord://webhook_id/webhook_token</span> - Discord</p>
-                                        <p>• <span className="font-mono">slack://tokenA/tokenB/tokenC</span> - Slack</p>
-                                        <p>• <span className="font-mono">ntfy://topic</span> - Ntfy</p>
-                                        <p>• <span className="font-mono">gotify://hostname/token</span> - Gotify</p>
-                                    </div>
-                                    <p className="pt-1">
-                                        <a 
-                                            href="https://github.com/caronc/apprise/wiki" 
-                                            target="_blank" 
-                                            rel="noopener noreferrer"
-                                            className="text-primary hover:underline"
-                                        >
-                                            📚 Documentation complète Apprise
-                                        </a>
-                                    </p>
+                            <div className="space-y-4 md:col-span-2 border p-4 rounded-lg bg-muted/20">
+                                <div className="space-y-2">
+                                    <Label>Notification Provider</Label>
+                                    <Select
+                                        value={newProfile.provider || 'custom'}
+                                        onValueChange={(val) => {
+                                            setNewProfile(prev => ({
+                                                ...prev,
+                                                provider: val,
+                                                // Reset fields when switching provider
+                                                discord_webhook: '',
+                                                telegram_token: '',
+                                                telegram_chat_id: '',
+                                                apprise_url: val === 'custom' ? prev.apprise_url : ''
+                                            }));
+                                        }}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="custom">Custom (Apprise URL)</SelectItem>
+                                            <SelectItem value="discord">Discord</SelectItem>
+                                            <SelectItem value="telegram">Telegram</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
+
+                                {(!newProfile.provider || newProfile.provider === 'custom') && (
+                                    <div className="space-y-2">
+                                        <Label>Apprise URL</Label>
+                                        <Input
+                                            required
+                                            value={newProfile.apprise_url}
+                                            onChange={(e) => setNewProfile({ ...newProfile, apprise_url: e.target.value })}
+                                            placeholder="mailto://user:pass@gmail.com"
+                                            className="font-mono text-sm"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            See <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Apprise documentation</a> for supported services.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {newProfile.provider === 'discord' && (
+                                    <div className="space-y-2">
+                                        <Label>Discord Webhook URL</Label>
+                                        <Input
+                                            value={newProfile.discord_webhook}
+                                            onChange={(e) => setNewProfile({ ...newProfile, discord_webhook: e.target.value })}
+                                            placeholder="https://discord.com/api/webhooks/..."
+                                            className="font-mono text-sm"
+                                        />
+                                        <p className="text-xs text-muted-foreground">
+                                            Paste the full Webhook URL from Discord Server Settings &gt; Integrations &gt; Webhooks.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {newProfile.provider === 'telegram' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>Bot Token</Label>
+                                            <Input
+                                                value={newProfile.telegram_token}
+                                                onChange={(e) => setNewProfile({ ...newProfile, telegram_token: e.target.value })}
+                                                placeholder="123456789:ABCdef..."
+                                                className="font-mono text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Chat ID</Label>
+                                            <Input
+                                                value={newProfile.telegram_chat_id}
+                                                onChange={(e) => setNewProfile({ ...newProfile, telegram_chat_id: e.target.value })}
+                                                placeholder="-100123456789"
+                                                className="font-mono text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
