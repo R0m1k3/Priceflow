@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, Edit2, RefreshCw, Trash2, AlertTriangle, Clock } from 'lucide-react';
+import { ExternalLink, Edit2, RefreshCw, Trash2, AlertTriangle, Clock, Tag, History } from 'lucide-react';
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Marquee } from '@/components/ui/marquee';
 import { cn } from '@/lib/utils';
 
-export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
+export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUpdate, categories, onViewHistory }) {
     const { t } = useTranslation();
+    const [showCategorySelect, setShowCategorySelect] = useState(false);
 
     const getStockStatus = (inStock) => {
         if (inStock === true) return { label: t('dashboard.inStock'), color: 'bg-green-500/90 text-white border-green-400/50' };
@@ -134,6 +136,34 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                         </div>
                     )}
 
+                    {/* Category */}
+                    <div className="flex items-center gap-2">
+                        {item.category ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                <Tag className="h-2.5 w-2.5" />
+                                {item.category}
+                            </span>
+                        ) : null}
+                        {onCategoryUpdate && (
+                            <Select
+                                value={item.category || ''}
+                                onValueChange={(value) => onCategoryUpdate(item.id, value || null)}
+                            >
+                                <SelectTrigger className="h-6 w-[120px] text-[10px]">
+                                    <Tag className="h-2.5 w-2.5 mr-1" />
+                                    <SelectValue placeholder="Catégorie" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="">Aucune</SelectItem>
+                                    {categories && categories.map(cat => (
+                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                    ))}
+                                    <SelectItem value="__new__">+ Nouvelle...</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        )}
+                    </div>
+
                     {/* Description */}
                     {item.description && (
                         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
@@ -159,6 +189,11 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom }) {
                     </div>
 
                     <div className="flex gap-1">
+                        {onViewHistory && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onViewHistory(item)} title="Historique des prix">
+                                <History className="h-3 w-3" />
+                            </Button>
+                        )}
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(item)}>
                             <Edit2 className="h-3 w-3" />
                         </Button>

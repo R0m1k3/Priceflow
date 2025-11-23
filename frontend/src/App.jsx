@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import Layout from '@/components/layout/Layout'
 import Dashboard from '@/pages/Dashboard'
 import Search from '@/pages/Search'
+import MultiSearch from '@/pages/MultiSearch'
 import Login from '@/pages/Login'
 import Admin from '@/pages/Admin'
 import { useTheme } from '@/hooks/use-theme'
@@ -75,6 +76,7 @@ function AppRoutes() {
                                 <Routes>
                                     <Route path="/" element={<Dashboard />} />
                                     <Route path="/search" element={<Search />} />
+                                    <Route path="/compare" element={<MultiSearch />} />
                                     <Route
                                         path="/admin"
                                         element={

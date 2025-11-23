@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Plus, RefreshCw, Search, X, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ItemCard } from '@/components/dashboard/ItemCard';
 import { ItemModal } from '@/components/dashboard/ItemModal';
 import { DeleteConfirmationModal } from '@/components/dashboard/DeleteConfirmationModal';
+import { PriceHistoryModal } from '@/components/dashboard/PriceHistoryModal';
 
 const API_URL = '/api';
 
@@ -15,9 +17,12 @@ export default function Dashboard() {
     const { t } = useTranslation();
     const [items, setItems] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [categories, setCategories] = useState([]);
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null);
+    const [historyItem, setHistoryItem] = useState(null);
     const [zoomedImage, setZoomedImage] = useState(null);
 
     const refreshItems = async () => {
@@ -31,8 +36,18 @@ export default function Dashboard() {
         }
     };
 
+    const loadCategories = async () => {
+        try {
+            const response = await axios.get(`${API_URL}/items/categories/list`);
+            setCategories(response.data);
+        } catch (error) {
+            console.error('Error fetching categories:', error);
+        }
+    };
+
     useEffect(() => {
         refreshItems();
+        loadCategories();
         const interval = setInterval(refreshItems, 10000);
         return () => clearInterval(interval);
     }, []);
@@ -75,14 +90,32 @@ export default function Dashboard() {
         }
     };
 
+    const handleCategoryUpdate = async (itemId, category) => {
+        try {
+            await axios.patch(`${API_URL}/items/${itemId}/category?category=${encodeURIComponent(category || '')}`);
+            toast.success('Catégorie mise à jour');
+            refreshItems();
+            loadCategories();
+        } catch (error) {
+            console.error('Error updating category:', error);
+            toast.error('Erreur lors de la mise à jour');
+        }
+    };
+
     const filteredItems = items.filter(item => {
         const term = searchTerm.toLowerCase();
-        return (
+        const matchesSearch = (
             item.name.toLowerCase().includes(term) ||
             item.url.toLowerCase().includes(term) ||
             (item.tags && item.tags.toLowerCase().includes(term)) ||
             (item.description && item.description.toLowerCase().includes(term))
         );
+
+        const matchesCategory = selectedCategory === 'all' ||
+            (selectedCategory === 'uncategorized' && !item.category) ||
+            item.category === selectedCategory;
+
+        return matchesSearch && matchesCategory;
     });
 
     return (
@@ -92,7 +125,7 @@ export default function Dashboard() {
                     <h2 className="text-2xl font-bold tracking-tight">{t('dashboard.title')}</h2>
                     <p className="text-muted-foreground">{t('dashboard.description')}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <div className="relative w-full md:w-64">
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
@@ -102,6 +135,19 @@ export default function Dashboard() {
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
+                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                        <SelectTrigger className="w-full md:w-[180px]">
+                            <Filter className="mr-2 h-4 w-4" />
+                            <SelectValue placeholder="Catégorie" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Toutes</SelectItem>
+                            <SelectItem value="uncategorized">Sans catégorie</SelectItem>
+                            {categories.map(cat => (
+                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                     <Button variant="outline" onClick={handleRefreshAll}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         {t('dashboard.refreshAll')}
@@ -122,6 +168,9 @@ export default function Dashboard() {
                         onDelete={setItemToDelete}
                         onCheck={handleCheck}
                         onZoom={setZoomedImage}
+                        onCategoryUpdate={handleCategoryUpdate}
+                        onViewHistory={setHistoryItem}
+                        categories={categories}
                     />
                 ))}
             </div>
@@ -144,6 +193,12 @@ export default function Dashboard() {
                 item={itemToDelete}
                 onClose={() => setItemToDelete(null)}
                 onConfirm={handleDelete}
+            />
+
+            <PriceHistoryModal
+                open={!!historyItem}
+                item={historyItem}
+                onClose={() => setHistoryItem(null)}
             />
 
             {/* Image Zoom Modal */}

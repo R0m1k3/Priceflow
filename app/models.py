@@ -47,6 +47,8 @@ class Item(Base):
     # New fields
     current_price: float | None = Column(Float, nullable=True)  # type: ignore
     in_stock: bool | None = Column(Boolean, nullable=True)  # type: ignore
+    is_available: bool | None = Column(Boolean, nullable=True, default=True)  # type: ignore  # Product still exists
+    category: str | None = Column(String, nullable=True)  # type: ignore  # User-defined category
     tags: str | None = Column(String, nullable=True)  # type: ignore
     description: str | None = Column(String, nullable=True)  # type: ignore
 
