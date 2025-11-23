@@ -639,9 +639,36 @@ export default function Settings() {
                                 <Label>Name</Label>
                                 <Input required value={newProfile.name} onChange={(e) => setNewProfile({ ...newProfile, name: e.target.value })} placeholder="e.g., Email Alerts" />
                             </div>
-                            <div className="space-y-2">
+                            <div className="space-y-2 md:col-span-2">
                                 <Label>Apprise URL</Label>
-                                <Input required value={newProfile.apprise_url} onChange={(e) => setNewProfile({ ...newProfile, apprise_url: e.target.value })} placeholder="mailto://user:pass@gmail.com" />
+                                <Input 
+                                    required 
+                                    value={newProfile.apprise_url} 
+                                    onChange={(e) => setNewProfile({ ...newProfile, apprise_url: e.target.value })} 
+                                    placeholder="mailto://user:pass@gmail.com"
+                                    className="font-mono text-sm"
+                                />
+                                <div className="space-y-1 text-xs text-muted-foreground">
+                                    <p className="font-medium">Exemples d'URLs Apprise :</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1 pl-3">
+                                        <p>• <span className="font-mono">mailto://user:pass@gmail.com</span> - Email</p>
+                                        <p>• <span className="font-mono">tgram://bottoken/ChatID</span> - Telegram</p>
+                                        <p>• <span className="font-mono">discord://webhook_id/webhook_token</span> - Discord</p>
+                                        <p>• <span className="font-mono">slack://tokenA/tokenB/tokenC</span> - Slack</p>
+                                        <p>• <span className="font-mono">ntfy://topic</span> - Ntfy</p>
+                                        <p>• <span className="font-mono">gotify://hostname/token</span> - Gotify</p>
+                                    </div>
+                                    <p className="pt-1">
+                                        <a 
+                                            href="https://github.com/caronc/apprise/wiki" 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="text-primary hover:underline"
+                                        >
+                                            📚 Documentation complète Apprise
+                                        </a>
+                                    </p>
+                                </div>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

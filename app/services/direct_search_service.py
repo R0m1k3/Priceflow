@@ -70,8 +70,10 @@ DEFAULT_SITE_CONFIGS = {
         "name": "B&M",
         "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",
         "product_selector": (
-            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
-            ".products article a, a[href*='/produits/']"
+            # Cibler uniquement les liens produits, pas les catégories
+            "a.product-thumbnail[href*='/produits/']:not([href*='/c/']):not([href*='/categorie']), "
+            ".product-miniature a[href*='/produits/']:not([href*='/c/']), "
+            ".js-product-miniature a[href*='/produits/']"
         ),
         "wait_selector": ".products, .product-miniature, #js-product-list, #search_results",
         "category": "Discount",
@@ -190,10 +192,12 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Cdiscount",
         "search_url": "https://www.cdiscount.com/search/10/{query}.html",
         "product_selector": (
-            "a.prdtBImg, .prdtBILDetails a, .product-item a, "
-            "a[href*='/f-']"
+            # Sélecteurs spécifiques Cdiscount - produits uniquement
+            "a.prdtBImg[href*='/f-'][href*='.html'], "
+            ".prdtBILDetails a[href*='/f-'][href*='.html'], "
+            "a[href*='/f-'][href*='.html']:not([href*='/l-']):not([href*='/rayon'])"
         ),
-        "wait_selector": ".prdtBILDetails, .product-list",
+        "wait_selector": ".prdtBILDetails, .product-list, #lpBloc",
         "category": "E-commerce",
         "requires_js": True,
         "priority": 12,
@@ -203,10 +207,12 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Darty",
         "search_url": "https://www.darty.com/nav/recherche?text={query}",
         "product_selector": (
-            ".product-card a, a[href*='/product'], "
-            ".product-list-item a"
+            # Cibler les fiches produits, exclure navigation et catégories
+            "a[href*='/nav/achat/'][href*='.html']:not([href*='/rayon']):not([href*='/promo']), "
+            ".product-card a[href*='/nav/achat/'], "
+            "a.product-link[href*='/nav/achat/']"
         ),
-        "wait_selector": ".product-card, .product-list",
+        "wait_selector": ".product-card, .product-list, .product-item",
         "category": "Électronique",
         "requires_js": True,
         "priority": 13,
@@ -215,10 +221,12 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Boulanger",
         "search_url": "https://www.boulanger.com/resultats?tr={query}",
         "product_selector": (
-            ".product-list__item a, a[href*='/ref/'], "
-            ".product-card a"
+            # Cibler uniquement les pages produits avec /ref/
+            "a[href*='/ref/'][href*='_']:not([href*='/c/']):not([href*='/rayon']), "
+            ".product-list__item a[href*='/ref/'], "
+            ".product-card__link[href*='/ref/']"
         ),
-        "wait_selector": ".product-list, .product-card",
+        "wait_selector": ".product-list, .product-card, .products-list",
         "category": "Électronique",
         "requires_js": True,
         "priority": 14,
@@ -241,8 +249,13 @@ DEFAULT_SITE_CONFIGS = {
     "fnac.com": {
         "name": "Fnac",
         "search_url": "https://www.fnac.com/SearchResult/ResultList.aspx?Search={query}",
-        "product_selector": "a.Article-title, .Article-item a.js-minifa-title",
-        "wait_selector": ".Article-item",
+        "product_selector": (
+            # Sélecteurs Fnac pour les produits
+            "a.Article-title[href*='/a'], "
+            ".Article-item a.js-minifa-title[href*='/a'], "
+            "a[href*='/a'][href*='.html']:not([href*='/rayon']):not([href*='/univers'])"
+        ),
+        "wait_selector": ".Article-item, .Article-list, #SearchResultList",
         "category": "Culture & Tech",
         "requires_js": True,
         "priority": 15,
@@ -721,8 +734,9 @@ def _is_navigation_link(href: str) -> bool:
     """Vérifie si un lien est un lien de navigation (pas un produit)"""
     nav_patterns = [
         # Catégories et navigation
-        "/category", "/categories", "/categorie",
-        "/brand", "/brands", "/marque",
+        "/category", "/categories", "/categorie", "/c/",
+        "/rayon", "/rayons", "/univers",
+        "/brand", "/brands", "/marque", "/marques",
         "/page/", "/pages/",
         "/cart", "/panier", "/basket",
         "/checkout", "/commande",
@@ -740,13 +754,24 @@ def _is_navigation_link(href: str) -> bool:
         "/application", "/app/", "/apps/",
         "/courses", "/course/",
         "/ep-", "/endpoint",
+        # Promotions et offres (patterns communs)
         "/promo/", "/promotions/", "/promotion/",
-        "/offres/", "/offre/",
+        "/soldes/", "/solde/",
+        "/bon-plan", "/bons-plans",
+        "/offres/", "/offre/", "/offre-",
+        "/deals/", "/deal/",
+        "/ventes-flash", "/vente-flash",
+        # Services et pages informatives
         "/services/", "/service/",
         "/magasin", "/magasins", "/stores/", "/store/",
         "/blog", "/actualites", "/news",
         "/recettes", "/recipes",
         "/conseils", "/tips",
+        "/guide", "/guides",
+        # Patterns e-commerce spécifiques
+        "/l-", "/lp-", "/landing",  # Landing pages (Cdiscount, etc.)
+        "/selection", "/selections",
+        "/top-", "/best-",
         # Amazon spécifique
         "/ref=cs_", "/logo", "/nav_", "/gp/help",
         "/gp/css", "/gp/redirect", "/hz/",
@@ -761,6 +786,7 @@ def _is_navigation_link(href: str) -> bool:
     ]
     href_lower = href.lower()
     return any(pattern in href_lower for pattern in nav_patterns)
+
 
 
 def _extract_title(element) -> str:
@@ -855,14 +881,26 @@ def _is_non_product_url(url: str) -> bool:
                 return True
 
     non_product_patterns = [
-        "/search", "/category", "/categories", "/brand", "/brands",
+        # Navigation et catégories
+        "/search", "/category", "/categories", "/categorie", "/c/",
+        "/rayon", "/rayons", "/univers",
+        "/brand", "/brands", "/marque", "/marques",
+        # Pages utilisateur
         "/help", "/contact", "/about", "/account", "/cart", "/checkout",
         "/login", "/register", "/wishlist", "/compare", "/reviews",
+        # Pages légales
         "/terms", "/privacy", "/faq", "/shipping", "/returns",
+        # Erreurs
         "/503", "/error", "/robot", "/captcha",
+        # Applications et services
         "/application", "/courses", "/app/",
+        # Landing pages et promotions (patterns spécifiques e-commerce français)
+        "/l-", "/lp-", "/landing",  # Cdiscount landing pages
+        "/promo/", "/soldes/", "/bon-plan", "/offre-", "/deals/",
+        "/selection", "/top-", "/best-",
     ]
     return any(pattern in url_lower for pattern in non_product_patterns)
+
 
 
 async def health_check() -> bool:

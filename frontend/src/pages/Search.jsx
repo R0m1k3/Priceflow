@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchResultCard } from '@/components/search/SearchResultCard';
 
 const API_URL = '/api';
+const STORAGE_KEY = 'priceflow_search_state';
 
 export default function Search() {
     const { t } = useTranslation();
@@ -22,6 +23,32 @@ export default function Search() {
     const [results, setResults] = useState([]);
     const eventSourceRef = useRef(null);
 
+    // Restore search state from sessionStorage on mount
+    useEffect(() => {
+        const savedState = sessionStorage.getItem(STORAGE_KEY);
+        if (savedState) {
+            try {
+                const { query: savedQuery, selectedSiteId: savedSiteId, results: savedResults } = JSON.parse(savedState);
+                if (savedQuery) setQuery(savedQuery);
+                if (savedSiteId) setSelectedSiteId(savedSiteId);
+                if (savedResults) setResults(savedResults);
+            } catch (error) {
+                console.error('Error restoring search state:', error);
+            }
+        }
+    }, []);
+
+    // Save search state to sessionStorage whenever it changes
+    useEffect(() => {
+        if (query || results.length > 0) {
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+                query,
+                selectedSiteId,
+                results
+            }));
+        }
+    }, [query, selectedSiteId, results]);
+
     // Charger les sites au démarrage
     useEffect(() => {
         loadSites();
@@ -32,7 +59,7 @@ export default function Search() {
             const response = await axios.get(`${API_URL}/search-sites`);
             const activeSites = response.data.filter(site => site.is_active);
             setSites(activeSites);
-            // Sélectionner le premier site actif par défaut
+            // Sélectionner le premier site actif par défaut si aucun site n'est sélectionné
             if (activeSites.length > 0 && !selectedSiteId) {
                 setSelectedSiteId(activeSites[0].id.toString());
             }
@@ -48,6 +75,9 @@ export default function Search() {
             toast.error('Veuillez entrer une recherche et sélectionner un site');
             return;
         }
+
+        // Clear previous storage when starting new search
+        sessionStorage.removeItem(STORAGE_KEY);
 
         // Fermer l'EventSource précédent si existant
         if (eventSourceRef.current) {

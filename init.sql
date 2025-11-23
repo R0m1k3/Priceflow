@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS items (
     check_interval_minutes INTEGER DEFAULT 60,
     current_price FLOAT,
     in_stock BOOLEAN,
+    is_available BOOLEAN DEFAULT TRUE,
+    category VARCHAR(255),
     tags VARCHAR(512),
     description TEXT,
     current_price_confidence FLOAT,

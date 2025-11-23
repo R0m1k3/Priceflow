@@ -88,10 +88,10 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[str | None, str, bool]:
         """
         Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text)
+        Returns a tuple: (screenshot_path, page_text, is_available)
 
         Args:
             url: Target URL to scrape
@@ -139,7 +139,7 @@ class ScraperService:
             logger.warning(f"Tentative {attempt + 1} échouée pour {url}")
 
         logger.error(f"Toutes les tentatives ont échoué pour {url}")
-        return None, ""
+        return None, "", False  # Product unavailable if all retries failed
 
     @staticmethod
     async def _do_scrape(  # noqa: PLR0913, PLR0912, PLR0915
@@ -150,12 +150,14 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[str | None, str, bool]:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
         async with async_playwright() as p:
             browser = None
             context = None
             page = None
+            is_available = True  # Par défaut, le produit est disponible
+            
             try:
                 logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
 
@@ -188,9 +190,24 @@ class ScraperService:
                 page = await context.new_page()
 
                 logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
+                response = None
                 try:
                     # First wait for domcontentloaded - this is the minimum we need
-                    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+                    
+                    # Check HTTP status code
+                    if response:
+                        status = response.status
+                        logger.info(f"HTTP Status: {status}")
+                        
+                        # Detect unavailable products by HTTP status
+                        if status in [404, 410, 451, 503]:
+                            logger.warning(f"Product unavailable - HTTP {status}")
+                            is_available = False
+                        elif status >= 400:
+                            logger.warning(f"HTTP error {status}, marking as potentially unavailable")
+                            is_available = False
+                    
                     logger.info(f"Page loaded (domcontentloaded): {url}")
 
                     # Then try to wait for networkidle, but don't fail if it times out
@@ -203,6 +220,8 @@ class ScraperService:
 
                 except Exception as e:
                     logger.error(f"Error navigating to {url}: {e}")
+                    # If navigation fails completely, mark as unavailable
+                    is_available = False
                     # Try to take screenshot anyway if page partially loaded
                     pass
 
@@ -347,7 +366,7 @@ class ScraperService:
                     logger.info(f"Screenshot saved to {filename}")
                 except Exception as e:
                     logger.error(f"Screenshot failed: {e}")
-                    return None, ""
+                    return None, "", is_available
 
                 # Text Extraction (après le screenshot pour ne pas le perdre)
                 page_text = ""
@@ -359,15 +378,40 @@ class ScraperService:
                         # Simple truncation
                         page_text = raw_text[:text_length]
                         logger.info(f"Extracted {len(page_text)} characters")
+                        
+                        # Check for "product not found" messages in page text
+                        unavailable_patterns = [
+                            "produit introuvable",
+                            "produit indisponible",
+                            "page introuvable",
+                            "404",
+                            "product not found",
+                            "item not found",
+                            "page not found",
+                            "n'existe plus",
+                            "plus disponible",
+                            "no longer available",
+                            "article introuvable",
+                            "cette page n'existe pas",
+                            "this page doesn't exist",
+                        ]
+                        
+                        page_text_lower = page_text.lower()
+                        for pattern in unavailable_patterns:
+                            if pattern in page_text_lower:
+                                logger.warning(f"Product unavailable - found pattern: '{pattern}'")
+                                is_available = False
+                                break
+                                
                     except Exception as e:
                         logger.warning(f"Text extraction failed (screenshot saved): {e}")
                         # On continue car le screenshot a été pris
 
-                return filename, page_text
+                return filename, page_text, is_available
 
             except Exception as e:
                 logger.error(f"Error scraping {url}: {e}")
-                return None, ""
+                return None, "", False  # Mark as unavailable on error
 
             finally:
                 # Fermeture propre des ressources dans l'ordre inverse

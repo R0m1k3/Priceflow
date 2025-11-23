@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app import database, schemas
+from app import database, models, schemas
 from app.limiter import limiter
 from app.services.item_service import ItemService
 from app.services.scheduler_service import process_item_check
@@ -10,8 +10,12 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 
 @router.get("", response_model=list[schemas.ItemResponse])
-def get_items(db: Session = Depends(database.get_db)):
-    return ItemService.get_items(db)
+def get_items(category: str | None = None, db: Session = Depends(database.get_db)):
+    """Get all items, optionally filtered by category"""
+    items = ItemService.get_items(db)
+    if category:
+        items = [item for item in items if item.category == category]
+    return items
 
 
 @router.post("", response_model=schemas.ItemResponse)
@@ -27,6 +31,26 @@ def update_item(item_id: int, item_update: schemas.ItemCreate, db: Session = Dep
 @router.delete("/{item_id}")
 def delete_item(item_id: int, db: Session = Depends(database.get_db)):
     return ItemService.delete_item(db, item_id)
+
+
+@router.patch("/{item_id}/category")
+def update_item_category(item_id: int, category: str | None, db: Session = Depends(database.get_db)):
+    """Update the category of an item"""
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    item.category = category
+    db.commit()
+    db.refresh(item)
+    return {"message": "Category updated", "category": category}
+
+
+@router.get("/categories/list")
+def get_categories(db: Session = Depends(database.get_db)):
+    """Get list of distinct categories used in items"""
+    categories = db.query(models.Item.category).distinct().filter(models.Item.category.isnot(None)).all()
+    return [cat[0] for cat in categories if cat[0]]
 
 
 @router.post("/{item_id}/check")

@@ -103,7 +103,7 @@ async def process_item_check(item_id: int):
 
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
-        screenshot_path, page_text = await ScraperService.scrape_item(
+        screenshot_path, page_text, is_available = await ScraperService.scrape_item(
             item_data["url"],
             item_data["selector"],
             item_id,
@@ -112,6 +112,15 @@ async def process_item_check(item_id: int):
             text_length=config["text_length"],
             timeout=config["scraper_timeout"],
         )
+
+        # Update availability status in database
+        with database.SessionLocal() as session:
+            if item := session.query(models.Item).filter(models.Item.id == item_id).first():
+                item.is_available = is_available
+                if not is_available:
+                    logger.warning(f"Product {item_id} marked as unavailable")
+                    item.last_error = "Product no longer available (404 or not found)"
+                session.commit()
 
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")

@@ -209,7 +209,7 @@ async def _scrape_with_browserless(
     """Scrape une URL avec Browserless + extraction IA"""
     try:
         # Scraper avec Browserless
-        screenshot_path, page_text = await ScraperService.scrape_item(
+        screenshot_path, page_text, is_available = await ScraperService.scrape_item(
             url=url,
             item_id=None,
             smart_scroll=True,
