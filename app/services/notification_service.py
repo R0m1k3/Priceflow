@@ -64,8 +64,8 @@ class NotificationService:
                 if not webhook_url:
                     return None
                     
-                # If it's already a mattermost:// URL, return it
-                if webhook_url.startswith("mattermost://"):
+                # If it's already a mmost:// or mmosts:// URL, return it
+                if webhook_url.startswith("mmost://") or webhook_url.startswith("mmosts://"):
                     return webhook_url
                 
                 # Parse standard webhook URL: https://mattermost.example.com/hooks/TOKEN
@@ -76,8 +76,11 @@ class NotificationService:
                     token = path_parts[-1]
                     host = parsed.netloc
                     
-                    # Apprise format: mattermost://host/token
-                    return f"mattermost://{host}/{token}"
+                    # Determine scheme based on original URL
+                    scheme = "mmosts" if parsed.scheme == "https" else "mmost"
+                    
+                    # Apprise format: mmosts://host/token (without /hooks/)
+                    return f"{scheme}://{host}/{token}"
                 except Exception:
                     return webhook_url
                 
