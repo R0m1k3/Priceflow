@@ -80,7 +80,6 @@ class ItemService:
             return None, None
 
         settings = {s.key: s.value for s in db.query(models.Settings).all()}
-        profile = item.notification_profile
 
         item_data = {
             "id": item.id,
@@ -90,7 +89,6 @@ class ItemService:
             "current_price": item.current_price,
             "in_stock": item.in_stock,
             "target_price": item.target_price,
-            "notification_profile": profile.__dict__ if profile else None,
         }
 
         config = {
@@ -115,11 +113,7 @@ class ItemService:
             if item.is_refreshing:
                 continue
 
-            interval = (
-                item.notification_profile.check_interval_minutes
-                if item.notification_profile and item.notification_profile.check_interval_minutes
-                else global_interval
-            )
+            interval = item.check_interval_minutes if item.check_interval_minutes else global_interval
 
             if not item.last_checked:
                 due_items.append((item.id, interval, -1))

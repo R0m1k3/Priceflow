@@ -8,7 +8,6 @@ from app import database, models
 from app.ai_schema import AIExtractionMetadata, AIExtractionResponse
 from app.services.ai_service import AIService
 from app.services.item_service import ItemService
-from app.services.notification_service import NotificationService
 from app.services.scraper_service import ScraperService
 
 logger = logging.getLogger(__name__)
@@ -134,9 +133,7 @@ async def process_item_check(item_id: int):
             None, _update_db_result, item_id, extraction, metadata, thresholds, screenshot_path
         )
 
-        await NotificationService.send_item_notifications(
-            item_data, extraction.price, old_price, extraction.in_stock, old_stock
-        )
+
 
     except Exception as e:
         logger.error(f"Error in process_item_check: {e}")

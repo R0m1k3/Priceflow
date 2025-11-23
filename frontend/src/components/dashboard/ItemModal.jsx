@@ -17,10 +17,9 @@ export function ItemModal({ item, onClose, onSaved, open }) {
         name: '',
         target_price: '',
         tags: '',
-        description: '',
-        notification_profile_id: ''
+        description: ''
     });
-    const [profiles, setProfiles] = useState([]);
+
 
     useEffect(() => {
         if (item) {
@@ -29,8 +28,7 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 name: item.name || '',
                 target_price: item.target_price || '',
                 tags: item.tags || '',
-                description: item.description || '',
-                notification_profile_id: item.notification_profile_id ? item.notification_profile_id.toString() : ''
+                description: item.description || ''
             });
         } else {
             setFormData({
@@ -38,25 +36,19 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 name: '',
                 target_price: '',
                 tags: '',
-                description: '',
-                notification_profile_id: ''
+                description: ''
             });
         }
     }, [item, open]);
 
-    useEffect(() => {
-        if (open) {
-            axios.get(`${API_URL}/notification-profiles`).then(res => setProfiles(res.data)).catch(console.error);
-        }
-    }, [open]);
+
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
             const payload = {
                 ...formData,
-                target_price: formData.target_price ? parseFloat(formData.target_price) : null,
-                notification_profile_id: formData.notification_profile_id ? parseInt(formData.notification_profile_id) : null
+                target_price: formData.target_price ? parseFloat(formData.target_price) : null
             };
 
             if (item) {
@@ -113,23 +105,7 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                             onChange={e => setFormData({ ...formData, target_price: e.target.value })}
                         />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="profile">{t('itemModal.notificationProfile')}</Label>
-                        <Select
-                            value={formData.notification_profile_id}
-                            onValueChange={(value) => setFormData({ ...formData, notification_profile_id: value })}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder={t('itemModal.selectProfile')} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">{t('itemModal.noProfile')}</SelectItem>
-                                {profiles.map(p => (
-                                    <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+
                     <div className="space-y-2">
                         <Label htmlFor="tags">{t('itemModal.tags')}</Label>
                         <Input

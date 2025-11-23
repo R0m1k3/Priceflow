@@ -19,19 +19,7 @@ class User(Base):
     last_login: datetime | None = Column(DateTime, nullable=True)  # type: ignore
 
 
-class NotificationProfile(Base):
-    __tablename__ = "notification_profiles"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    apprise_url = Column(String)
-    notify_on_price_drop = Column(Boolean, default=True)
-    notify_on_target_price = Column(Boolean, default=True)
-    price_drop_threshold_percent = Column(Float, default=10.0)
-    notify_on_stock_change = Column(Boolean, default=True)
-    check_interval_minutes = Column(Integer, default=60)
-
-    items = relationship("Item", back_populates="notification_profile")
 
 
 class Item(Base):
@@ -60,9 +48,6 @@ class Item(Base):
     last_checked: datetime | None = Column(DateTime, nullable=True)  # type: ignore
     is_refreshing: bool = Column(Boolean, default=False)  # type: ignore
     last_error: str | None = Column(String, nullable=True)  # type: ignore
-
-    notification_profile_id: int | None = Column(Integer, ForeignKey("notification_profiles.id"), nullable=True)  # type: ignore
-    notification_profile = relationship("NotificationProfile", back_populates="items")
 
     price_history = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
 
