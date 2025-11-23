@@ -39,98 +39,264 @@ class SearchResult:
 
 
 # Configuration des sites avec leurs sélecteurs par défaut
+# Liste des sites français configurés en dur
 DEFAULT_SITE_CONFIGS = {
-    "amazon.fr": {
-        "search_url": "https://www.amazon.fr/s?k={query}",
-        "product_selector": "div[data-component-type='s-search-result'] h2 a",
-        "wait_selector": "div[data-component-type='s-search-result']",
-    },
-    "amazon.com": {
-        "search_url": "https://www.amazon.com/s?k={query}",
-        "product_selector": "div[data-component-type='s-search-result'] h2 a",
-        "wait_selector": "div[data-component-type='s-search-result']",
-    },
-    "action.com": {
-        "search_url": "https://www.action.com/fr-fr/search/?q={query}",
-        "product_selector": "a.product-card__link, .product-card a, a[href*='/p/']",
-        "wait_selector": ".product-card, .search-results",
-    },
-    "fnac.com": {
-        "search_url": "https://www.fnac.com/SearchResult/ResultList.aspx?Search={query}",
-        "product_selector": "a.Article-title, .Article-item a.js-minifa-title",
-        "wait_selector": ".Article-item",
-    },
-    "cdiscount.com": {
-        "search_url": "https://www.cdiscount.com/search/10/{query}.html",
-        "product_selector": "a.prdtBImg, .prdtBILDetails a",
-        "wait_selector": ".prdtBILDetails",
-    },
-    "darty.com": {
-        "search_url": "https://www.darty.com/nav/recherche?text={query}",
-        "product_selector": ".product-card a, a[href*='/product']",
-        "wait_selector": ".product-card",
-    },
-    "boulanger.com": {
-        "search_url": "https://www.boulanger.com/resultats?tr={query}",
-        "product_selector": ".product-list__item a, a[href*='/ref/']",
-        "wait_selector": ".product-list",
-    },
-    # Magasins discount français
-    "stokomani.fr": {
-        "search_url": "https://www.stokomani.fr/recherche?q={query}",
-        "product_selector": (
-            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
-            ".products article a, a[href*='/products/'], a[href*='/produit/']"
-        ),
-        "wait_selector": ".products, .product-miniature, #js-product-list, .collection-products",
-    },
+    # === MAGASINS DISCOUNT ===
     "gifi.fr": {
+        "name": "Gifi",
         "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
         "product_selector": (
             ".product-item a.product-item-link, .product-item-info a, "
             ".product-item a, .products-grid a, a[href$='.html']"
         ),
         "wait_selector": ".products-grid, .product-items, .search-results, .products",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 1,
+    },
+    "stokomani.fr": {
+        "name": "Stokomani",
+        "search_url": "https://www.stokomani.fr/recherche?q={query}",
+        "product_selector": (
+            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
+            ".products article a, a[href*='/products/'], a[href*='/produit/']"
+        ),
+        "wait_selector": ".products, .product-miniature, #js-product-list, .collection-products",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 2,
     },
     "bmstores.fr": {
+        "name": "B&M",
         "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",
         "product_selector": (
             ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
             ".products article a, a[href*='/produits/']"
         ),
         "wait_selector": ".products, .product-miniature, #js-product-list, #search_results",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 3,
     },
     "centrakor.com": {
-        "search_url": "https://www.centrakor.com/recherche?search={query}",
-        "product_selector": "a.product-card, .product-item a",
-        "wait_selector": ".product-card, .product-list",
+        "name": "Centrakor",
+        "search_url": "https://www.centrakor.com/catalogsearch/result/?q={query}",
+        "product_selector": (
+            ".product-item a.product-item-link, .product-item-info a, "
+            ".products-grid a, a[href$='.html']"
+        ),
+        "wait_selector": ".products-grid, .product-items, .search-results",
+        "category": "Déco & Maison",
+        "requires_js": True,
+        "priority": 4,
+    },
+    "lincroyable.fr": {
+        "name": "L'Incroyable",
+        "search_url": "https://www.lincroyable.fr/recherche?q={query}",
+        "product_selector": (
+            ".product-miniature a, .js-product-miniature a, a.product-thumbnail, "
+            ".products article a, a[href*='/produit']"
+        ),
+        "wait_selector": ".products, .product-miniature, #js-product-list",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 5,
+    },
+    "action.com": {
+        "name": "Action",
+        "search_url": "https://www.action.com/fr-fr/search/?q={query}",
+        "product_selector": "a.product-card__link, .product-card a, a[href*='/p/']",
+        "wait_selector": ".product-card, .search-results",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 6,
     },
     "lafoirfouille.fr": {
-        "search_url": "https://www.lafoirfouille.fr/recherche?q={query}",
-        "product_selector": "a.product-item-link, .product-card a",
-        "wait_selector": ".product-item, .products",
+        "name": "La Foir'Fouille",
+        "search_url": "https://www.lafoirfouille.fr/catalogsearch/result/?q={query}",
+        "product_selector": (
+            ".product-item a.product-item-link, .product-item-info a, "
+            ".products-grid a, a[href$='.html']"
+        ),
+        "wait_selector": ".products-grid, .product-items, .search-results",
+        "category": "Discount",
+        "requires_js": True,
+        "priority": 7,
     },
-    "tedi.fr": {
-        "search_url": "https://www.tedi.fr/search?q={query}",
-        "product_selector": "a.product-card, .product a",
-        "wait_selector": ".product-card, .search-results",
-    },
-    "leclerc.fr": {
+    # === GRANDES SURFACES ===
+    "e.leclerc": {
+        "name": "E.Leclerc",
         "search_url": "https://www.e.leclerc/recherche?q={query}",
-        "product_selector": "a.product-card, .product-tile a",
-        "wait_selector": ".product-card, .products-grid",
-    },
-    "carrefour.fr": {
-        "search_url": "https://www.carrefour.fr/s?q={query}",
-        "product_selector": "a.product-card, .product-item a",
-        "wait_selector": ".product-card, .product-list",
+        "product_selector": (
+            "a[data-testid='product-card-link'], .product-card a, "
+            ".product-tile a, a[href*='/fp/']"
+        ),
+        "wait_selector": ".product-card, .products-grid, [data-testid='product-card']",
+        "category": "Grande Surface",
+        "requires_js": True,
+        "priority": 8,
     },
     "auchan.fr": {
+        "name": "Auchan",
         "search_url": "https://www.auchan.fr/recherche?text={query}",
-        "product_selector": "a.product-card, .product-tile a",
-        "wait_selector": ".product-card, .products",
+        "product_selector": (
+            ".product-card a, .product-tile a, "
+            "a[href*='/p/'], .product-item a"
+        ),
+        "wait_selector": ".product-card, .products, .product-list",
+        "category": "Grande Surface",
+        "requires_js": True,
+        "priority": 9,
+    },
+    "carrefour.fr": {
+        "name": "Carrefour",
+        "search_url": "https://www.carrefour.fr/s?q={query}",
+        "product_selector": (
+            "a[data-testid='product-card-link'], .product-card a, "
+            ".product-item a, a[href*='/p/']"
+        ),
+        "wait_selector": ".product-card, .product-list, [data-testid='product-card']",
+        "category": "Grande Surface",
+        "requires_js": True,
+        "priority": 10,
+    },
+    # === E-COMMERCE GÉNÉRALISTE ===
+    "amazon.fr": {
+        "name": "Amazon France",
+        "search_url": "https://www.amazon.fr/s?k={query}",
+        "product_selector": "div[data-component-type='s-search-result'] h2 a",
+        "wait_selector": "div[data-component-type='s-search-result']",
+        "category": "E-commerce",
+        "requires_js": True,
+        "priority": 11,
+    },
+    "cdiscount.com": {
+        "name": "Cdiscount",
+        "search_url": "https://www.cdiscount.com/search/10/{query}.html",
+        "product_selector": (
+            "a.prdtBImg, .prdtBILDetails a, .product-item a, "
+            "a[href*='/f-']"
+        ),
+        "wait_selector": ".prdtBILDetails, .product-list",
+        "category": "E-commerce",
+        "requires_js": True,
+        "priority": 12,
+    },
+    # === ÉLECTRONIQUE / HIGH-TECH ===
+    "darty.com": {
+        "name": "Darty",
+        "search_url": "https://www.darty.com/nav/recherche?text={query}",
+        "product_selector": (
+            ".product-card a, a[href*='/product'], "
+            ".product-list-item a"
+        ),
+        "wait_selector": ".product-card, .product-list",
+        "category": "Électronique",
+        "requires_js": True,
+        "priority": 13,
+    },
+    "boulanger.com": {
+        "name": "Boulanger",
+        "search_url": "https://www.boulanger.com/resultats?tr={query}",
+        "product_selector": (
+            ".product-list__item a, a[href*='/ref/'], "
+            ".product-card a"
+        ),
+        "wait_selector": ".product-list, .product-card",
+        "category": "Électronique",
+        "requires_js": True,
+        "priority": 14,
+    },
+    # === AUTRES (conservés pour compatibilité) ===
+    "amazon.com": {
+        "name": "Amazon US",
+        "search_url": "https://www.amazon.com/s?k={query}",
+        "product_selector": "div[data-component-type='s-search-result'] h2 a",
+        "wait_selector": "div[data-component-type='s-search-result']",
+        "category": "E-commerce",
+        "requires_js": True,
+        "priority": 99,
+    },
+    "fnac.com": {
+        "name": "Fnac",
+        "search_url": "https://www.fnac.com/SearchResult/ResultList.aspx?Search={query}",
+        "product_selector": "a.Article-title, .Article-item a.js-minifa-title",
+        "wait_selector": ".Article-item",
+        "category": "Culture & Tech",
+        "requires_js": True,
+        "priority": 15,
     },
 }
+
+# Sélecteurs communs pour les bannières de cookies
+COOKIE_ACCEPT_SELECTORS = [
+    # Boutons d'acceptation génériques
+    "button[id*='accept']",
+    "button[id*='cookie']",
+    "button[class*='accept']",
+    "button[class*='cookie']",
+    "button[data-testid*='accept']",
+    "button[data-testid*='cookie']",
+    # Texte français
+    "button:has-text('Accepter')",
+    "button:has-text('J\\'accepte')",
+    "button:has-text('Tout accepter')",
+    "button:has-text('Accepter tout')",
+    "button:has-text('Accepter les cookies')",
+    "button:has-text('OK')",
+    "button:has-text('Continuer')",
+    # Texte anglais (certains sites utilisent l'anglais)
+    "button:has-text('Accept')",
+    "button:has-text('Accept all')",
+    "button:has-text('Accept cookies')",
+    "button:has-text('I accept')",
+    # Liens
+    "a:has-text('Accepter')",
+    "a:has-text('J\\'accepte')",
+    "a:has-text('Tout accepter')",
+    # Classes communes de CMP (Consent Management Platforms)
+    ".didomi-continue-without-agreeing",
+    "#didomi-notice-agree-button",
+    ".onetrust-accept-btn-handler",
+    "#onetrust-accept-btn-handler",
+    ".tarteaucitronAllow",
+    "#tarteaucitronPersonalize",
+    ".cc-btn.cc-allow",
+    ".cky-btn-accept",
+    "#CybsAccept",
+    ".qc-cmp2-summary-buttons button:first-child",
+    "[data-accept-cookies]",
+    "[data-gdpr-accept]",
+]
+
+
+async def _accept_cookies(page, domain: str) -> bool:
+    """
+    Tente d'accepter les cookies sur une page.
+    Retourne True si un bouton a été cliqué, False sinon.
+    """
+    try:
+        # Attendre un court moment pour que la bannière apparaisse
+        await asyncio.sleep(1)
+
+        for selector in COOKIE_ACCEPT_SELECTORS:
+            try:
+                button = page.locator(selector).first
+                if await button.is_visible(timeout=500):
+                    await button.click(timeout=2000)
+                    logger.info(f"{domain}: Cookies acceptés avec sélecteur {selector}")
+                    # Attendre que la bannière disparaisse
+                    await asyncio.sleep(0.5)
+                    return True
+            except Exception:
+                continue
+
+        logger.debug(f"{domain}: Aucune bannière de cookies trouvée")
+        return False
+
+    except Exception as e:
+        logger.debug(f"{domain}: Erreur lors de l'acceptation des cookies: {e}")
+        return False
 
 
 async def search(
@@ -219,6 +385,9 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
                 # Naviguer vers la page de recherche
                 await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+
+                # Accepter les cookies si nécessaire
+                await _accept_cookies(page, domain)
 
                 # Attendre que les résultats se chargent
                 if wait_selector:

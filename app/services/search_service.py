@@ -330,3 +330,96 @@ def delete_site(db: Session, site_id: int) -> bool:
     db.delete(site)
     db.commit()
     return True
+
+
+def seed_default_sites(db: Session) -> int:
+    """
+    Initialise la base de données avec les sites configurés en dur.
+    Ne crée que les sites qui n'existent pas encore (basé sur le domaine).
+
+    Returns:
+        Nombre de sites créés
+    """
+    from app.services.direct_search_service import DEFAULT_SITE_CONFIGS
+
+    created_count = 0
+
+    # Récupérer les domaines existants
+    existing_domains = {site.domain.lower().replace("www.", "")
+                       for site in db.query(SearchSite).all()}
+
+    for domain, config in DEFAULT_SITE_CONFIGS.items():
+        # Normaliser le domaine pour comparaison
+        clean_domain = domain.lower().replace("www.", "")
+
+        # Ne pas créer si déjà existant
+        if clean_domain in existing_domains:
+            logger.debug(f"Site {domain} déjà existant, ignoré")
+            continue
+
+        # Créer le site
+        site_data = {
+            "name": config.get("name", domain),
+            "domain": domain,
+            "search_url": config.get("search_url"),
+            "product_link_selector": config.get("product_selector"),
+            "category": config.get("category"),
+            "requires_js": config.get("requires_js", True),
+            "priority": config.get("priority", 99),
+            "is_active": True,
+        }
+
+        try:
+            site = SearchSite(**site_data)
+            db.add(site)
+            db.commit()
+            created_count += 1
+            logger.info(f"Site créé: {config.get('name', domain)} ({domain})")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Erreur création site {domain}: {e}")
+
+    return created_count
+
+
+def reset_sites_to_defaults(db: Session) -> int:
+    """
+    Réinitialise tous les sites avec les valeurs par défaut.
+    Supprime tous les sites existants et recrée à partir de la config.
+
+    Returns:
+        Nombre de sites créés
+    """
+    from app.services.direct_search_service import DEFAULT_SITE_CONFIGS
+
+    # Supprimer tous les sites existants
+    db.query(SearchSite).delete()
+    db.commit()
+    logger.info("Tous les sites supprimés")
+
+    # Recréer avec les valeurs par défaut
+    created_count = 0
+
+    for domain, config in DEFAULT_SITE_CONFIGS.items():
+        site_data = {
+            "name": config.get("name", domain),
+            "domain": domain,
+            "search_url": config.get("search_url"),
+            "product_link_selector": config.get("product_selector"),
+            "category": config.get("category"),
+            "requires_js": config.get("requires_js", True),
+            "priority": config.get("priority", 99),
+            "is_active": True,
+        }
+
+        try:
+            site = SearchSite(**site_data)
+            db.add(site)
+            db.commit()
+            created_count += 1
+            logger.info(f"Site créé: {config.get('name', domain)} ({domain})")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Erreur création site {domain}: {e}")
+
+    return created_count
