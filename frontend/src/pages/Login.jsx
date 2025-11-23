@@ -42,7 +42,7 @@ export default function Login() {
             <Card className="w-full max-w-md">
                 <CardHeader className="text-center">
                     <div className="flex justify-center mb-4">
-                        <img src="/logo.svg" alt="PriceFlow Logo" className="h-16 w-16 rounded-lg" />
+                        <img src="/logo.png" alt="PriceFlow Logo" className="h-16 w-16 rounded-lg" />
                     </div>
                     <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
                         PriceFlow
