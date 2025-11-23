@@ -3,7 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
-
 class ItemCreate(BaseModel):
     url: str
     name: str
