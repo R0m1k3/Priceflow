@@ -6,6 +6,19 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 
+class User(Base):
+    """User model for authentication"""
+    __tablename__ = "users"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    username: str = Column(String, unique=True, nullable=False, index=True)  # type: ignore
+    password_hash: str = Column(String, nullable=False)  # type: ignore
+    is_admin: bool = Column(Boolean, default=False)  # type: ignore
+    is_active: bool = Column(Boolean, default=True)  # type: ignore
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+    last_login: datetime | None = Column(DateTime, nullable=True)  # type: ignore
+
+
 class NotificationProfile(Base):
     __tablename__ = "notification_profiles"
 

@@ -1,21 +1,33 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard, Search, Settings, Moon, Sun, Menu } from 'lucide-react';
+import { LayoutDashboard, Search, Moon, Sun, Menu, LogOut, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/use-auth';
 
 const Layout = ({ children, theme, toggleTheme }) => {
     const { t } = useTranslation();
     const location = useLocation();
+    const navigate = useNavigate();
+    const { user, logout, isAdmin } = useAuth();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
 
     const navItems = [
         { icon: LayoutDashboard, label: t('nav.dashboard'), path: '/' },
         { icon: Search, label: t('nav.search') || 'Recherche', path: '/search' },
-        { icon: Settings, label: t('nav.settings'), path: '/settings' },
     ];
+
+    // Add admin link for admin users
+    if (isAdmin) {
+        navItems.push({ icon: Shield, label: 'Administration', path: '/admin' });
+    }
 
     return (
         <div className="min-h-screen bg-background font-sans antialiased">
@@ -47,7 +59,13 @@ const Layout = ({ children, theme, toggleTheme }) => {
                             );
                         })}
                     </nav>
-                    <div className="border-t p-4">
+                    <div className="border-t p-4 space-y-2">
+                        {/* User info */}
+                        <div className="px-4 py-2 text-sm text-muted-foreground">
+                            <span className="font-medium text-foreground">{user?.username}</span>
+                            {isAdmin && <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">Admin</span>}
+                        </div>
+                        {/* Theme toggle */}
                         <Button
                             variant="ghost"
                             size="icon"
@@ -65,6 +83,15 @@ const Layout = ({ children, theme, toggleTheme }) => {
                                     <span>{t('nav.darkMode')}</span>
                                 </>
                             )}
+                        </Button>
+                        {/* Logout button */}
+                        <Button
+                            variant="ghost"
+                            onClick={handleLogout}
+                            className="w-full justify-start gap-2 px-4 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        >
+                            <LogOut className="h-4 w-4" />
+                            <span>Déconnexion</span>
                         </Button>
                     </div>
                 </div>
@@ -103,7 +130,11 @@ const Layout = ({ children, theme, toggleTheme }) => {
                                     );
                                 })}
                             </nav>
-                            <div className="border-t p-4">
+                            <div className="border-t p-4 space-y-2">
+                                <div className="px-4 py-2 text-sm text-muted-foreground">
+                                    <span className="font-medium text-foreground">{user?.username}</span>
+                                    {isAdmin && <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">Admin</span>}
+                                </div>
                                 <Button
                                     variant="ghost"
                                     onClick={toggleTheme}
@@ -120,6 +151,14 @@ const Layout = ({ children, theme, toggleTheme }) => {
                                             <span>{t('nav.darkMode')}</span>
                                         </>
                                     )}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    onClick={() => { handleLogout(); setMobileMenuOpen(false); }}
+                                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+                                >
+                                    <LogOut className="h-4 w-4" />
+                                    <span>Déconnexion</span>
                                 </Button>
                             </div>
                         </div>
