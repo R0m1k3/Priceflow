@@ -209,16 +209,64 @@ class ScraperService:
                 # Wait a bit for dynamic content if needed
                 await page.wait_for_timeout(2000)
 
-                # Try to close common popups (inclut Amazon)
-                logger.info("Attempting to close popups...")
+                # Try to close common popups and cookie banners
+                logger.info("Attempting to close popups and cookie banners...")
                 popup_selectors = [
-                    # Amazon spécifique - boutons cookies
+                    # === SITES SPÉCIFIQUES FRANÇAIS ===
+                    # Amazon France
                     "#sp-cc-accept",
                     "#sp-cc-rejectall-link",
                     "input[data-action-type='DISMISS']",
                     "#a-popover-content-1 button",
                     "[data-action='a-popover-close']",
-                    # Popups généraux
+                    # E.Leclerc, Darty, Fnac
+                    "#onetrust-accept-btn-handler",
+                    ".onetrust-accept-btn-handler",
+                    # Auchan
+                    "#popin_tc_privacy_button_2",
+                    ".popin_tc_privacy_button",
+                    "#didomi-notice-agree-button",
+                    # Carrefour
+                    "[data-testid='accept-cookies-button']",
+                    # Cdiscount
+                    "#footer_tc_privacy_button_2",
+                    ".privacy_prompt_accept",
+                    # Boulanger
+                    ".bcom-consent-accept-all",
+                    "#cookieBanner-accept",
+                    # Gifi, Centrakor, La Foir'Fouille (Magento)
+                    ".action-primary.action-accept",
+                    "#btn-cookie-allow",
+                    # PrestaShop (Stokomani, B&M, etc.)
+                    ".btn-primary[data-dismiss='modal']",
+                    "#gdpr_consent_agree",
+
+                    # === CMP (Consent Management Platforms) ===
+                    ".didomi-continue-without-agreeing",
+                    "#tarteaucitronPersonalize2",
+                    ".tarteaucitronAllow",
+                    "#tarteaucitronAllDenied2",
+                    ".cc-btn.cc-allow",
+                    ".cky-btn-accept",
+                    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+                    "#CybotCookiebotDialogBodyButtonAccept",
+                    ".qc-cmp2-summary-buttons button:first-child",
+                    "#axeptio_btn_acceptAll",
+                    ".axeptio_acceptAll",
+
+                    # === TEXTE FRANÇAIS ===
+                    "button:has-text('Tout accepter')",
+                    "button:has-text('Accepter tout')",
+                    "button:has-text('Accepter et fermer')",
+                    "button:has-text('Accepter les cookies')",
+                    "button:has-text('Accepter')",
+                    "button:has-text('J\\'accepte')",
+                    "button:has-text('OK')",
+                    "button:has-text('Continuer')",
+                    "a:has-text('Tout accepter')",
+                    "a:has-text('Accepter')",
+
+                    # === POPUPS GÉNÉRAUX ===
                     "button[aria-label='Close']",
                     "button[aria-label='close']",
                     "button[aria-label='Fermer']",
@@ -229,9 +277,7 @@ class ScraperService:
                     "[class*='modal'] button",
                     "button:has-text('No, thanks')",
                     "button:has-text('No thanks')",
-                    "button:has-text('Accepter')",
                     "button:has-text('Accept')",
-                    "button:has-text('Continuer')",
                     "a:has-text('No, thanks')",
                     "div[role='dialog'] button[aria-label='Close']",
                 ]
