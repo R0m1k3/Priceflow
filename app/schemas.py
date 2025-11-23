@@ -31,6 +31,7 @@ class ItemCreate(BaseModel):
     tags: str | None = None
     description: str | None = None
     notification_profile_id: int | None = None
+    category: str | None = None
 
 
 class ItemResponse(ItemCreate):
