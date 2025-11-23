@@ -47,6 +47,15 @@ class ItemResponse(ItemCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PriceHistoryResponse(BaseModel):
+    id: int
+    price: float
+    timestamp: datetime
+    price_confidence: float | None = None
+    in_stock_confidence: float | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SettingsUpdate(BaseModel):
     key: str
     value: str
