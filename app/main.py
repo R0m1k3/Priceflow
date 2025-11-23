@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import auth, items, jobs, openrouter, search, search_sites, settings
+from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings
 from app.services.scheduler_service import scheduled_refresh, scheduler
 from app.services import auth_service, search_service
 
@@ -163,7 +163,7 @@ os.makedirs("screenshots", exist_ok=True)
 app.mount("/screenshots", StaticFiles(directory="screenshots"), name="screenshots")
 
 # Routers
-for router in [items.router, settings.router, jobs.router, openrouter.router]:
+for router in [notifications.router, items.router, settings.router, jobs.router, openrouter.router]:
     app.include_router(router, prefix="/api")
 
 # Search routers (already have /api prefix)
