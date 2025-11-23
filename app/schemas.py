@@ -12,6 +12,7 @@ class ItemCreate(BaseModel):
     category: str | None = None
     tags: str | None = None
     description: str | None = None
+    notification_channel_id: int | None = None
 
 
 class ItemResponse(ItemCreate):
@@ -116,4 +117,27 @@ class SearchProgress(BaseModel):
     completed: int
     current_site: str | None = None
     results: list[SearchResultItem] = []
+    results: list[SearchResultItem] = []
     message: str | None = None
+
+
+# === Notification Schemas ===
+
+class NotificationChannelCreate(BaseModel):
+    name: str
+    type: str  # "email", "discord", "mattermost"
+    configuration: str  # JSON string for now
+    is_active: bool = True
+
+
+class NotificationChannelUpdate(BaseModel):
+    name: str | None = None
+    type: str | None = None
+    configuration: str | None = None
+    is_active: bool | None = None
+
+
+class NotificationChannelResponse(NotificationChannelCreate):
+    id: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)

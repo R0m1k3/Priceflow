@@ -17,8 +17,24 @@ export function ItemModal({ item, onClose, onSaved, open }) {
         name: '',
         target_price: '',
         tags: '',
-        description: ''
+        description: '',
+        notification_channel_id: 'none'
     });
+    const [channels, setChannels] = useState([]);
+
+    useEffect(() => {
+        const fetchChannels = async () => {
+            try {
+                const response = await axios.get(`${API_URL}/notifications/channels`);
+                setChannels(response.data.filter(c => c.is_active));
+            } catch (error) {
+                console.error('Error fetching channels:', error);
+            }
+        };
+        if (open) {
+            fetchChannels();
+        }
+    }, [open]);
 
 
     useEffect(() => {
@@ -28,7 +44,8 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 name: item.name || '',
                 target_price: item.target_price || '',
                 tags: item.tags || '',
-                description: item.description || ''
+                description: item.description || '',
+                notification_channel_id: item.notification_channel_id ? item.notification_channel_id.toString() : 'none'
             });
         } else {
             setFormData({
@@ -36,7 +53,8 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                 name: '',
                 target_price: '',
                 tags: '',
-                description: ''
+                description: '',
+                notification_channel_id: 'none'
             });
         }
     }, [item, open]);
@@ -48,7 +66,8 @@ export function ItemModal({ item, onClose, onSaved, open }) {
         try {
             const payload = {
                 ...formData,
-                target_price: formData.target_price ? parseFloat(formData.target_price) : null
+                target_price: formData.target_price ? parseFloat(formData.target_price) : null,
+                notification_channel_id: formData.notification_channel_id === 'none' ? null : parseInt(formData.notification_channel_id)
             };
 
             if (item) {
@@ -104,6 +123,26 @@ export function ItemModal({ item, onClose, onSaved, open }) {
                             value={formData.target_price}
                             onChange={e => setFormData({ ...formData, target_price: e.target.value })}
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="channel">Notification Channel</Label>
+                        <Select
+                            value={formData.notification_channel_id}
+                            onValueChange={(val) => setFormData({ ...formData, notification_channel_id: val })}
+                        >
+                            <SelectTrigger>
+                                <SelectValue placeholder="Select a channel" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {channels.map(channel => (
+                                    <SelectItem key={channel.id} value={channel.id.toString()}>
+                                        {channel.name} ({channel.type})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="space-y-2">

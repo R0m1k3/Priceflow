@@ -80,6 +80,7 @@ class ItemService:
             return None, None
 
         settings = {s.key: s.value for s in db.query(models.Settings).all()}
+        channel = item.notification_channel
 
         item_data = {
             "id": item.id,
@@ -89,6 +90,7 @@ class ItemService:
             "current_price": item.current_price,
             "in_stock": item.in_stock,
             "target_price": item.target_price,
+            "notification_channel": channel,
         }
 
         config = {

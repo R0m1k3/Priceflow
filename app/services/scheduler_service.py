@@ -8,6 +8,7 @@ from app import database, models
 from app.ai_schema import AIExtractionMetadata, AIExtractionResponse
 from app.services.ai_service import AIService
 from app.services.item_service import ItemService
+from app.services.notification_service import NotificationService
 from app.services.scraper_service import ScraperService
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,32 @@ async def process_item_check(item_id: int):
         old_price, old_stock = await loop.run_in_executor(
             None, _update_db_result, item_id, extraction, metadata, thresholds, screenshot_path
         )
+
+        # Check for notifications
+        if item_data["notification_channel"] and extraction.price:
+            channel = item_data["notification_channel"]
+            
+            # 1. Target Price Reached
+            if item_data["target_price"] and extraction.price <= item_data["target_price"]:
+                # Only notify if we haven't already notified for this price (or if price dropped further)
+                # For simplicity, we notify if current price <= target. 
+                # Ideally we should check if we already notified recently, but let's keep it simple.
+                if not old_price or old_price > item_data["target_price"]:
+                    await NotificationService.send_notification(
+                        channel,
+                        title=f"🎯 Prix cible atteint : {item_data['name']}",
+                        body=f"Le prix de {item_data['name']} est passé à {extraction.price}€ (Cible: {item_data['target_price']}€)\n{item_data['url']}"
+                    )
+            
+            # 2. Price Drop
+            elif old_price and extraction.price < old_price:
+                drop_percent = (old_price - extraction.price) / old_price * 100
+                if drop_percent >= 5:  # Notify only for significant drops (> 5%)
+                    await NotificationService.send_notification(
+                        channel,
+                        title=f"📉 Baisse de prix : {item_data['name']}",
+                        body=f"Le prix de {item_data['name']} a baissé de {drop_percent:.1f}% !\nNouveau prix : {extraction.price}€ (Ancien: {old_price}€)\n{item_data['url']}"
+                    )
 
 
 

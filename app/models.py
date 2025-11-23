@@ -51,6 +51,9 @@ class Item(Base):
 
     price_history = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
 
+    notification_channel_id: int | None = Column(Integer, ForeignKey("notification_channels.id"), nullable=True)  # type: ignore
+    notification_channel = relationship("NotificationChannel", back_populates="items")
+
 
 class PriceHistory(Base):
     __tablename__ = "price_history"
@@ -96,3 +99,16 @@ class SearchSite(Base):
     product_link_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour les liens produits
     created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
     updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore
+
+
+class NotificationChannel(Base):
+    __tablename__ = "notification_channels"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    name: str = Column(String, nullable=False)  # type: ignore
+    type: str = Column(String, nullable=False)  # type: ignore  # "email", "discord", "mattermost"
+    configuration: str = Column(Text, nullable=False)  # type: ignore  # JSON or encrypted string
+    is_active: bool = Column(Boolean, default=True)  # type: ignore
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+
+    items = relationship("Item", back_populates="notification_channel")
