@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import random
+import time
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -17,15 +18,365 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
+# Proxy configuration for Amazon (optional)
+# Format: "http://user:pass@host:port" or "http://host:port"
+AMAZON_PROXY_URL = os.getenv("AMAZON_PROXY_URL", "")
+# If you have multiple proxies, separate them with commas
+AMAZON_PROXY_LIST = [p.strip() for p in os.getenv("AMAZON_PROXY_LIST", "").split(",") if p.strip()]
+
+def _get_amazon_proxy() -> str | None:
+    """Get a proxy for Amazon requests (random from list or single)"""
+    if AMAZON_PROXY_LIST:
+        return random.choice(AMAZON_PROXY_LIST)
+    if AMAZON_PROXY_URL:
+        return AMAZON_PROXY_URL
+    return None
+
 # Constants
 MIN_TITLE_LENGTH = 3
 MIN_LINK_TEXT_LENGTH = 5
-AMAZON_BASE_DELAY = 2
-AMAZON_MAX_DELAY = 10
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-)
+
+# Pool of realistic User-Agents for rotation (Chrome on Windows/Mac)
+USER_AGENT_POOL = [
+    # Chrome Windows - Latest versions
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    # Chrome Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    # Firefox Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    # Firefox Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+    # Edge Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+
+# Amazon-specific blocking indicators
+AMAZON_BLOCK_INDICATORS = [
+    "Toutes nos excuses",
+    "Sorry, something went wrong",
+    "To discuss automated access to Amazon data",
+    "api-services-support@amazon.com",
+    "Enter the characters you see below",
+    "Saisissez les caractères",
+    "Type the characters you see",
+    "Sorry! Something went wrong",
+    "Service Unavailable",
+    "robot check",
+    "automated access",
+    "ref=cs_503",
+]
+
+# Amazon retry configuration
+AMAZON_MAX_RETRIES = 4
+AMAZON_BASE_DELAY = 3.0  # seconds
+AMAZON_MAX_DELAY = 30.0  # seconds
+
+
+def _get_random_user_agent() -> str:
+    """Get a random User-Agent from the pool"""
+    return random.choice(USER_AGENT_POOL)
+
+
+def _is_amazon_blocked(html_content: str) -> bool:
+    """Check if Amazon has blocked the request"""
+    html_lower = html_content.lower()
+    for indicator in AMAZON_BLOCK_INDICATORS:
+        if indicator.lower() in html_lower:
+            return True
+    return False
+
+
+async def _random_delay(min_seconds: float = 1.0, max_seconds: float = 3.0):
+    """Add a random delay to simulate human behavior"""
+    delay = random.uniform(min_seconds, max_seconds)
+    await asyncio.sleep(delay)
+
+
+async def _simulate_human_behavior(page):
+    """Simulate human-like behavior on the page"""
+    try:
+        # Random mouse movements
+        for _ in range(random.randint(2, 4)):
+            x = random.randint(100, 1800)
+            y = random.randint(100, 900)
+            await page.mouse.move(x, y)
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+
+        # Small random scroll
+        scroll_amount = random.randint(100, 400)
+        await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+        await asyncio.sleep(random.uniform(0.3, 0.7))
+
+        # Scroll back up a bit
+        await page.evaluate(f"window.scrollBy(0, -{random.randint(50, 150)})")
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+    except Exception as e:
+        logger.debug(f"Human behavior simulation error (non-critical): {e}")
+
+
+# Legacy constant for backward compatibility
+USER_AGENT = USER_AGENT_POOL[0]
+
+
+# Stealth JavaScript to inject before page load to hide automation
+STEALTH_JS = """
+// ============================================
+// COMPREHENSIVE STEALTH MODE FOR AMAZON
+// ============================================
+
+// 1. Override navigator.webdriver in multiple ways
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => false,
+    configurable: true
+});
+
+// Also delete from navigator prototype
+delete Object.getPrototypeOf(navigator).webdriver;
+
+// Override the getAttribute method to hide webdriver attribute
+const originalGetAttribute = Element.prototype.getAttribute;
+Element.prototype.getAttribute = function(name) {
+    if (name === 'webdriver') return null;
+    return originalGetAttribute.call(this, name);
+};
+
+// 2. Override navigator.plugins with realistic plugins
+Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+        const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
+            { name: 'Chromium PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chromium PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 }
+        ];
+        plugins.item = (i) => plugins[i] || null;
+        plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
+        plugins.refresh = () => {};
+        plugins.length = plugins.length;
+        return plugins;
+    },
+    configurable: true
+});
+
+// 3. Override navigator.mimeTypes
+Object.defineProperty(navigator, 'mimeTypes', {
+    get: () => {
+        const mimeTypes = [
+            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+            { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
+        ];
+        mimeTypes.item = (i) => mimeTypes[i] || null;
+        mimeTypes.namedItem = (name) => mimeTypes.find(m => m.type === name) || null;
+        mimeTypes.length = mimeTypes.length;
+        return mimeTypes;
+    },
+    configurable: true
+});
+
+// 4. Override navigator.languages
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['fr-FR', 'fr', 'en-US', 'en'],
+    configurable: true
+});
+
+// 5. Override permissions API
+if (window.navigator.permissions) {
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => {
+        if (parameters.name === 'notifications') {
+            return Promise.resolve({ state: Notification.permission, onchange: null });
+        }
+        return originalQuery.call(window.navigator.permissions, parameters);
+    };
+}
+
+// 6. Hide automation-related properties (Chromium DevTools Protocol)
+const propsToDelete = [
+    'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+    '__webdriver_evaluate',
+    '__selenium_evaluate',
+    '__webdriver_script_function',
+    '__webdriver_script_func',
+    '__webdriver_script_fn',
+    '__fxdriver_evaluate',
+    '__driver_unwrapped',
+    '__webdriver_unwrapped',
+    '__driver_evaluate',
+    '__selenium_unwrapped',
+    '__fxdriver_unwrapped',
+    '_Selenium_IDE_Recorder',
+    '_selenium',
+    'calledSelenium',
+    '$chrome_asyncScriptInfo',
+    '$cdc_asdjflasutopfhvcZLmcfl_',
+    '$wdc_'
+];
+propsToDelete.forEach(prop => {
+    try { delete window[prop]; } catch(e) {}
+});
+
+// 7. Override chrome object with realistic properties
+window.chrome = {
+    app: {
+        isInstalled: false,
+        InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+        RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
+    },
+    runtime: {
+        OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
+        OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+        PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
+        RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' },
+        connect: function() { return { onDisconnect: { addListener: function() {} }, onMessage: { addListener: function() {} }, postMessage: function() {} }; },
+        sendMessage: function() {}
+    },
+    csi: function() { return {}; },
+    loadTimes: function() { return { requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000, navigationType: 'navigate' }; }
+};
+
+// 8. WebGL fingerprinting protection
+const getParameterProxyHandler = {
+    apply: function(target, ctx, args) {
+        if (args[0] === 37445) return 'Intel Inc.';
+        if (args[0] === 37446) return 'Intel Iris OpenGL Engine';
+        if (args[0] === 7937) return 'WebKit';
+        if (args[0] === 7936) return 'WebKit WebGL';
+        return Reflect.apply(target, ctx, args);
+    }
+};
+try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+        const getParameter = gl.getParameter.bind(gl);
+        gl.getParameter = new Proxy(getParameter, getParameterProxyHandler);
+    }
+    const gl2 = canvas.getContext('webgl2');
+    if (gl2) {
+        const getParameter2 = gl2.getParameter.bind(gl2);
+        gl2.getParameter = new Proxy(getParameter2, getParameterProxyHandler);
+    }
+} catch(e) {}
+
+// 9. Canvas fingerprinting protection
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+HTMLCanvasElement.prototype.toDataURL = function(type) {
+    if (type === 'image/png' && this.width === 220 && this.height === 30) {
+        // Likely fingerprinting attempt, add noise
+        const context = this.getContext('2d');
+        if (context) {
+            const imageData = context.getImageData(0, 0, this.width, this.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = imageData.data[i] ^ (Math.random() * 2);
+            }
+            context.putImageData(imageData, 0, 0);
+        }
+    }
+    return originalToDataURL.apply(this, arguments);
+};
+
+// 10. AudioContext fingerprinting protection
+if (window.AudioContext || window.webkitAudioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const originalCreateOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function() {
+        const oscillator = originalCreateOscillator.apply(this, arguments);
+        oscillator.frequency.value = oscillator.frequency.value + (Math.random() * 0.0001);
+        return oscillator;
+    };
+}
+
+// 11. Override connection properties
+Object.defineProperty(navigator, 'connection', {
+    get: () => ({
+        effectiveType: '4g',
+        rtt: 50 + Math.floor(Math.random() * 50),
+        downlink: 10 + Math.random() * 5,
+        saveData: false
+    }),
+    configurable: true
+});
+
+// 12. Override hardware properties
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+    get: () => 8,
+    configurable: true
+});
+
+Object.defineProperty(navigator, 'deviceMemory', {
+    get: () => 8,
+    configurable: true
+});
+
+// 13. Override screen properties
+Object.defineProperty(screen, 'colorDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+Object.defineProperty(screen, 'pixelDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+// 14. Spoof Notification API
+if (window.Notification) {
+    Object.defineProperty(Notification, 'permission', {
+        get: () => 'default',
+        configurable: true
+    });
+}
+
+// 15. Override iframe contentWindow checks
+const originalContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+    get: function() {
+        const win = originalContentWindow.get.call(this);
+        if (win) {
+            try {
+                Object.defineProperty(win.navigator, 'webdriver', {
+                    get: () => false,
+                    configurable: true
+                });
+            } catch(e) {}
+        }
+        return win;
+    }
+});
+
+// 16. Mock Battery API
+if (navigator.getBattery) {
+    navigator.getBattery = () => Promise.resolve({
+        charging: true,
+        chargingTime: 0,
+        dischargingTime: Infinity,
+        level: 1,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+    });
+}
+
+// 17. Hide Playwright/Puppeteer specific objects
+delete window.__playwright;
+delete window.__pw_manual;
+delete window.__PW_inspect;
+
+console.log('Advanced stealth mode activated');
+"""
+
+
+# Chemin absolu pour les dumps de débogage (doit correspondre à celui dans debug.py)
+DEBUG_DUMPS_DIR = "/app/debug_dumps"
 
 
 def _dump_debug_html(html: str, domain: str, query: str):
@@ -568,16 +919,37 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
         try:
             # Créer un nouveau contexte isolé pour ce site
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080},
-                user_agent=USER_AGENT,
-                locale="fr-FR",
-                timezone_id="Europe/Paris",
-                extra_http_headers={
+            # Utiliser un User-Agent aléatoire pour chaque tentative
+            current_user_agent = _get_random_user_agent()
+            
+            context_options = {
+                "viewport": {"width": 1920 + random.randint(-50, 50), "height": 1080 + random.randint(-50, 50)},
+                "user_agent": current_user_agent,
+                "locale": "fr-FR",
+                "timezone_id": "Europe/Paris",
+                "extra_http_headers": {
                     "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "DNT": "1",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
                 }
-            )
+            }
+            
+            # Ajouter le proxy si configuré pour Amazon
+            if "amazon" in domain:
+                proxy = _get_amazon_proxy()
+                if proxy:
+                    context_options["proxy"] = {"server": proxy}
+                    logger.info(f"Using proxy for Amazon: {proxy}")
+
+            context = await browser.new_context(**context_options)
+            
+            # Injecter le script de stealth
+            await context.add_init_script(STEALTH_JS)
             
             # Bloquer les ressources inutiles
             await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
@@ -588,6 +960,10 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
             # Naviguer vers la page de recherche
             await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+
+            # Simulation de comportement humain
+            if "amazon" in domain:
+                await _simulate_human_behavior(page)
 
             # Accepter les cookies si nécessaire
             await _accept_cookies(page, domain)
