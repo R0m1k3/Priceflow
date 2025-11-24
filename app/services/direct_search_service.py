@@ -586,124 +586,134 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             
             page = await context.new_page()
 
-        # Naviguer vers la page de recherche
-        await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+            # Naviguer vers la page de recherche
+            await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
 
-        # Accepter les cookies si nécessaire
-        await _accept_cookies(page, domain)
+            # Accepter les cookies si nécessaire
+            await _accept_cookies(page, domain)
 
-        # Attendre que les résultats se chargent
-        if wait_selector:
-            try:
-                await page.wait_for_selector(wait_selector, timeout=10000)
-            except Exception:
-                logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
-
-        # Attendre un peu pour le JS (réduit pour parallélisation)
-        await asyncio.sleep(1.5)
-
-        # Extraire le HTML
-        html_content = await page.content()
-
-        # Check for CAPTCHA
-        if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
-            logger.warning(f"CAPTCHA detected on {domain}!")
-            _dump_debug_html(html_content, domain, query)
-            return []
-
-        # Parser le HTML avec BeautifulSoup
-        soup = BeautifulSoup(html_content, "lxml")
-        results = []
-        seen_urls = set()
-
-        # Trouver les liens produits
-        links = []
-        if product_selector:
-            # Essayer plusieurs sélecteurs séparés par virgule
-            selectors = [s.strip() for s in product_selector.split(",")]
-            for sel in selectors:
+            # Attendre que les résultats se chargent
+            if wait_selector:
                 try:
-                    found = soup.select(sel)
-                    links.extend(found)
+                    await page.wait_for_selector(wait_selector, timeout=10000)
                 except Exception:
+                    logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
+
+            # Attendre un peu pour le JS (réduit pour parallélisation)
+            await asyncio.sleep(1.5)
+
+            # Extraire le HTML
+            html_content = await page.content()
+
+            # Check for CAPTCHA
+            if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
+                logger.warning(f"CAPTCHA detected on {domain}!")
+                _dump_debug_html(html_content, domain, query)
+                # Si c'est un captcha, on peut vouloir réessayer ou abandonner. 
+                # Ici on retourne vide pour cette tentative, ce qui déclenchera peut-être un retry si on levait une exception,
+                # mais le code original retournait [].
+                # Pour le retry, on va lever une exception si c'est Amazon
+                if "amazon" in domain:
+                    raise Exception("CAPTCHA detected")
+                return []
+
+            # Parser le HTML avec BeautifulSoup
+            soup = BeautifulSoup(html_content, "lxml")
+            results = []
+            seen_urls = set()
+
+            # Trouver les liens produits
+            links = []
+            if product_selector:
+                # Essayer plusieurs sélecteurs séparés par virgule
+                selectors = [s.strip() for s in product_selector.split(",")]
+                for sel in selectors:
+                    try:
+                        found = soup.select(sel)
+                        links.extend(found)
+                    except Exception:
+                        continue
+                logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
+
+            # Fallback: détection générique si le sélecteur n'a rien trouvé
+            if not links:
+                logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
+                links = _find_product_links(soup, domain)
+                logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+
+            for link in links:
+                href = link.get("href", "")
+                if not href:
                     continue
-            logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
 
-        # Fallback: détection générique si le sélecteur n'a rien trouvé
-        if not links:
-            logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
-            links = _find_product_links(soup, domain)
-            logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+                # Construire l'URL complète
+                if href.startswith("/"):
+                    href = f"https://{domain}{href}"
+                elif not href.startswith("http"):
+                    href = urljoin(final_url, href)
 
-        for link in links:
-            href = link.get("href", "")
-            if not href:
-                continue
+                # Nettoyer l'URL
+                href = _clean_product_url(href, domain)
 
-            # Construire l'URL complète
-            if href.startswith("/"):
-                href = f"https://{domain}{href}"
-            elif not href.startswith("http"):
-                href = urljoin(final_url, href)
+                # Éviter les doublons
+                if href in seen_urls:
+                    continue
+                seen_urls.add(href)
 
-            # Nettoyer l'URL
-            href = _clean_product_url(href, domain)
+                # Vérifier que c'est bien un lien vers ce domaine
+                url_domain = _extract_domain(href)
+                if domain not in url_domain and url_domain not in domain:
+                    # logger.debug(f"Ignored external link: {href}")
+                    continue
 
-            # Éviter les doublons
-            if href in seen_urls:
-                continue
-            seen_urls.add(href)
+                # Filtrer les liens non-produits
+                if _is_non_product_url(href):
+                    # logger.debug(f"Ignored non-product link: {href}")
+                    continue
 
-            # Vérifier que c'est bien un lien vers ce domaine
-            url_domain = _extract_domain(href)
-            if domain not in url_domain and url_domain not in domain:
-                # logger.debug(f"Ignored external link: {href}")
-                continue
+                # Extraire le titre
+                title = _extract_title(link)
+                if not title or len(title) < MIN_TITLE_LENGTH:
+                    # logger.debug(f"Ignored link with no title: {href}")
+                    continue
 
-            # Filtrer les liens non-produits
-            if _is_non_product_url(href):
-                # logger.debug(f"Ignored non-product link: {href}")
-                continue
+                results.append(SearchResult(
+                    url=href,
+                    title=title,
+                    snippet="",
+                    source=domain,
+                ))
 
-            # Extraire le titre
-            title = _extract_title(link)
-            if not title or len(title) < MIN_TITLE_LENGTH:
-                # logger.debug(f"Ignored link with no title: {href}")
-                continue
+                if len(results) >= max_results:
+                    break
 
-            results.append(SearchResult(
-                url=href,
-                title=title,
-                snippet="",
-                source=domain,
-                # On ne peut pas extraire le prix facilement ici sans scraper chaque page
-                # Le scraping détaillé se fera dans la phase 2
-            ))
-
-            if len(results) >= max_results:
-                break
-
-        logger.info(f"{domain}: {len(results)} résultats extraits")
-        
-        if len(results) == 0:
-            logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
-            _dump_debug_html(html_content, domain, query)
+            logger.info(f"{domain}: {len(results)} résultats extraits")
             
-        return results
+            if len(results) == 0:
+                logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
+                _dump_debug_html(html_content, domain, query)
+                # Si 0 résultats sur Amazon, on peut vouloir réessayer
+                if "amazon" in domain:
+                     raise Exception("No results found")
+                
+            return results
 
-    except Exception as e:
-        logger.error(f"Erreur Browserless sur {domain}: {e}")
-        return []
-        
-    finally:
-        # Fermer le contexte et la page, mais PAS le navigateur
-        try:
-            if page:
-                await page.close()
-            if context:
-                await context.close()
         except Exception as e:
-            logger.debug(f"Erreur fermeture contexte {domain}: {e}")
+            logger.error(f"Erreur Browserless sur {domain} (tentative {attempt+1}): {e}")
+            if attempt == max_retries - 1:
+                return []
+            
+        finally:
+            # Fermer le contexte et la page, mais PAS le navigateur
+            try:
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
+            except Exception as e:
+                logger.debug(f"Erreur fermeture contexte {domain}: {e}")
+
+    return []
 
 
 def _get_default_search_url(domain: str) -> str | None:
