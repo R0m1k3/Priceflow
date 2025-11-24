@@ -7,7 +7,7 @@ import {
     Settings as SettingsIcon, Cpu, Clock, Bell, Globe,
     ChevronDown, ChevronUp, RefreshCw, RotateCcw, Edit2,
     Sparkles, Eye, Code, Brain, DollarSign, Filter,
-    TrendingDown, CheckCircle2, Package
+    TrendingDown, CheckCircle2, Package, Bug, Download
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -87,7 +87,56 @@ export default function Admin() {
         { id: 'code', name: 'Code', description: 'Programmation' },
         { id: 'reasoning', name: 'Raisonnement', description: 'Raisonnement avancé' },
         { id: 'free', name: 'Gratuit', description: 'Modèles gratuits' }
-    ]);
+    const [debugFiles, setDebugFiles] = useState([]);
+    const [loadingDebugFiles, setLoadingDebugFiles] = useState(false);
+
+    useEffect(() => {
+        if (activeTab === 'debug') {
+            fetchDebugFiles();
+        }
+    }, [activeTab]);
+
+    const fetchDebugFiles = async () => {
+        setLoadingDebugFiles(true);
+        try {
+            const response = await axios.get(`${API_URL}/debug/dumps`, { headers: getAuthHeaders() });
+            setDebugFiles(response.data);
+        } catch (error) {
+            console.error('Error fetching debug files:', error);
+            toast.error('Erreur lors du chargement des fichiers');
+        } finally {
+            setLoadingDebugFiles(false);
+        }
+    };
+
+    const downloadDebugFile = async (filename) => {
+        try {
+            const response = await axios.get(`${API_URL}/debug/dumps/${filename}`, {
+                headers: getAuthHeaders(),
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', filename);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            toast.error('Erreur lors du téléchargement');
+        }
+    };
+
+    const deleteDebugFile = async (filename) => {
+        if (!confirm(`Supprimer ${filename} ?`)) return;
+        try {
+            await axios.delete(`${API_URL}/debug/dumps/${filename}`, { headers: getAuthHeaders() });
+            toast.success('Fichier supprimé');
+            fetchDebugFiles();
+        } catch (error) {
+            toast.error('Erreur lors de la suppression');
+        }
+    };
 
     useEffect(() => {
         if (!isAdmin) {
@@ -415,6 +464,7 @@ export default function Admin() {
         { id: 'sites', label: 'Sites', icon: Globe },
         { id: 'jobs', label: 'Jobs', icon: Clock },
         { id: 'notifications', label: 'Notifications', icon: Bell },
+        { id: 'debug', label: 'Debug', icon: Bug },
     ];
 
     return (
