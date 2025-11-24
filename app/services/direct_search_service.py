@@ -109,6 +109,106 @@ async def _simulate_human_behavior(page):
 USER_AGENT = USER_AGENT_POOL[0]
 
 
+# Stealth JavaScript to inject before page load to hide automation
+STEALTH_JS = """
+// Override the navigator.webdriver property
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => undefined,
+    configurable: true
+});
+
+// Override navigator.plugins to have some plugins
+Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+        const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+        ];
+        plugins.item = (i) => plugins[i];
+        plugins.namedItem = (name) => plugins.find(p => p.name === name);
+        plugins.refresh = () => {};
+        return plugins;
+    },
+    configurable: true
+});
+
+// Override navigator.languages
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['fr-FR', 'fr', 'en-US', 'en'],
+    configurable: true
+});
+
+// Override permissions
+const originalQuery = window.navigator.permissions.query;
+window.navigator.permissions.query = (parameters) => (
+    parameters.name === 'notifications' ?
+        Promise.resolve({ state: Notification.permission }) :
+        originalQuery(parameters)
+);
+
+// Hide automation-related properties
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+
+// Override chrome object
+window.chrome = {
+    runtime: {},
+    loadTimes: function() {},
+    csi: function() {},
+    app: {}
+};
+
+// Fake WebGL vendor and renderer
+const getParameterProxyHandler = {
+    apply: function(target, ctx, args) {
+        if (args[0] === 37445) {
+            return 'Intel Inc.';
+        }
+        if (args[0] === 37446) {
+            return 'Intel Iris OpenGL Engine';
+        }
+        return Reflect.apply(target, ctx, args);
+    }
+};
+
+try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+        const getParameter = gl.getParameter.bind(gl);
+        gl.getParameter = new Proxy(getParameter, getParameterProxyHandler);
+    }
+} catch(e) {}
+
+// Override connection rtt (reduces fingerprinting)
+Object.defineProperty(navigator, 'connection', {
+    get: () => ({
+        effectiveType: '4g',
+        rtt: 50,
+        downlink: 10,
+        saveData: false
+    }),
+    configurable: true
+});
+
+// Override hardware concurrency
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+    get: () => 8,
+    configurable: true
+});
+
+// Override device memory
+Object.defineProperty(navigator, 'deviceMemory', {
+    get: () => 8,
+    configurable: true
+});
+
+console.log('Stealth mode activated');
+"""
+
+
 # Chemin absolu pour les dumps de débogage (doit correspondre à celui dans debug.py)
 DEBUG_DUMPS_DIR = "/app/debug_dumps"
 
@@ -695,7 +795,15 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
                 locale="fr-FR",
                 timezone_id="Europe/Paris",
                 extra_http_headers=extra_headers,
+                # Additional stealth options
+                java_script_enabled=True,
+                bypass_csp=True,  # Bypass Content Security Policy for script injection
             )
+
+            # Inject stealth script before any page loads (especially for Amazon)
+            if is_amazon:
+                await context.add_init_script(STEALTH_JS)
+                logger.debug("Stealth JS injected for Amazon")
 
             # For Amazon, don't block images - it may trigger detection
             if not is_amazon:
