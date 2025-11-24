@@ -12,6 +12,19 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
+# Proxy configuration for Amazon (optional)
+# Format: "http://user:pass@host:port" or "http://host:port"
+AMAZON_PROXY_URL = os.getenv("AMAZON_PROXY_URL", "")
+AMAZON_PROXY_LIST = [p.strip() for p in os.getenv("AMAZON_PROXY_LIST", "").split(",") if p.strip()]
+
+def _get_amazon_proxy() -> str | None:
+    """Get a proxy for Amazon requests"""
+    if AMAZON_PROXY_LIST:
+        return random.choice(AMAZON_PROXY_LIST)
+    if AMAZON_PROXY_URL:
+        return AMAZON_PROXY_URL
+    return None
+
 # Nombre de tentatives pour le scraping
 MAX_RETRIES = 2
 RETRY_DELAY = 3  # secondes
@@ -513,16 +526,25 @@ class ScraperService:
                 extra_headers["Referer"] = "https://www.google.fr/"
 
             try:
-                context = await current_browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=current_user_agent,
-                    locale="fr-FR",
-                    timezone_id="Europe/Paris",
-                    extra_http_headers=extra_headers,
-                    # Additional stealth options
-                    java_script_enabled=True,
-                    bypass_csp=True,  # Bypass Content Security Policy for script injection
-                )
+                # Prepare context options
+                context_options = {
+                    "viewport": {"width": 1920, "height": 1080},
+                    "user_agent": current_user_agent,
+                    "locale": "fr-FR",
+                    "timezone_id": "Europe/Paris",
+                    "extra_http_headers": extra_headers,
+                    "java_script_enabled": True,
+                    "bypass_csp": True,
+                }
+
+                # Add proxy for Amazon if configured
+                if is_amazon:
+                    proxy_url = _get_amazon_proxy()
+                    if proxy_url:
+                        logger.info(f"Using proxy for Amazon: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
+                        context_options["proxy"] = {"server": proxy_url}
+
+                context = await current_browser.new_context(**context_options)
 
                 # Inject stealth script before any page loads (especially for Amazon)
                 if is_amazon:
