@@ -1054,74 +1054,119 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             results = []
             seen_urls = set()
 
-            # Trouver les liens produits
-            links = []
-            if product_selector:
-                # Essayer plusieurs sélecteurs séparés par virgule
-                selectors = [s.strip() for s in product_selector.split(",")]
-                for sel in selectors:
-                    try:
-                        found = soup.select(sel)
-                        links.extend(found)
-                    except Exception:
+            # ===== AMAZON: Utiliser extraction dédiée sans les filtres génériques =====
+            if is_amazon:
+                logger.info(f"{domain}: Utilisation extraction Amazon dédiée")
+                links = _find_amazon_product_links(soup)
+
+                for link in links:
+                    href = link.get("href", "")
+                    if not href:
                         continue
-                logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
 
-            # Fallback: détection générique si le sélecteur n'a rien trouvé
-            if not links:
-                logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
-                links = _find_product_links(soup, domain)
-                logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+                    # Construire l'URL complète pour Amazon
+                    if href.startswith("/"):
+                        href = f"https://www.amazon.fr{href}"
+                    elif not href.startswith("http"):
+                        href = urljoin(final_url, href)
 
-            for link in links:
-                href = link.get("href", "")
-                if not href:
-                    continue
+                    # Nettoyer l'URL Amazon (enlever les paramètres de tracking)
+                    if "?" in href:
+                        href = href.split("?")[0]
 
-                # Construire l'URL complète
-                if href.startswith("/"):
-                    href = f"https://{domain}{href}"
-                elif not href.startswith("http"):
-                    href = urljoin(final_url, href)
+                    # Éviter les doublons
+                    if href in seen_urls:
+                        continue
+                    seen_urls.add(href)
 
-                # Nettoyer l'URL
-                href = _clean_product_url(href, domain)
+                    # Extraire le titre
+                    title = _extract_title(link)
+                    if not title or len(title) < MIN_TITLE_LENGTH:
+                        # Pour Amazon, essayer aussi alt de l'image
+                        img = link.find("img")
+                        if img and img.get("alt"):
+                            title = img.get("alt").strip()
 
-                # Éviter les doublons
-                if href in seen_urls:
-                    continue
-                seen_urls.add(href)
+                    if not title or len(title) < MIN_TITLE_LENGTH:
+                        continue
 
-                # Vérifier que c'est bien un lien vers ce domaine
-                url_domain = _extract_domain(href)
-                if domain not in url_domain and url_domain not in domain:
-                    # logger.debug(f"Ignored external link: {href}")
-                    continue
+                    results.append(SearchResult(
+                        url=href,
+                        title=title,
+                        snippet="",
+                        source=domain,
+                    ))
 
-                # Filtrer les liens non-produits
-                if _is_non_product_url(href):
-                    # logger.debug(f"Ignored non-product link: {href}")
-                    continue
+                    if len(results) >= max_results:
+                        break
 
-                # Extraire le titre
-                title = _extract_title(link)
-                if not title or len(title) < MIN_TITLE_LENGTH:
-                    # logger.debug(f"Ignored link with no title: {href}")
-                    continue
+                logger.info(f"{domain}: {len(results)} résultats Amazon extraits")
 
-                results.append(SearchResult(
-                    url=href,
-                    title=title,
-                    snippet="",
-                    source=domain,
-                    # On ne peut pas extraire le prix facilement ici sans scraper chaque page
-                    # Le scraping détaillé se fera dans la phase 2
-                ))
+            # ===== AUTRES SITES: Utiliser la logique générique avec filtres =====
+            else:
+                # Trouver les liens produits
+                links = []
+                if product_selector:
+                    # Essayer plusieurs sélecteurs séparés par virgule
+                    selectors = [s.strip() for s in product_selector.split(",")]
+                    for sel in selectors:
+                        try:
+                            found = soup.select(sel)
+                            links.extend(found)
+                        except Exception:
+                            continue
+                    logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
 
-                if len(results) >= max_results:
-                    break
+                # Fallback: détection générique si le sélecteur n'a rien trouvé
+                if not links:
+                    logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
+                    links = _find_product_links(soup, domain)
+                    logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
 
-            logger.info(f"{domain}: {len(results)} résultats extraits")
+                for link in links:
+                    href = link.get("href", "")
+                    if not href:
+                        continue
+
+                    # Construire l'URL complète
+                    if href.startswith("/"):
+                        href = f"https://{domain}{href}"
+                    elif not href.startswith("http"):
+                        href = urljoin(final_url, href)
+
+                    # Nettoyer l'URL
+                    href = _clean_product_url(href, domain)
+
+                    # Éviter les doublons
+                    if href in seen_urls:
+                        continue
+                    seen_urls.add(href)
+
+                    # Vérifier que c'est bien un lien vers ce domaine
+                    url_domain = _extract_domain(href)
+                    if domain not in url_domain and url_domain not in domain:
+                        continue
+
+                    # Filtrer les liens non-produits (pas pour Amazon qui a sa propre logique)
+                    if _is_non_product_url(href):
+                        continue
+
+                    # Extraire le titre
+                    title = _extract_title(link)
+                    if not title or len(title) < MIN_TITLE_LENGTH:
+                        continue
+
+                    results.append(SearchResult(
+                        url=href,
+                        title=title,
+                        snippet="",
+                        source=domain,
+                    ))
+
+                    if len(results) >= max_results:
+                        break
+
+                logger.info(f"{domain}: {len(results)} résultats extraits")
 
             # If we got results, success! Return them
             if len(results) > 0:
@@ -1213,6 +1258,69 @@ def _get_default_wait_selector(domain: str) -> str | None:
         if clean == key_clean or key_clean in clean or clean in key_clean:
             return config.get("wait_selector")
     return None
+
+
+def _find_amazon_product_links(soup: BeautifulSoup) -> list:
+    """
+    Extraction dédiée pour Amazon - simple et directe, sans tous les filtres génériques.
+    Amazon utilise des structures spécifiques qui ne nécessitent pas le filtrage complexe
+    utilisé pour les autres sites e-commerce.
+    """
+    links = []
+
+    # Amazon utilise des data-attributes spécifiques pour les résultats de recherche
+    # Méthode 1: Liens avec data-component-type="s-product-image"
+    for item in soup.select('[data-component-type="s-product-image"] a'):
+        href = item.get("href", "")
+        if href and "/dp/" in href:
+            links.append(item)
+
+    # Méthode 2: Liens dans les cartes de produits Amazon
+    if not links:
+        for item in soup.select('.s-result-item a.a-link-normal[href*="/dp/"]'):
+            links.append(item)
+
+    # Méthode 3: Tous les liens avec /dp/ dans le main content
+    if not links:
+        main_content = soup.select_one('#search, .s-main-slot, #s-results-list-atf')
+        if main_content:
+            for a in main_content.find_all('a', href=True):
+                href = a.get('href', '')
+                if '/dp/' in href and href not in [l.get('href', '') for l in links]:
+                    links.append(a)
+
+    # Méthode 4: Fallback - tous les liens /dp/ sur la page
+    if not links:
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '')
+            if '/dp/' in href or '/gp/product/' in href:
+                # Ignorer les liens de navigation Amazon
+                if '/ref=nb_sb' not in href and '/ref=cs_' not in href:
+                    links.append(a)
+
+    # Dédupliquer par ASIN (l'identifiant produit Amazon)
+    seen_asins = set()
+    unique_links = []
+    for link in links:
+        href = link.get('href', '')
+        # Extraire l'ASIN du lien
+        if '/dp/' in href:
+            parts = href.split('/dp/')
+            if len(parts) > 1:
+                asin = parts[1].split('/')[0].split('?')[0]
+                if asin and asin not in seen_asins and len(asin) == 10:
+                    seen_asins.add(asin)
+                    unique_links.append(link)
+        elif '/gp/product/' in href:
+            parts = href.split('/gp/product/')
+            if len(parts) > 1:
+                asin = parts[1].split('/')[0].split('?')[0]
+                if asin and asin not in seen_asins and len(asin) == 10:
+                    seen_asins.add(asin)
+                    unique_links.append(link)
+
+    logger.info(f"Amazon: {len(unique_links)} produits uniques trouvés (ASINs: {list(seen_asins)[:5]}...)")
+    return unique_links
 
 
 def _find_product_links(soup: BeautifulSoup, domain: str) -> list:
