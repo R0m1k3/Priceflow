@@ -18,7 +18,8 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-DEBUG_DIR = "debug_dumps"
+# Chemin absolu pour les dumps de débogage (doit correspondre à celui dans direct_search_service.py)
+DEBUG_DIR = "/app/debug_dumps"
 
 class DebugFile(BaseModel):
     filename: str
