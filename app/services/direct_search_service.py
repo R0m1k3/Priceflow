@@ -631,6 +631,9 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
     # Nettoyer le domaine (enlever protocole, www, slash final)
     domain = _clean_domain(raw_domain)
 
+    # Check if debug is enabled for this site
+    debug_enabled = site.get("debug_enabled", False)
+
     search_url = site.get("search_url") or _get_default_search_url(domain)
     product_selector = site.get("product_link_selector") or _get_default_product_selector(domain)
     wait_selector = _get_default_wait_selector(domain)
@@ -733,7 +736,9 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             # Check for Amazon blocking (503, "Toutes nos excuses", etc.)
             if is_amazon and _is_amazon_blocked(html_content):
                 logger.warning(f"Amazon blocked request (attempt {attempt + 1}/{max_retries}) for '{query}'")
-                _dump_debug_html(html_content, domain, f"{query}_blocked_attempt{attempt + 1}")
+                # Always dump for Amazon blocking (critical error)
+                if debug_enabled or is_amazon:
+                    _dump_debug_html(html_content, domain, f"{query}_blocked_attempt{attempt + 1}")
                 # Close resources before retry
                 try:
                     if page:
@@ -747,7 +752,9 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             # Check for CAPTCHA
             if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
                 logger.warning(f"CAPTCHA detected on {domain}!")
-                _dump_debug_html(html_content, domain, query)
+                # Always dump for CAPTCHA (critical error)
+                if debug_enabled or is_amazon:
+                    _dump_debug_html(html_content, domain, f"{query}_captcha")
                 if is_amazon and attempt < max_retries - 1:
                     try:
                         if page:
@@ -838,8 +845,11 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
                 return results
 
             # No results found - for Amazon this might be temporary blocking
-            logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
-            _dump_debug_html(html_content, domain, query)
+            if debug_enabled:
+                logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
+                _dump_debug_html(html_content, domain, f"{query}_no_results")
+            else:
+                logger.warning(f"{domain}: 0 results found (debug disabled, no HTML dump)")
 
             # For Amazon, if no results and we have retries left, try again
             if is_amazon and attempt < max_retries - 1:

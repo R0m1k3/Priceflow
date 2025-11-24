@@ -437,10 +437,48 @@ export default function Admin() {
     // Site functions
     const toggleSiteActive = async (site) => {
         try {
-            await axios.put(`${API_URL}/search-sites/${site.id}`, { is_active: !site.is_active });
+            await axios.put(`${API_URL}/search-sites/${site.id}`, { is_active: !site.is_active }, { headers: getAuthHeaders() });
             fetchAll();
         } catch (error) {
             toast.error('Erreur lors de la mise à jour');
+        }
+    };
+
+    const toggleSiteDebug = async (site) => {
+        try {
+            await axios.put(`${API_URL}/search-sites/${site.id}`, { debug_enabled: !site.debug_enabled }, { headers: getAuthHeaders() });
+            toast.success(site.debug_enabled ? 'Debug désactivé' : 'Debug activé');
+            fetchAll();
+        } catch (error) {
+            toast.error('Erreur lors de la mise à jour du debug');
+        }
+    };
+
+    const fetchSiteDebugFiles = async (domain) => {
+        try {
+            const response = await axios.get(`${API_URL}/debug/dumps/site/${domain}`, { headers: getAuthHeaders() });
+            return response.data;
+        } catch (error) {
+            console.error('Error fetching debug files:', error);
+            return [];
+        }
+    };
+
+    const downloadDebugFile = async (filename) => {
+        try {
+            window.open(`${API_URL}/debug/dumps/${filename}`, '_blank');
+        } catch (error) {
+            toast.error('Erreur lors du téléchargement');
+        }
+    };
+
+    const deleteSiteDebugFiles = async (domain) => {
+        if (!confirm(`Supprimer tous les fichiers de debug pour ${domain} ?`)) return;
+        try {
+            const response = await axios.delete(`${API_URL}/debug/dumps/site/${domain}`, { headers: getAuthHeaders() });
+            toast.success(response.data.message);
+        } catch (error) {
+            toast.error('Erreur lors de la suppression');
         }
     };
 
@@ -862,11 +900,35 @@ export default function Admin() {
                                         </div>
                                         <Switch checked={site.is_active} onCheckedChange={() => toggleSiteActive(site)} className="ml-2" />
                                     </div>
-                                    {site.category && (
-                                        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-secondary">
-                                            {site.category}
-                                        </span>
-                                    )}
+                                    <div className="flex items-center justify-between">
+                                        {site.category && (
+                                            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs bg-secondary">
+                                                {site.category}
+                                            </span>
+                                        )}
+                                        <div className="flex items-center gap-2 ml-auto">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className={cn("h-7 px-2", site.debug_enabled && "text-orange-500")}
+                                                onClick={() => toggleSiteDebug(site)}
+                                                title={site.debug_enabled ? "Désactiver le debug" : "Activer le debug"}
+                                            >
+                                                <Bug className="h-4 w-4" />
+                                            </Button>
+                                            {site.debug_enabled && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-7 px-2"
+                                                    onClick={() => deleteSiteDebugFiles(site.domain)}
+                                                    title="Supprimer fichiers debug"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             ))}
                         </div>
