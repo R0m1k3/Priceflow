@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import re
+import random
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -19,6 +20,8 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 # Constants
 MIN_TITLE_LENGTH = 3
 MIN_LINK_TEXT_LENGTH = 5
+AMAZON_BASE_DELAY = 2
+AMAZON_MAX_DELAY = 10
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
