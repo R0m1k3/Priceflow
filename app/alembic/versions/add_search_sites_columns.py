@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "add_search_sites_columns"
-down_revision: str | None = "merge_heads"
+down_revision: str | None = "add_notification_channels"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
