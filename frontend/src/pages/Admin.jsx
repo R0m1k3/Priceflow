@@ -1018,6 +1018,54 @@ export default function Admin() {
                     </CardContent>
                 </Card>
             )}
+
+            {/* Debug Tab */}
+            {activeTab === 'debug' && (
+                <Card>
+                    <CardHeader>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2"><Bug className="h-5 w-5" />Debug HTML Dumps</CardTitle>
+                                <CardDescription>Fichiers HTML sauvegardés lors des recherches sans résultats.</CardDescription>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={fetchDebugFiles} disabled={loadingDebugFiles}>
+                                <RefreshCw className={cn("h-4 w-4 mr-2", loadingDebugFiles && "animate-spin")} />
+                                Actualiser
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        {loadingDebugFiles ? (
+                            <div className="text-center py-8 text-muted-foreground">Chargement...</div>
+                        ) : debugFiles.length === 0 ? (
+                            <div className="text-center py-8 text-muted-foreground">
+                                Aucun fichier de debug disponible.
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {debugFiles.map(file => (
+                                    <div key={file.filename} className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors">
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-sm truncate">{file.filename}</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                {(file.size / 1024).toFixed(1)} KB • {file.created_at_formatted}
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1 ml-4">
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadDebugFile(file.filename)} title="Télécharger">
+                                                <Download className="h-4 w-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteDebugFile(file.filename)} title="Supprimer">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
         </div >
     );
 }
