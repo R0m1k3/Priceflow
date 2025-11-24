@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -25,19 +26,30 @@ USER_AGENT = (
 )
 
 
+# Chemin absolu pour les dumps de débogage (doit correspondre à celui dans debug.py)
+DEBUG_DUMPS_DIR = "/app/debug_dumps"
+
+
 def _dump_debug_html(html: str, domain: str, query: str):
     """Sauvegarde le HTML pour débogage"""
     try:
-        debug_dir = "debug_dumps"
-        if not os.path.exists(debug_dir):
-            os.makedirs(debug_dir)
-            
-        filename = f"{debug_dir}/{domain}_{query}_{int(asyncio.get_event_loop().time())}.html"
+        if not os.path.exists(DEBUG_DUMPS_DIR):
+            os.makedirs(DEBUG_DUMPS_DIR, exist_ok=True)
+            logger.info(f"Created debug dumps directory: {DEBUG_DUMPS_DIR}")
+
+        # Utiliser un timestamp unique basé sur le temps actuel
+        timestamp = int(time.time() * 1000)
+        # Nettoyer la query pour le nom de fichier
+        safe_query = "".join(c if c.isalnum() else "_" for c in query)[:50]
+        filename = f"{DEBUG_DUMPS_DIR}/{domain}_{safe_query}_{timestamp}.html"
+
         with open(filename, "w", encoding="utf-8") as f:
             f.write(html)
         logger.info(f"HTML dump saved to {filename}")
+        return filename
     except Exception as e:
         logger.error(f"Failed to dump HTML: {e}")
+        return None
 
 
 class SearchResult:

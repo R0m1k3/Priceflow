@@ -37,8 +37,8 @@ RUN chmod +x docker-entrypoint.sh
 # Copy built frontend static files
 COPY --from=frontend-build /app/frontend/dist /app/static
 
-# Create screenshots directory
-RUN mkdir -p screenshots
+# Create screenshots and debug_dumps directories
+RUN mkdir -p screenshots debug_dumps
 
 # Expose port
 EXPOSE 8555
