@@ -555,26 +555,36 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
     context = None
     page = None
+    max_retries = 3 if "amazon" in domain else 1
 
-    try:
-        # Créer un nouveau contexte isolé pour ce site
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=USER_AGENT,
-            locale="fr-FR",
-            timezone_id="Europe/Paris",
-            extra_http_headers={
-                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            }
-        )
-        
-        # Bloquer les ressources inutiles
-        await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-        await context.route("**/analytics*", lambda route: route.abort())
-        await context.route("**/tracking*", lambda route: route.abort())
-        
-        page = await context.new_page()
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # Exponential backoff with jitter for Amazon retries
+            base_delay = AMAZON_BASE_DELAY * (2 ** attempt)
+            jitter = random.uniform(0.5, 1.5)
+            delay = min(base_delay * jitter, AMAZON_MAX_DELAY)
+            logger.info(f"Amazon retry {attempt + 1}/{max_retries} for '{query}' after {delay:.1f}s delay")
+            await asyncio.sleep(delay)
+
+        try:
+            # Créer un nouveau contexte isolé pour ce site
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=USER_AGENT,
+                locale="fr-FR",
+                timezone_id="Europe/Paris",
+                extra_http_headers={
+                    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                }
+            )
+            
+            # Bloquer les ressources inutiles
+            await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+            await context.route("**/analytics*", lambda route: route.abort())
+            await context.route("**/tracking*", lambda route: route.abort())
+            
+            page = await context.new_page()
 
         # Naviguer vers la page de recherche
         await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
