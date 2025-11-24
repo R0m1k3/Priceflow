@@ -21,8 +21,23 @@ MIN_TITLE_LENGTH = 3
 MIN_LINK_TEXT_LENGTH = 5
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
 )
+
+
+def _dump_debug_html(html: str, domain: str, query: str):
+    """Sauvegarde le HTML pour débogage"""
+    try:
+        debug_dir = "debug_dumps"
+        if not os.path.exists(debug_dir):
+            os.makedirs(debug_dir)
+            
+        filename = f"{debug_dir}/{domain}_{query}_{int(asyncio.get_event_loop().time())}.html"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.info(f"HTML dump saved to {filename}")
+    except Exception as e:
+        logger.error(f"Failed to dump HTML: {e}")
 
 
 class SearchResult:
@@ -279,6 +294,7 @@ DEFAULT_SITE_CONFIGS = {
         "priority": 15,
     },
 }
+
 
 # Sélecteurs communs pour les bannières de cookies
 # Ordonnés du plus spécifique au plus générique pour une meilleure détection
@@ -571,6 +587,12 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
         # Extraire le HTML
         html_content = await page.content()
 
+        # Check for CAPTCHA
+        if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
+            logger.warning(f"CAPTCHA detected on {domain}!")
+            _dump_debug_html(html_content, domain, query)
+            return []
+
         # Parser le HTML avec BeautifulSoup
         soup = BeautifulSoup(html_content, "lxml")
         results = []
@@ -617,15 +639,18 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             # Vérifier que c'est bien un lien vers ce domaine
             url_domain = _extract_domain(href)
             if domain not in url_domain and url_domain not in domain:
+                # logger.debug(f"Ignored external link: {href}")
                 continue
 
             # Filtrer les liens non-produits
             if _is_non_product_url(href):
+                # logger.debug(f"Ignored non-product link: {href}")
                 continue
 
             # Extraire le titre
             title = _extract_title(link)
             if not title or len(title) < MIN_TITLE_LENGTH:
+                # logger.debug(f"Ignored link with no title: {href}")
                 continue
 
             results.append(SearchResult(
@@ -641,6 +666,11 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
                 break
 
         logger.info(f"{domain}: {len(results)} résultats extraits")
+        
+        if len(results) == 0:
+            logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
+            _dump_debug_html(html_content, domain, query)
+            
         return results
 
     except Exception as e:
