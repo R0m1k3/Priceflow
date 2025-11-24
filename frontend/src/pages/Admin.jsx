@@ -87,6 +87,7 @@ export default function Admin() {
         { id: 'code', name: 'Code', description: 'Programmation' },
         { id: 'reasoning', name: 'Raisonnement', description: 'Raisonnement avancé' },
         { id: 'free', name: 'Gratuit', description: 'Modèles gratuits' }
+    ]);
     const [debugFiles, setDebugFiles] = useState([]);
     const [loadingDebugFiles, setLoadingDebugFiles] = useState(false);
 
