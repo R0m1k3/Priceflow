@@ -111,68 +111,135 @@ USER_AGENT = USER_AGENT_POOL[0]
 
 # Stealth JavaScript to inject before page load to hide automation
 STEALTH_JS = """
-// Override the navigator.webdriver property
+// ============================================
+// COMPREHENSIVE STEALTH MODE FOR AMAZON
+// ============================================
+
+// 1. Override navigator.webdriver in multiple ways
 Object.defineProperty(navigator, 'webdriver', {
-    get: () => undefined,
+    get: () => false,
     configurable: true
 });
 
-// Override navigator.plugins to have some plugins
+// Also delete from navigator prototype
+delete Object.getPrototypeOf(navigator).webdriver;
+
+// Override the getAttribute method to hide webdriver attribute
+const originalGetAttribute = Element.prototype.getAttribute;
+Element.prototype.getAttribute = function(name) {
+    if (name === 'webdriver') return null;
+    return originalGetAttribute.call(this, name);
+};
+
+// 2. Override navigator.plugins with realistic plugins
 Object.defineProperty(navigator, 'plugins', {
     get: () => {
         const plugins = [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
-            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
+            { name: 'Chromium PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chromium PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 }
         ];
-        plugins.item = (i) => plugins[i];
-        plugins.namedItem = (name) => plugins.find(p => p.name === name);
+        plugins.item = (i) => plugins[i] || null;
+        plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
         plugins.refresh = () => {};
+        plugins.length = plugins.length;
         return plugins;
     },
     configurable: true
 });
 
-// Override navigator.languages
+// 3. Override navigator.mimeTypes
+Object.defineProperty(navigator, 'mimeTypes', {
+    get: () => {
+        const mimeTypes = [
+            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+            { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
+        ];
+        mimeTypes.item = (i) => mimeTypes[i] || null;
+        mimeTypes.namedItem = (name) => mimeTypes.find(m => m.type === name) || null;
+        mimeTypes.length = mimeTypes.length;
+        return mimeTypes;
+    },
+    configurable: true
+});
+
+// 4. Override navigator.languages
 Object.defineProperty(navigator, 'languages', {
     get: () => ['fr-FR', 'fr', 'en-US', 'en'],
     configurable: true
 });
 
-// Override permissions
-const originalQuery = window.navigator.permissions.query;
-window.navigator.permissions.query = (parameters) => (
-    parameters.name === 'notifications' ?
-        Promise.resolve({ state: Notification.permission }) :
-        originalQuery(parameters)
-);
+// 5. Override permissions API
+if (window.navigator.permissions) {
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => {
+        if (parameters.name === 'notifications') {
+            return Promise.resolve({ state: Notification.permission, onchange: null });
+        }
+        return originalQuery.call(window.navigator.permissions, parameters);
+    };
+}
 
-// Hide automation-related properties
-delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+// 6. Hide automation-related properties (Chromium DevTools Protocol)
+const propsToDelete = [
+    'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+    '__webdriver_evaluate',
+    '__selenium_evaluate',
+    '__webdriver_script_function',
+    '__webdriver_script_func',
+    '__webdriver_script_fn',
+    '__fxdriver_evaluate',
+    '__driver_unwrapped',
+    '__webdriver_unwrapped',
+    '__driver_evaluate',
+    '__selenium_unwrapped',
+    '__fxdriver_unwrapped',
+    '_Selenium_IDE_Recorder',
+    '_selenium',
+    'calledSelenium',
+    '$chrome_asyncScriptInfo',
+    '$cdc_asdjflasutopfhvcZLmcfl_',
+    '$wdc_'
+];
+propsToDelete.forEach(prop => {
+    try { delete window[prop]; } catch(e) {}
+});
 
-// Override chrome object
+// 7. Override chrome object with realistic properties
 window.chrome = {
-    runtime: {},
-    loadTimes: function() {},
-    csi: function() {},
-    app: {}
+    app: {
+        isInstalled: false,
+        InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+        RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
+    },
+    runtime: {
+        OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
+        OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+        PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
+        RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' },
+        connect: function() { return { onDisconnect: { addListener: function() {} }, onMessage: { addListener: function() {} }, postMessage: function() {} }; },
+        sendMessage: function() {}
+    },
+    csi: function() { return {}; },
+    loadTimes: function() { return { requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000, navigationType: 'navigate' }; }
 };
 
-// Fake WebGL vendor and renderer
+// 8. WebGL fingerprinting protection
 const getParameterProxyHandler = {
     apply: function(target, ctx, args) {
-        if (args[0] === 37445) {
-            return 'Intel Inc.';
-        }
-        if (args[0] === 37446) {
-            return 'Intel Iris OpenGL Engine';
-        }
+        if (args[0] === 37445) return 'Intel Inc.';
+        if (args[0] === 37446) return 'Intel Iris OpenGL Engine';
+        if (args[0] === 7937) return 'WebKit';
+        if (args[0] === 7936) return 'WebKit WebGL';
         return Reflect.apply(target, ctx, args);
     }
 };
-
 try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -180,32 +247,117 @@ try {
         const getParameter = gl.getParameter.bind(gl);
         gl.getParameter = new Proxy(getParameter, getParameterProxyHandler);
     }
+    const gl2 = canvas.getContext('webgl2');
+    if (gl2) {
+        const getParameter2 = gl2.getParameter.bind(gl2);
+        gl2.getParameter = new Proxy(getParameter2, getParameterProxyHandler);
+    }
 } catch(e) {}
 
-// Override connection rtt (reduces fingerprinting)
+// 9. Canvas fingerprinting protection
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+HTMLCanvasElement.prototype.toDataURL = function(type) {
+    if (type === 'image/png' && this.width === 220 && this.height === 30) {
+        // Likely fingerprinting attempt, add noise
+        const context = this.getContext('2d');
+        if (context) {
+            const imageData = context.getImageData(0, 0, this.width, this.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = imageData.data[i] ^ (Math.random() * 2);
+            }
+            context.putImageData(imageData, 0, 0);
+        }
+    }
+    return originalToDataURL.apply(this, arguments);
+};
+
+// 10. AudioContext fingerprinting protection
+if (window.AudioContext || window.webkitAudioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const originalCreateOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function() {
+        const oscillator = originalCreateOscillator.apply(this, arguments);
+        oscillator.frequency.value = oscillator.frequency.value + (Math.random() * 0.0001);
+        return oscillator;
+    };
+}
+
+// 11. Override connection properties
 Object.defineProperty(navigator, 'connection', {
     get: () => ({
         effectiveType: '4g',
-        rtt: 50,
-        downlink: 10,
+        rtt: 50 + Math.floor(Math.random() * 50),
+        downlink: 10 + Math.random() * 5,
         saveData: false
     }),
     configurable: true
 });
 
-// Override hardware concurrency
+// 12. Override hardware properties
 Object.defineProperty(navigator, 'hardwareConcurrency', {
     get: () => 8,
     configurable: true
 });
 
-// Override device memory
 Object.defineProperty(navigator, 'deviceMemory', {
     get: () => 8,
     configurable: true
 });
 
-console.log('Stealth mode activated');
+// 13. Override screen properties
+Object.defineProperty(screen, 'colorDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+Object.defineProperty(screen, 'pixelDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+// 14. Spoof Notification API
+if (window.Notification) {
+    Object.defineProperty(Notification, 'permission', {
+        get: () => 'default',
+        configurable: true
+    });
+}
+
+// 15. Override iframe contentWindow checks
+const originalContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+    get: function() {
+        const win = originalContentWindow.get.call(this);
+        if (win) {
+            try {
+                Object.defineProperty(win.navigator, 'webdriver', {
+                    get: () => false,
+                    configurable: true
+                });
+            } catch(e) {}
+        }
+        return win;
+    }
+});
+
+// 16. Mock Battery API
+if (navigator.getBattery) {
+    navigator.getBattery = () => Promise.resolve({
+        charging: true,
+        chargingTime: 0,
+        dischargingTime: Infinity,
+        level: 1,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+    });
+}
+
+// 17. Hide Playwright/Puppeteer specific objects
+delete window.__playwright;
+delete window.__pw_manual;
+delete window.__PW_inspect;
+
+console.log('Advanced stealth mode activated');
 """
 
 
