@@ -464,14 +464,6 @@ export default function Admin() {
         }
     };
 
-    const downloadDebugFile = async (filename) => {
-        try {
-            window.open(`${API_URL}/debug/dumps/${filename}`, '_blank');
-        } catch (error) {
-            toast.error('Erreur lors du téléchargement');
-        }
-    };
-
     const deleteSiteDebugFiles = async (domain) => {
         if (!confirm(`Supprimer tous les fichiers de debug pour ${domain} ?`)) return;
         try {
