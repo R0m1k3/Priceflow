@@ -8,11 +8,12 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.services import auth_service
+from app.dependencies import get_admin_user
 
 router = APIRouter(
     prefix="/debug",
     tags=["debug"],
-    dependencies=[Depends(auth_service.get_current_active_admin)],
+    dependencies=[Depends(get_admin_user)],
 )
 
 logger = logging.getLogger(__name__)
