@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 from urllib.parse import urlparse, urlunparse
 
@@ -14,6 +15,50 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 # Nombre de tentatives pour le scraping
 MAX_RETRIES = 2
 RETRY_DELAY = 3  # secondes
+
+# Amazon-specific configuration
+AMAZON_MAX_RETRIES = 4
+AMAZON_BASE_DELAY = 3.0
+
+# Pool of realistic User-Agents for rotation
+USER_AGENT_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+
+# Amazon blocking indicators
+AMAZON_BLOCK_INDICATORS = [
+    "Toutes nos excuses",
+    "Sorry, something went wrong",
+    "api-services-support@amazon.com",
+    "Enter the characters you see below",
+    "Saisissez les caractères",
+    "Service Unavailable",
+    "robot check",
+    "automated access",
+]
+
+
+def _get_random_user_agent() -> str:
+    """Get a random User-Agent from the pool"""
+    return random.choice(USER_AGENT_POOL)
+
+
+def _is_amazon_url(url: str) -> bool:
+    """Check if URL is an Amazon URL"""
+    return "amazon" in url.lower()
+
+
+def _is_amazon_blocked(html_content: str) -> bool:
+    """Check if Amazon has blocked the request"""
+    html_lower = html_content.lower()
+    for indicator in AMAZON_BLOCK_INDICATORS:
+        if indicator.lower() in html_lower:
+            return True
+    return False
 
 
 def simplify_url(url: str) -> str:
@@ -117,12 +162,23 @@ class ScraperService:
             logger.warning(f"Invalid timeout value: {timeout}, using default 90000")
             timeout = 90000
 
+        # Amazon needs more retries with longer delays
+        is_amazon = _is_amazon_url(url)
+        max_retries = AMAZON_MAX_RETRIES if is_amazon else MAX_RETRIES
+        base_delay = AMAZON_BASE_DELAY if is_amazon else RETRY_DELAY
+
         # Retries avec backoff
         last_error = None
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(max_retries + 1):
             if attempt > 0:
-                logger.info(f"Tentative {attempt + 1}/{MAX_RETRIES + 1} pour {url}")
-                await asyncio.sleep(RETRY_DELAY * attempt)
+                # Exponential backoff with jitter for Amazon
+                if is_amazon:
+                    jitter = random.uniform(0.5, 1.5)
+                    delay = min(base_delay * (2 ** attempt) * jitter, 30.0)
+                else:
+                    delay = base_delay * attempt
+                logger.info(f"Tentative {attempt + 1}/{max_retries + 1} pour {url} (délai: {delay:.1f}s)")
+                await asyncio.sleep(delay)
 
             result = await ScraperService._do_scrape(
                 url=url,
@@ -133,6 +189,7 @@ class ScraperService:
                 text_length=text_length,
                 timeout=timeout,
                 browser=browser,
+                is_amazon=is_amazon,
             )
 
             if result[0] is not None:  # Screenshot réussi
@@ -154,14 +211,15 @@ class ScraperService:
         text_length: int = 0,
         timeout: int = 90000,
         browser=None,
+        is_amazon: bool = False,
     ) -> tuple[str | None, str, bool]:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
-        
+
         # Si un navigateur est fourni, on l'utilise directement sans async_playwright context manager
         # sinon on crée tout de zéro
         playwright_manager = None
         local_browser = None
-        
+
         try:
             if browser:
                 # Utiliser le navigateur partagé
@@ -180,22 +238,37 @@ class ScraperService:
             context = None
             page = None
             is_available = True  # Par défaut, le produit est disponible
-            
+
+            # Use random User-Agent for anti-detection (especially for Amazon)
+            current_user_agent = _get_random_user_agent()
+
+            # Enhanced headers for stealth
+            extra_headers = {
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "max-age=0",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+            # Add referer for Amazon
+            if is_amazon:
+                extra_headers["Referer"] = "https://www.google.fr/"
+
             try:
                 context = await current_browser.new_context(
                     viewport={"width": 1920, "height": 1080},
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
+                    user_agent=current_user_agent,
                     locale="fr-FR",
                     timezone_id="Europe/Paris",
-                    # Options supplémentaires pour éviter la détection
-                    extra_http_headers={
-                        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    }
+                    extra_http_headers=extra_headers,
                 )
 
                 # Stealth mode / Ad blocking attempts
@@ -203,25 +276,37 @@ class ScraperService:
 
                 page = await context.new_page()
 
+                # Add random delay before navigation for Amazon
+                if is_amazon:
+                    await asyncio.sleep(random.uniform(1.0, 3.0))
+
                 logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
                 response = None
+                amazon_blocked = False
                 try:
                     # First wait for domcontentloaded - this is the minimum we need
                     response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-                    
+
                     # Check HTTP status code
                     if response:
                         status = response.status
                         logger.info(f"HTTP Status: {status}")
-                        
-                        # Detect unavailable products by HTTP status
-                        if status in [404, 410, 451, 503]:
+
+                        # For Amazon, 503 is usually a block, not product unavailability
+                        if is_amazon and status == 503:
+                            logger.warning(f"Amazon returned 503 - likely blocking")
+                            amazon_blocked = True
+                        # Detect unavailable products by HTTP status (non-Amazon)
+                        elif status in [404, 410, 451]:
+                            logger.warning(f"Product unavailable - HTTP {status}")
+                            is_available = False
+                        elif status == 503 and not is_amazon:
                             logger.warning(f"Product unavailable - HTTP {status}")
                             is_available = False
                         elif status >= 400:
                             logger.warning(f"HTTP error {status}, marking as potentially unavailable")
                             is_available = False
-                    
+
                     logger.info(f"Page loaded (domcontentloaded): {url}")
 
                     # Then try to wait for networkidle, but don't fail if it times out
@@ -239,8 +324,24 @@ class ScraperService:
                     # Try to take screenshot anyway if page partially loaded
                     pass
 
-                # Wait a bit for dynamic content if needed
-                await page.wait_for_timeout(2000)
+                # Wait a bit for dynamic content if needed - longer for Amazon
+                wait_time = random.uniform(2.0, 4.0) if is_amazon else 2.0
+                await page.wait_for_timeout(int(wait_time * 1000))
+
+                # Check for Amazon blocking in page content
+                if is_amazon:
+                    try:
+                        page_html = await page.content()
+                        if _is_amazon_blocked(page_html):
+                            logger.warning(f"Amazon blocking detected in page content for {url}")
+                            amazon_blocked = True
+                    except Exception as e:
+                        logger.debug(f"Could not check Amazon blocking: {e}")
+
+                # If Amazon blocked us, return None to trigger retry
+                if amazon_blocked:
+                    logger.warning(f"Amazon blocked - will retry with different User-Agent")
+                    return None, "", True  # Return None screenshot to trigger retry
 
                 # Try to close common popups and cookie banners
                 logger.info("Attempting to close popups and cookie banners...")
