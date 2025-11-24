@@ -76,6 +76,7 @@ async def search_products(
             "search_url": site.search_url,
             "product_link_selector": site.product_link_selector,
             "requires_js": site.requires_js,
+            "debug_enabled": site.debug_enabled,
         }
         for site in sites
     ]
