@@ -6,6 +6,7 @@ Utilise Playwright/Browserless pour gérer JavaScript et contourner la détectio
 import asyncio
 import logging
 import os
+import random
 import re
 import time
 from urllib.parse import quote_plus, urljoin, urlparse
@@ -20,10 +21,92 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 # Constants
 MIN_TITLE_LENGTH = 3
 MIN_LINK_TEXT_LENGTH = 5
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-)
+
+# Pool of realistic User-Agents for rotation (Chrome on Windows/Mac)
+USER_AGENT_POOL = [
+    # Chrome Windows - Latest versions
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+    # Chrome Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    # Firefox Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    # Firefox Mac
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
+    # Edge Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+
+# Amazon-specific blocking indicators
+AMAZON_BLOCK_INDICATORS = [
+    "Toutes nos excuses",
+    "Sorry, something went wrong",
+    "To discuss automated access to Amazon data",
+    "api-services-support@amazon.com",
+    "Enter the characters you see below",
+    "Saisissez les caractères",
+    "Type the characters you see",
+    "Sorry! Something went wrong",
+    "Service Unavailable",
+    "robot check",
+    "automated access",
+    "ref=cs_503",
+]
+
+# Amazon retry configuration
+AMAZON_MAX_RETRIES = 4
+AMAZON_BASE_DELAY = 3.0  # seconds
+AMAZON_MAX_DELAY = 30.0  # seconds
+
+
+def _get_random_user_agent() -> str:
+    """Get a random User-Agent from the pool"""
+    return random.choice(USER_AGENT_POOL)
+
+
+def _is_amazon_blocked(html_content: str) -> bool:
+    """Check if Amazon has blocked the request"""
+    html_lower = html_content.lower()
+    for indicator in AMAZON_BLOCK_INDICATORS:
+        if indicator.lower() in html_lower:
+            return True
+    return False
+
+
+async def _random_delay(min_seconds: float = 1.0, max_seconds: float = 3.0):
+    """Add a random delay to simulate human behavior"""
+    delay = random.uniform(min_seconds, max_seconds)
+    await asyncio.sleep(delay)
+
+
+async def _simulate_human_behavior(page):
+    """Simulate human-like behavior on the page"""
+    try:
+        # Random mouse movements
+        for _ in range(random.randint(2, 4)):
+            x = random.randint(100, 1800)
+            y = random.randint(100, 900)
+            await page.mouse.move(x, y)
+            await asyncio.sleep(random.uniform(0.1, 0.3))
+
+        # Small random scroll
+        scroll_amount = random.randint(100, 400)
+        await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
+        await asyncio.sleep(random.uniform(0.3, 0.7))
+
+        # Scroll back up a bit
+        await page.evaluate(f"window.scrollBy(0, -{random.randint(50, 150)})")
+        await asyncio.sleep(random.uniform(0.2, 0.5))
+    except Exception as e:
+        logger.debug(f"Human behavior simulation error (non-critical): {e}")
+
+
+# Legacy constant for backward compatibility
+USER_AGENT = USER_AGENT_POOL[0]
 
 
 # Chemin absolu pour les dumps de débogage (doit correspondre à celui dans debug.py)
@@ -562,142 +645,229 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
     logger.info(f"Recherche Browserless sur {domain}: {final_url}")
 
-    context = None
-    page = None
+    # Check if this is Amazon - requires special handling
+    is_amazon = "amazon" in domain.lower()
+    max_retries = AMAZON_MAX_RETRIES if is_amazon else 1
 
-    try:
-        # Créer un nouveau contexte isolé pour ce site
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=USER_AGENT,
-            locale="fr-FR",
-        )
-        
-        # Bloquer les ressources inutiles
-        await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-        await context.route("**/analytics*", lambda route: route.abort())
-        await context.route("**/tracking*", lambda route: route.abort())
-        
-        page = await context.new_page()
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # Exponential backoff with jitter for Amazon retries
+            base_delay = AMAZON_BASE_DELAY * (2 ** attempt)
+            jitter = random.uniform(0.5, 1.5)
+            delay = min(base_delay * jitter, AMAZON_MAX_DELAY)
+            logger.info(f"Amazon retry {attempt + 1}/{max_retries} for '{query}' after {delay:.1f}s delay")
+            await asyncio.sleep(delay)
 
-        # Naviguer vers la page de recherche
-        await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+        context = None
+        page = None
 
-        # Accepter les cookies si nécessaire
-        await _accept_cookies(page, domain)
+        try:
+            # Get random User-Agent for each attempt (important for Amazon)
+            current_user_agent = _get_random_user_agent()
 
-        # Attendre que les résultats se chargent
-        if wait_selector:
-            try:
-                await page.wait_for_selector(wait_selector, timeout=10000)
-            except Exception:
-                logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
+            # Create stealth headers - more comprehensive for Amazon
+            extra_headers = {
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "max-age=0",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
 
-        # Attendre un peu pour le JS (réduit pour parallélisation)
-        await asyncio.sleep(1.5)
+            # Add referer for Amazon to look more natural
+            if is_amazon:
+                extra_headers["Referer"] = "https://www.google.fr/"
 
-        # Extraire le HTML
-        html_content = await page.content()
+            # Créer un nouveau contexte isolé pour ce site
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=current_user_agent,
+                locale="fr-FR",
+                timezone_id="Europe/Paris",
+                extra_http_headers=extra_headers,
+            )
 
-        # Check for CAPTCHA
-        if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
-            logger.warning(f"CAPTCHA detected on {domain}!")
-            _dump_debug_html(html_content, domain, query)
-            return []
+            # For Amazon, don't block images - it may trigger detection
+            if not is_amazon:
+                await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+            await context.route("**/analytics*", lambda route: route.abort())
+            await context.route("**/tracking*", lambda route: route.abort())
 
-        # Parser le HTML avec BeautifulSoup
-        soup = BeautifulSoup(html_content, "lxml")
-        results = []
-        seen_urls = set()
+            page = await context.new_page()
 
-        # Trouver les liens produits
-        links = []
-        if product_selector:
-            # Essayer plusieurs sélecteurs séparés par virgule
-            selectors = [s.strip() for s in product_selector.split(",")]
-            for sel in selectors:
+            # Add random delay before navigation for Amazon
+            if is_amazon:
+                await _random_delay(1.0, 3.0)
+
+            # Naviguer vers la page de recherche
+            await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+
+            # For Amazon, simulate human behavior before interacting
+            if is_amazon:
+                await _simulate_human_behavior(page)
+
+            # Accepter les cookies si nécessaire
+            await _accept_cookies(page, domain)
+
+            # Attendre que les résultats se chargent
+            if wait_selector:
                 try:
-                    found = soup.select(sel)
-                    links.extend(found)
+                    await page.wait_for_selector(wait_selector, timeout=10000)
                 except Exception:
+                    logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
+
+            # Attendre un peu pour le JS - longer wait for Amazon
+            wait_time = random.uniform(2.0, 4.0) if is_amazon else 1.5
+            await asyncio.sleep(wait_time)
+
+            # Extraire le HTML
+            html_content = await page.content()
+
+            # Check for Amazon blocking (503, "Toutes nos excuses", etc.)
+            if is_amazon and _is_amazon_blocked(html_content):
+                logger.warning(f"Amazon blocked request (attempt {attempt + 1}/{max_retries}) for '{query}'")
+                _dump_debug_html(html_content, domain, f"{query}_blocked_attempt{attempt + 1}")
+                # Close resources before retry
+                try:
+                    if page:
+                        await page.close()
+                    if context:
+                        await context.close()
+                except Exception:
+                    pass
+                continue  # Retry with new User-Agent and delay
+
+            # Check for CAPTCHA
+            if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
+                logger.warning(f"CAPTCHA detected on {domain}!")
+                _dump_debug_html(html_content, domain, query)
+                if is_amazon and attempt < max_retries - 1:
+                    try:
+                        if page:
+                            await page.close()
+                        if context:
+                            await context.close()
+                    except Exception:
+                        pass
+                    continue  # Retry
+                return []
+
+            # Parser le HTML avec BeautifulSoup
+            soup = BeautifulSoup(html_content, "lxml")
+            results = []
+            seen_urls = set()
+
+            # Trouver les liens produits
+            links = []
+            if product_selector:
+                # Essayer plusieurs sélecteurs séparés par virgule
+                selectors = [s.strip() for s in product_selector.split(",")]
+                for sel in selectors:
+                    try:
+                        found = soup.select(sel)
+                        links.extend(found)
+                    except Exception:
+                        continue
+                logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
+
+            # Fallback: détection générique si le sélecteur n'a rien trouvé
+            if not links:
+                logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
+                links = _find_product_links(soup, domain)
+                logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+
+            for link in links:
+                href = link.get("href", "")
+                if not href:
                     continue
-            logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
 
-        # Fallback: détection générique si le sélecteur n'a rien trouvé
-        if not links:
-            logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
-            links = _find_product_links(soup, domain)
-            logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+                # Construire l'URL complète
+                if href.startswith("/"):
+                    href = f"https://{domain}{href}"
+                elif not href.startswith("http"):
+                    href = urljoin(final_url, href)
 
-        for link in links:
-            href = link.get("href", "")
-            if not href:
-                continue
+                # Nettoyer l'URL
+                href = _clean_product_url(href, domain)
 
-            # Construire l'URL complète
-            if href.startswith("/"):
-                href = f"https://{domain}{href}"
-            elif not href.startswith("http"):
-                href = urljoin(final_url, href)
+                # Éviter les doublons
+                if href in seen_urls:
+                    continue
+                seen_urls.add(href)
 
-            # Nettoyer l'URL
-            href = _clean_product_url(href, domain)
+                # Vérifier que c'est bien un lien vers ce domaine
+                url_domain = _extract_domain(href)
+                if domain not in url_domain and url_domain not in domain:
+                    # logger.debug(f"Ignored external link: {href}")
+                    continue
 
-            # Éviter les doublons
-            if href in seen_urls:
-                continue
-            seen_urls.add(href)
+                # Filtrer les liens non-produits
+                if _is_non_product_url(href):
+                    # logger.debug(f"Ignored non-product link: {href}")
+                    continue
 
-            # Vérifier que c'est bien un lien vers ce domaine
-            url_domain = _extract_domain(href)
-            if domain not in url_domain and url_domain not in domain:
-                # logger.debug(f"Ignored external link: {href}")
-                continue
+                # Extraire le titre
+                title = _extract_title(link)
+                if not title or len(title) < MIN_TITLE_LENGTH:
+                    # logger.debug(f"Ignored link with no title: {href}")
+                    continue
 
-            # Filtrer les liens non-produits
-            if _is_non_product_url(href):
-                # logger.debug(f"Ignored non-product link: {href}")
-                continue
+                results.append(SearchResult(
+                    url=href,
+                    title=title,
+                    snippet="",
+                    source=domain,
+                    # On ne peut pas extraire le prix facilement ici sans scraper chaque page
+                    # Le scraping détaillé se fera dans la phase 2
+                ))
 
-            # Extraire le titre
-            title = _extract_title(link)
-            if not title or len(title) < MIN_TITLE_LENGTH:
-                # logger.debug(f"Ignored link with no title: {href}")
-                continue
+                if len(results) >= max_results:
+                    break
 
-            results.append(SearchResult(
-                url=href,
-                title=title,
-                snippet="",
-                source=domain,
-                # On ne peut pas extraire le prix facilement ici sans scraper chaque page
-                # Le scraping détaillé se fera dans la phase 2
-            ))
+            logger.info(f"{domain}: {len(results)} résultats extraits")
 
-            if len(results) >= max_results:
-                break
+            # If we got results, success! Return them
+            if len(results) > 0:
+                return results
 
-        logger.info(f"{domain}: {len(results)} résultats extraits")
-        
-        if len(results) == 0:
+            # No results found - for Amazon this might be temporary blocking
             logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
             _dump_debug_html(html_content, domain, query)
-            
-        return results
 
-    except Exception as e:
-        logger.error(f"Erreur Browserless sur {domain}: {e}")
-        return []
-        
-    finally:
-        # Fermer le contexte et la page, mais PAS le navigateur
-        try:
-            if page:
-                await page.close()
-            if context:
-                await context.close()
+            # For Amazon, if no results and we have retries left, try again
+            if is_amazon and attempt < max_retries - 1:
+                logger.info(f"Amazon returned 0 results, will retry...")
+                continue
+
+            return results
+
         except Exception as e:
-            logger.debug(f"Erreur fermeture contexte {domain}: {e}")
+            logger.error(f"Erreur Browserless sur {domain}: {e}")
+            if is_amazon and attempt < max_retries - 1:
+                logger.info(f"Will retry after error...")
+                continue
+            return []
+
+        finally:
+            # Fermer le contexte et la page, mais PAS le navigateur
+            try:
+                if page:
+                    await page.close()
+                if context:
+                    await context.close()
+            except Exception as e:
+                logger.debug(f"Erreur fermeture contexte {domain}: {e}")
+
+    # If we exhausted all retries for Amazon
+    logger.error(f"All {max_retries} attempts failed for Amazon search '{query}'")
+    return []
 
 
 def _get_default_search_url(domain: str) -> str | None:
