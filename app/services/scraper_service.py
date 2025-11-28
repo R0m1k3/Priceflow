@@ -12,17 +12,36 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
-# Proxy configuration for Amazon (optional)
-# Format: "http://user:pass@host:port" or "http://host:port"
-AMAZON_PROXY_URL = os.getenv("AMAZON_PROXY_URL", "")
-AMAZON_PROXY_LIST = [p.strip() for p in os.getenv("AMAZON_PROXY_LIST", "").split(",") if p.strip()]
+# Proxy configuration for Amazon - 10 rotating proxies (same as direct_search_service)
+# Format from user: ip:port:username:password
+AMAZON_PROXY_LIST_RAW = [
+    "142.111.48.253:7030:jasuwwjr:elbsx170nmnl",
+    "31.59.20.176:6754:jasuwwjr:elbsx170nmnl",
+    "23.95.150.145:6114:jasuwwjr:elbsx170nmnl",
+    "198.23.239.134:6540:jasuwwjr:elbsx170nmnl",
+    "107.172.163.27:6543:jasuwwjr:elbsx170nmnl",
+    "198.105.121.200:6462:jasuwwjr:elbsx170nmnl",
+    "64.137.96.74:6641:jasuwwjr:elbsx170nmnl",
+    "84.247.60.125:6095:jasuwwjr:elbsx170nmnl",
+    "216.10.27.159:6837:jasuwwjr:elbsx170nmnl",
+    "142.111.67.146:5611:jasuwwjr:elbsx170nmnl",
+]
+
+# Convert to Playwright proxy format: http://user:pass@ip:port
+AMAZON_PROXY_LIST = [
+    f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
+    for proxy in AMAZON_PROXY_LIST_RAW
+    if (parts := proxy.split(":")) and len(parts) == 4
+]
 
 def _get_amazon_proxy() -> str | None:
-    """Get a proxy for Amazon requests"""
+    """Get a random proxy for Amazon requests from the rotating pool"""
     if AMAZON_PROXY_LIST:
-        return random.choice(AMAZON_PROXY_LIST)
-    if AMAZON_PROXY_URL:
-        return AMAZON_PROXY_URL
+        proxy = random.choice(AMAZON_PROXY_LIST)
+        # Log only the IP part for security (hide credentials)
+        ip_port = proxy.split("@")[1] if "@" in proxy else proxy
+        logger.info(f"Using proxy: {ip_port}")
+        return proxy
     return None
 
 # Nombre de tentatives pour le scraping
