@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 from urllib.parse import urlparse, urlunparse
 
@@ -11,9 +12,317 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
+# Proxy configuration for Amazon (optional)
+# Format: "http://user:pass@host:port" or "http://host:port"
+AMAZON_PROXY_URL = os.getenv("AMAZON_PROXY_URL", "")
+AMAZON_PROXY_LIST = [p.strip() for p in os.getenv("AMAZON_PROXY_LIST", "").split(",") if p.strip()]
+
+def _get_amazon_proxy() -> str | None:
+    """Get a proxy for Amazon requests"""
+    if AMAZON_PROXY_LIST:
+        return random.choice(AMAZON_PROXY_LIST)
+    if AMAZON_PROXY_URL:
+        return AMAZON_PROXY_URL
+    return None
+
 # Nombre de tentatives pour le scraping
 MAX_RETRIES = 2
 RETRY_DELAY = 3  # secondes
+
+# Amazon-specific configuration
+AMAZON_MAX_RETRIES = 4
+AMAZON_BASE_DELAY = 3.0
+
+# Pool of realistic User-Agents for rotation
+USER_AGENT_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+]
+
+# Amazon blocking indicators
+AMAZON_BLOCK_INDICATORS = [
+    "Toutes nos excuses",
+    "Sorry, something went wrong",
+    "api-services-support@amazon.com",
+    "Enter the characters you see below",
+    "Saisissez les caractères",
+    "Service Unavailable",
+    "robot check",
+    "automated access",
+]
+
+# Stealth JavaScript to inject before page load to hide automation
+STEALTH_JS = """
+// ============================================
+// COMPREHENSIVE STEALTH MODE FOR AMAZON
+// ============================================
+
+// 1. Override navigator.webdriver in multiple ways
+Object.defineProperty(navigator, 'webdriver', {
+    get: () => false,
+    configurable: true
+});
+
+// Also delete from navigator prototype
+delete Object.getPrototypeOf(navigator).webdriver;
+
+// Override the getAttribute method to hide webdriver attribute
+const originalGetAttribute = Element.prototype.getAttribute;
+Element.prototype.getAttribute = function(name) {
+    if (name === 'webdriver') return null;
+    return originalGetAttribute.call(this, name);
+};
+
+// 2. Override navigator.plugins with realistic plugins
+Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+        const plugins = [
+            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
+            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
+            { name: 'Chromium PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
+            { name: 'Chromium PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 }
+        ];
+        plugins.item = (i) => plugins[i] || null;
+        plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
+        plugins.refresh = () => {};
+        plugins.length = plugins.length;
+        return plugins;
+    },
+    configurable: true
+});
+
+// 3. Override navigator.mimeTypes
+Object.defineProperty(navigator, 'mimeTypes', {
+    get: () => {
+        const mimeTypes = [
+            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+            { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
+        ];
+        mimeTypes.item = (i) => mimeTypes[i] || null;
+        mimeTypes.namedItem = (name) => mimeTypes.find(m => m.type === name) || null;
+        mimeTypes.length = mimeTypes.length;
+        return mimeTypes;
+    },
+    configurable: true
+});
+
+// 4. Override navigator.languages
+Object.defineProperty(navigator, 'languages', {
+    get: () => ['fr-FR', 'fr', 'en-US', 'en'],
+    configurable: true
+});
+
+// 5. Override permissions API
+if (window.navigator.permissions) {
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => {
+        if (parameters.name === 'notifications') {
+            return Promise.resolve({ state: Notification.permission, onchange: null });
+        }
+        return originalQuery.call(window.navigator.permissions, parameters);
+    };
+}
+
+// 6. Hide automation-related properties (Chromium DevTools Protocol)
+const propsToDelete = [
+    'cdc_adoQpoasnfa76pfcZLmcfl_Array',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
+    'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
+    '__webdriver_evaluate',
+    '__selenium_evaluate',
+    '__webdriver_script_function',
+    '__webdriver_script_func',
+    '__webdriver_script_fn',
+    '__fxdriver_evaluate',
+    '__driver_unwrapped',
+    '__webdriver_unwrapped',
+    '__driver_evaluate',
+    '__selenium_unwrapped',
+    '__fxdriver_unwrapped',
+    '_Selenium_IDE_Recorder',
+    '_selenium',
+    'calledSelenium',
+    '$chrome_asyncScriptInfo',
+    '$cdc_asdjflasutopfhvcZLmcfl_',
+    '$wdc_'
+];
+propsToDelete.forEach(prop => {
+    try { delete window[prop]; } catch(e) {}
+});
+
+// 7. Override chrome object with realistic properties
+window.chrome = {
+    app: {
+        isInstalled: false,
+        InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+        RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
+    },
+    runtime: {
+        OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
+        OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+        PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
+        PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
+        RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' },
+        connect: function() { return { onDisconnect: { addListener: function() {} }, onMessage: { addListener: function() {} }, postMessage: function() {} }; },
+        sendMessage: function() {}
+    },
+    csi: function() { return {}; },
+    loadTimes: function() { return { requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000, navigationType: 'navigate' }; }
+};
+
+// 8. WebGL fingerprinting protection
+const getParameterProxyHandler = {
+    apply: function(target, ctx, args) {
+        if (args[0] === 37445) return 'Intel Inc.';
+        if (args[0] === 37446) return 'Intel Iris OpenGL Engine';
+        if (args[0] === 7937) return 'WebKit';
+        if (args[0] === 7936) return 'WebKit WebGL';
+        return Reflect.apply(target, ctx, args);
+    }
+};
+try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+        const getParameter = gl.getParameter.bind(gl);
+        gl.getParameter = new Proxy(getParameter, getParameterProxyHandler);
+    }
+    const gl2 = canvas.getContext('webgl2');
+    if (gl2) {
+        const getParameter2 = gl2.getParameter.bind(gl2);
+        gl2.getParameter = new Proxy(getParameter2, getParameterProxyHandler);
+    }
+} catch(e) {}
+
+// 9. Canvas fingerprinting protection
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+HTMLCanvasElement.prototype.toDataURL = function(type) {
+    if (type === 'image/png' && this.width === 220 && this.height === 30) {
+        const context = this.getContext('2d');
+        if (context) {
+            const imageData = context.getImageData(0, 0, this.width, this.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = imageData.data[i] ^ (Math.random() * 2);
+            }
+            context.putImageData(imageData, 0, 0);
+        }
+    }
+    return originalToDataURL.apply(this, arguments);
+};
+
+// 10. AudioContext fingerprinting protection
+if (window.AudioContext || window.webkitAudioContext) {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const originalCreateOscillator = AudioContext.prototype.createOscillator;
+    AudioContext.prototype.createOscillator = function() {
+        const oscillator = originalCreateOscillator.apply(this, arguments);
+        oscillator.frequency.value = oscillator.frequency.value + (Math.random() * 0.0001);
+        return oscillator;
+    };
+}
+
+// 11. Override connection properties
+Object.defineProperty(navigator, 'connection', {
+    get: () => ({
+        effectiveType: '4g',
+        rtt: 50 + Math.floor(Math.random() * 50),
+        downlink: 10 + Math.random() * 5,
+        saveData: false
+    }),
+    configurable: true
+});
+
+// 12. Override hardware properties
+Object.defineProperty(navigator, 'hardwareConcurrency', {
+    get: () => 8,
+    configurable: true
+});
+
+Object.defineProperty(navigator, 'deviceMemory', {
+    get: () => 8,
+    configurable: true
+});
+
+// 13. Override screen properties
+Object.defineProperty(screen, 'colorDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+Object.defineProperty(screen, 'pixelDepth', {
+    get: () => 24,
+    configurable: true
+});
+
+// 14. Spoof Notification API
+if (window.Notification) {
+    Object.defineProperty(Notification, 'permission', {
+        get: () => 'default',
+        configurable: true
+    });
+}
+
+// 15. Override iframe contentWindow checks
+const originalContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
+Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
+    get: function() {
+        const win = originalContentWindow.get.call(this);
+        if (win) {
+            try {
+                Object.defineProperty(win.navigator, 'webdriver', {
+                    get: () => false,
+                    configurable: true
+                });
+            } catch(e) {}
+        }
+        return win;
+    }
+});
+
+// 16. Mock Battery API
+if (navigator.getBattery) {
+    navigator.getBattery = () => Promise.resolve({
+        charging: true,
+        chargingTime: 0,
+        dischargingTime: Infinity,
+        level: 1,
+        addEventListener: () => {},
+        removeEventListener: () => {}
+    });
+}
+
+// 17. Hide Playwright/Puppeteer specific objects
+delete window.__playwright;
+delete window.__pw_manual;
+delete window.__PW_inspect;
+
+console.log('Advanced stealth mode activated');
+"""
+
+
+def _get_random_user_agent() -> str:
+    """Get a random User-Agent from the pool"""
+    return random.choice(USER_AGENT_POOL)
+
+
+def _is_amazon_url(url: str) -> bool:
+    """Check if URL is an Amazon URL"""
+    return "amazon" in url.lower()
+
+
+def _is_amazon_blocked(html_content: str) -> bool:
+    """Check if Amazon has blocked the request"""
+    html_lower = html_content.lower()
+    for indicator in AMAZON_BLOCK_INDICATORS:
+        if indicator.lower() in html_lower:
+            return True
+    return False
 
 
 def simplify_url(url: str) -> str:
@@ -117,12 +426,23 @@ class ScraperService:
             logger.warning(f"Invalid timeout value: {timeout}, using default 90000")
             timeout = 90000
 
+        # Amazon needs more retries with longer delays
+        is_amazon = _is_amazon_url(url)
+        max_retries = AMAZON_MAX_RETRIES if is_amazon else MAX_RETRIES
+        base_delay = AMAZON_BASE_DELAY if is_amazon else RETRY_DELAY
+
         # Retries avec backoff
         last_error = None
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(max_retries + 1):
             if attempt > 0:
-                logger.info(f"Tentative {attempt + 1}/{MAX_RETRIES + 1} pour {url}")
-                await asyncio.sleep(RETRY_DELAY * attempt)
+                # Exponential backoff with jitter for Amazon
+                if is_amazon:
+                    jitter = random.uniform(0.5, 1.5)
+                    delay = min(base_delay * (2 ** attempt) * jitter, 30.0)
+                else:
+                    delay = base_delay * attempt
+                logger.info(f"Tentative {attempt + 1}/{max_retries + 1} pour {url} (délai: {delay:.1f}s)")
+                await asyncio.sleep(delay)
 
             result = await ScraperService._do_scrape(
                 url=url,
@@ -133,6 +453,7 @@ class ScraperService:
                 text_length=text_length,
                 timeout=timeout,
                 browser=browser,
+                is_amazon=is_amazon,
             )
 
             if result[0] is not None:  # Screenshot réussi
@@ -154,14 +475,15 @@ class ScraperService:
         text_length: int = 0,
         timeout: int = 90000,
         browser=None,
+        is_amazon: bool = False,
     ) -> tuple[str | None, str, bool]:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
-        
+
         # Si un navigateur est fourni, on l'utilise directement sans async_playwright context manager
         # sinon on crée tout de zéro
         playwright_manager = None
         local_browser = None
-        
+
         try:
             if browser:
                 # Utiliser le navigateur partagé
@@ -180,48 +502,105 @@ class ScraperService:
             context = None
             page = None
             is_available = True  # Par défaut, le produit est disponible
-            
-            try:
-                context = await current_browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
-                    user_agent=(
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
-                    ),
-                    locale="fr-FR",
-                    timezone_id="Europe/Paris",
-                    # Options supplémentaires pour éviter la détection
-                    extra_http_headers={
-                        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    }
-                )
 
-                # Stealth mode / Ad blocking attempts
-                await context.route("**/*", lambda route: route.continue_())
+            # Use random User-Agent for anti-detection (especially for Amazon)
+            current_user_agent = _get_random_user_agent()
+
+            # Enhanced headers for stealth
+            extra_headers = {
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Cache-Control": "max-age=0",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+            # Add referer for Amazon
+            if is_amazon:
+                extra_headers["Referer"] = "https://www.google.fr/"
+
+            try:
+                # Prepare context options
+                context_options = {
+                    "viewport": {"width": 1920, "height": 1080},
+                    "user_agent": current_user_agent,
+                    "locale": "fr-FR",
+                    "timezone_id": "Europe/Paris",
+                    "extra_http_headers": extra_headers,
+                    "java_script_enabled": True,
+                    "bypass_csp": True,
+                }
+
+                # Add proxy for Amazon if configured
+                if is_amazon:
+                    proxy_url = _get_amazon_proxy()
+                    if proxy_url:
+                        logger.info(f"Using proxy for Amazon: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
+                        context_options["proxy"] = {"server": proxy_url}
+
+                context = await current_browser.new_context(**context_options)
+
+                # Inject stealth script before any page loads (especially for Amazon)
+                if is_amazon:
+                    await context.add_init_script(STEALTH_JS)
+                    logger.debug("Stealth JS injected for Amazon product page")
+
+                # Stealth mode / Ad blocking attempts - don't block images for Amazon
+                if is_amazon:
+                    # For Amazon, only block tracking - keep images to avoid detection
+                    await context.route("**/analytics*", lambda route: route.abort())
+                    await context.route("**/tracking*", lambda route: route.abort())
+                else:
+                    await context.route("**/*", lambda route: route.continue_())
 
                 page = await context.new_page()
 
+                # Add random delay before navigation for Amazon
+                if is_amazon:
+                    await asyncio.sleep(random.uniform(1.0, 3.0))
+                    
+                    # Warmup: Visit home page first
+                    try:
+                        logger.info("Amazon Warmup: Visiting home page...")
+                        await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
+                        await asyncio.sleep(random.uniform(2.0, 4.0))
+                    except Exception as e:
+                        logger.warning(f"Amazon warmup failed: {e}")
+
                 logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
                 response = None
+                amazon_blocked = False
                 try:
                     # First wait for domcontentloaded - this is the minimum we need
                     response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-                    
+
                     # Check HTTP status code
                     if response:
                         status = response.status
                         logger.info(f"HTTP Status: {status}")
-                        
-                        # Detect unavailable products by HTTP status
-                        if status in [404, 410, 451, 503]:
+
+                        # For Amazon, 503 is usually a block, not product unavailability
+                        if is_amazon and status == 503:
+                            logger.warning(f"Amazon returned 503 - likely blocking")
+                            amazon_blocked = True
+                        # Detect unavailable products by HTTP status (non-Amazon)
+                        elif status in [404, 410, 451]:
+                            logger.warning(f"Product unavailable - HTTP {status}")
+                            is_available = False
+                        elif status == 503 and not is_amazon:
                             logger.warning(f"Product unavailable - HTTP {status}")
                             is_available = False
                         elif status >= 400:
                             logger.warning(f"HTTP error {status}, marking as potentially unavailable")
                             is_available = False
-                    
+
                     logger.info(f"Page loaded (domcontentloaded): {url}")
 
                     # Then try to wait for networkidle, but don't fail if it times out
@@ -239,8 +618,24 @@ class ScraperService:
                     # Try to take screenshot anyway if page partially loaded
                     pass
 
-                # Wait a bit for dynamic content if needed
-                await page.wait_for_timeout(2000)
+                # Wait a bit for dynamic content if needed - longer for Amazon
+                wait_time = random.uniform(2.0, 4.0) if is_amazon else 2.0
+                await page.wait_for_timeout(int(wait_time * 1000))
+
+                # Check for Amazon blocking in page content
+                if is_amazon:
+                    try:
+                        page_html = await page.content()
+                        if _is_amazon_blocked(page_html):
+                            logger.warning(f"Amazon blocking detected in page content for {url}")
+                            amazon_blocked = True
+                    except Exception as e:
+                        logger.debug(f"Could not check Amazon blocking: {e}")
+
+                # If Amazon blocked us, return None to trigger retry
+                if amazon_blocked:
+                    logger.warning(f"Amazon blocked - will retry with different User-Agent")
+                    return None, "", True  # Return None screenshot to trigger retry
 
                 # Try to close common popups and cookie banners
                 logger.info("Attempting to close popups and cookie banners...")
