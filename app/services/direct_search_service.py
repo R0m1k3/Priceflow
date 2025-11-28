@@ -553,7 +553,7 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        "search_url": "https://www.amazon.fr/s?k={query}",
+        "search_url": "https://www.amazon.fr/s?k={query}&ref=nb_sb_noss",
         "product_selector": (
             # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
@@ -614,7 +614,7 @@ DEFAULT_SITE_CONFIGS = {
     # === AUTRES (conservés pour compatibilité) ===
     "amazon.com": {
         "name": "Amazon US",
-        "search_url": "https://www.amazon.com/s?k={query}",
+        "search_url": "https://www.amazon.com/s?k={query}&ref=nb_sb_noss",
         "product_selector": (
             # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
