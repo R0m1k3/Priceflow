@@ -7,8 +7,7 @@ import asyncio
 import logging
 import os
 import re
-import random  # Used for user-agent rotation and delays
-import time
+import random
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -18,361 +17,15 @@ logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
-# Proxy configuration for Amazon (optional)
-# Format: "http://user:pass@host:port" or "http://host:port"
-AMAZON_PROXY_URL = os.getenv("AMAZON_PROXY_URL", "")
-# If you have multiple proxies, separate them with commas
-AMAZON_PROXY_LIST = [p.strip() for p in os.getenv("AMAZON_PROXY_LIST", "").split(",") if p.strip()]
-
-def _get_amazon_proxy() -> str | None:
-    """Get a proxy for Amazon requests (random from list or single)"""
-    if AMAZON_PROXY_LIST:
-        return random.choice(AMAZON_PROXY_LIST)
-    if AMAZON_PROXY_URL:
-        return AMAZON_PROXY_URL
-    return None
-
 # Constants
 MIN_TITLE_LENGTH = 3
 MIN_LINK_TEXT_LENGTH = 5
-
-# Pool of realistic User-Agents for rotation (Chrome on Windows/Mac)
-USER_AGENT_POOL = [
-    # Chrome Windows - Latest versions
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    # Chrome Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    # Firefox Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    # Edge Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-    # Linux
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-]
-
-# Amazon-specific blocking indicators
-AMAZON_BLOCK_INDICATORS = [
-    "Toutes nos excuses",
-    "Sorry, something went wrong",
-    "To discuss automated access to Amazon data",
-    "api-services-support@amazon.com",
-    "Enter the characters you see below",
-    "Saisissez les caractères",
-    "Type the characters you see",
-    "Sorry! Something went wrong",
-    "Service Unavailable",
-    "robot check",
-    "automated access",
-    "ref=cs_503",
-]
-
-# Amazon retry configuration
-AMAZON_MAX_RETRIES = 5  # Increased from 4 to give more chances
-AMAZON_BASE_DELAY = 5.0  # seconds - Increased from 3.0 to be more patient
-AMAZON_MAX_DELAY = 45.0  # seconds - Increased from 30.0 for longer backoff
-
-
-def _get_random_user_agent() -> str:
-    """Get a random User-Agent from the pool"""
-    return random.choice(USER_AGENT_POOL)
-
-
-def _is_amazon_blocked(html_content: str) -> bool:
-    """Check if Amazon has blocked the request"""
-    html_lower = html_content.lower()
-    for indicator in AMAZON_BLOCK_INDICATORS:
-        if indicator.lower() in html_lower:
-            return True
-    return False
-
-
-async def _random_delay(min_seconds: float = 1.0, max_seconds: float = 3.0):
-    """Add a random delay to simulate human behavior"""
-    delay = random.uniform(min_seconds, max_seconds)
-    await asyncio.sleep(delay)
-
-
-async def _simulate_human_behavior(page):
-    """Simulate human-like behavior on the page"""
-    try:
-        # Random mouse movements
-        for _ in range(random.randint(2, 4)):
-            x = random.randint(100, 1800)
-            y = random.randint(100, 900)
-            await page.mouse.move(x, y)
-            await asyncio.sleep(random.uniform(0.1, 0.3))
-
-        # Small random scroll
-        scroll_amount = random.randint(100, 400)
-        await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
-        await asyncio.sleep(random.uniform(0.3, 0.7))
-
-        # Scroll back up a bit
-        await page.evaluate(f"window.scrollBy(0, -{random.randint(50, 150)})")
-        await asyncio.sleep(random.uniform(0.2, 0.5))
-    except Exception as e:
-        logger.debug(f"Human behavior simulation error (non-critical): {e}")
-
-
-# Legacy constant for backward compatibility
-USER_AGENT = USER_AGENT_POOL[0]
-
-
-# Stealth JavaScript to inject before page load to hide automation
-STEALTH_JS = """
-// ============================================
-// COMPREHENSIVE STEALTH MODE FOR AMAZON
-// ============================================
-
-// 1. Override navigator.webdriver in multiple ways
-Object.defineProperty(navigator, 'webdriver', {
-    get: () => false,
-    configurable: true
-});
-
-// Also delete from navigator prototype
-delete Object.getPrototypeOf(navigator).webdriver;
-
-// Override the getAttribute method to hide webdriver attribute
-const originalGetAttribute = Element.prototype.getAttribute;
-Element.prototype.getAttribute = function(name) {
-    if (name === 'webdriver') return null;
-    return originalGetAttribute.call(this, name);
-};
-
-// 2. Override navigator.plugins with realistic plugins
-Object.defineProperty(navigator, 'plugins', {
-    get: () => {
-        const plugins = [
-            { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
-            { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 },
-            { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', length: 2 },
-            { name: 'Chromium PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', length: 1 },
-            { name: 'Chromium PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', length: 1 }
-        ];
-        plugins.item = (i) => plugins[i] || null;
-        plugins.namedItem = (name) => plugins.find(p => p.name === name) || null;
-        plugins.refresh = () => {};
-        plugins.length = plugins.length;
-        return plugins;
-    },
-    configurable: true
-});
-
-// 3. Override navigator.mimeTypes
-Object.defineProperty(navigator, 'mimeTypes', {
-    get: () => {
-        const mimeTypes = [
-            { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
-            { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' }
-        ];
-        mimeTypes.item = (i) => mimeTypes[i] || null;
-        mimeTypes.namedItem = (name) => mimeTypes.find(m => m.type === name) || null;
-        mimeTypes.length = mimeTypes.length;
-        return mimeTypes;
-    },
-    configurable: true
-});
-
-// 4. Override navigator.languages
-Object.defineProperty(navigator, 'languages', {
-    get: () => ['fr-FR', 'fr', 'en-US', 'en'],
-    configurable: true
-});
-
-// 5. Override permissions API
-if (window.navigator.permissions) {
-    const originalQuery = window.navigator.permissions.query;
-    window.navigator.permissions.query = (parameters) => {
-        if (parameters.name === 'notifications') {
-            return Promise.resolve({ state: Notification.permission, onchange: null });
-        }
-        return originalQuery.call(window.navigator.permissions, parameters);
-    };
-}
-
-// 6. Hide automation-related properties (Chromium DevTools Protocol)
-const propsToDelete = [
-    'cdc_adoQpoasnfa76pfcZLmcfl_Array',
-    'cdc_adoQpoasnfa76pfcZLmcfl_Promise',
-    'cdc_adoQpoasnfa76pfcZLmcfl_Symbol',
-    '__webdriver_evaluate',
-    '__selenium_evaluate',
-    '__webdriver_script_function',
-    '__webdriver_script_func',
-    '__webdriver_script_fn',
-    '__fxdriver_evaluate',
-    '__driver_unwrapped',
-    '__webdriver_unwrapped',
-    '__driver_evaluate',
-    '__selenium_unwrapped',
-    '__fxdriver_unwrapped',
-    '_Selenium_IDE_Recorder',
-    '_selenium',
-    'calledSelenium',
-    '$chrome_asyncScriptInfo',
-    '$cdc_asdjflasutopfhvcZLmcfl_',
-    '$wdc_'
-];
-propsToDelete.forEach(prop => {
-    try { delete window[prop]; } catch(e) {}
-});
-
-// 7. Override chrome object with realistic properties
-window.chrome = {
-    app: {
-        isInstalled: false,
-        InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
-        RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
-    },
-    runtime: {
-        OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install', SHARED_MODULE_UPDATE: 'shared_module_update', UPDATE: 'update' },
-        OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
-        PlatformArch: { ARM: 'arm', ARM64: 'arm64', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-        PlatformNaclArch: { ARM: 'arm', MIPS: 'mips', MIPS64: 'mips64', X86_32: 'x86-32', X86_64: 'x86-64' },
-        PlatformOs: { ANDROID: 'android', CROS: 'cros', LINUX: 'linux', MAC: 'mac', OPENBSD: 'openbsd', WIN: 'win' },
-        RequestUpdateCheckStatus: { NO_UPDATE: 'no_update', THROTTLED: 'throttled', UPDATE_AVAILABLE: 'update_available' },
-        connect: function() { return { onDisconnect: { addListener: function() {} }, onMessage: { addListener: function() {} }, postMessage: function() {} }; },
-        sendMessage: function() {}
-    },
-    csi: function() { return {}; },
-    loadTimes: function() { return { requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, firstPaintAfterLoadTime: 0, firstPaintTime: Date.now() / 1000, navigationType: 'navigate' }; }
-};
-
-// 8. WebGL fingerprinting protection
-const getParameterProxyHandler = {
-    apply: function(target, ctx, args) {
-        if (args[0] === 37445) return 'Intel Inc.';
-        if (args[0] === 37446) return 'Intel Iris OpenGL Engine';
-        if (args[0] === 7937) return 'WebKit';
-        if (args[0] === 7936) return 'WebKit WebGL';
-        return Reflect.apply(target, ctx, args);
-    }
-};
-try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (gl) {
-        const getParameter = gl.getParameter.bind(gl);
-        gl.getParameter = new Proxy(getParameter, getParameterProxyHandler);
-    }
-    const gl2 = canvas.getContext('webgl2');
-    if (gl2) {
-        const getParameter2 = gl2.getParameter.bind(gl2);
-        gl2.getParameter = new Proxy(getParameter2, getParameterProxyHandler);
-    }
-} catch(e) {}
-
-// 9. Canvas fingerprinting protection
-const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-HTMLCanvasElement.prototype.toDataURL = function(type) {
-    if (type === 'image/png' && this.width === 220 && this.height === 30) {
-        // Likely fingerprinting attempt, add noise
-        const context = this.getContext('2d');
-        if (context) {
-            const imageData = context.getImageData(0, 0, this.width, this.height);
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                imageData.data[i] = imageData.data[i] ^ (Math.random() * 2);
-            }
-            context.putImageData(imageData, 0, 0);
-        }
-    }
-    return originalToDataURL.apply(this, arguments);
-};
-
-// 10. AudioContext fingerprinting protection
-if (window.AudioContext || window.webkitAudioContext) {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const originalCreateOscillator = AudioContext.prototype.createOscillator;
-    AudioContext.prototype.createOscillator = function() {
-        const oscillator = originalCreateOscillator.apply(this, arguments);
-        oscillator.frequency.value = oscillator.frequency.value + (Math.random() * 0.0001);
-        return oscillator;
-    };
-}
-
-// 11. Override connection properties
-Object.defineProperty(navigator, 'connection', {
-    get: () => ({
-        effectiveType: '4g',
-        rtt: 50 + Math.floor(Math.random() * 50),
-        downlink: 10 + Math.random() * 5,
-        saveData: false
-    }),
-    configurable: true
-});
-
-// 12. Override hardware properties
-Object.defineProperty(navigator, 'hardwareConcurrency', {
-    get: () => 8,
-    configurable: true
-});
-
-Object.defineProperty(navigator, 'deviceMemory', {
-    get: () => 8,
-    configurable: true
-});
-
-// 13. Override screen properties
-Object.defineProperty(screen, 'colorDepth', {
-    get: () => 24,
-    configurable: true
-});
-
-Object.defineProperty(screen, 'pixelDepth', {
-    get: () => 24,
-    configurable: true
-});
-
-// 14. Spoof Notification API
-if (window.Notification) {
-    Object.defineProperty(Notification, 'permission', {
-        get: () => 'default',
-        configurable: true
-    });
-}
-
-// 15. Override iframe contentWindow checks
-const originalContentWindow = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
-Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
-    get: function() {
-        const win = originalContentWindow.get.call(this);
-        if (win) {
-            try {
-                Object.defineProperty(win.navigator, 'webdriver', {
-                    get: () => false,
-                    configurable: true
-                });
-            } catch(e) {}
-        }
-        return win;
-    }
-});
-
-// 16. Mock Battery API
-if (navigator.getBattery) {
-    navigator.getBattery = () => Promise.resolve({
-        charging: true,
-        chargingTime: 0,
-        dischargingTime: Infinity,
-        level: 1,
-        addEventListener: () => {},
-        removeEventListener: () => {}
-    });
-}
-
-// 17. Hide Playwright/Puppeteer specific objects
-delete window.__playwright;
-delete window.__pw_manual;
-delete window.__PW_inspect;
-
-console.log('Advanced stealth mode activated');
-"""
-
-
-# Chemin absolu pour les dumps de débogage (doit correspondre à celui dans debug.py)
-DEBUG_DUMPS_DIR = "/app/debug_dumps"
+AMAZON_BASE_DELAY = 2
+AMAZON_MAX_DELAY = 10
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+)
 
 
 def _dump_debug_html(html: str, domain: str, query: str):
@@ -553,7 +206,7 @@ DEFAULT_SITE_CONFIGS = {
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
-        "search_url": "https://www.amazon.fr/s?k={query}&ref=nb_sb_noss",
+        "search_url": "https://www.amazon.fr/s?k={query}",
         "product_selector": (
             # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
@@ -614,7 +267,7 @@ DEFAULT_SITE_CONFIGS = {
     # === AUTRES (conservés pour compatibilité) ===
     "amazon.com": {
         "name": "Amazon US",
-        "search_url": "https://www.amazon.com/s?k={query}&ref=nb_sb_noss",
+        "search_url": "https://www.amazon.com/s?k={query}",
         "product_selector": (
             # Sélecteurs robustes pour Amazon
             "div[data-asin]:not([data-asin='']) h2 a, "
@@ -915,210 +568,142 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
         try:
             # Créer un nouveau contexte isolé pour ce site
-            # Utiliser un User-Agent aléatoire pour chaque tentative
-            current_user_agent = _get_random_user_agent()
-            
-            context_options = {
-                "viewport": {"width": 1920 + random.randint(-50, 50), "height": 1080 + random.randint(-50, 50)},
-                "user_agent": current_user_agent,
-                "locale": "fr-FR",
-                "timezone_id": "Europe/Paris",
-                "extra_http_headers": {
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=USER_AGENT,
+                locale="fr-FR",
+                timezone_id="Europe/Paris",
+                extra_http_headers={
                     "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                    "DNT": "1",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
                 }
-            }
-            
-            # Ajouter le proxy si configuré pour Amazon
-            if "amazon" in domain:
-                proxy = _get_amazon_proxy()
-                if proxy:
-                    context_options["proxy"] = {"server": proxy}
-                    logger.info(f"Using proxy for Amazon: {proxy}")
-
-            context = await browser.new_context(**context_options)
-            
-            # Injecter le script de stealth
-            await context.add_init_script(STEALTH_JS)
+            )
             
             # Bloquer les ressources inutiles
-            # IMPORTANT: Ne PAS bloquer les images pour Amazon - signal de bot !
-            if "amazon" in domain:
-                # For Amazon, only block tracking - keep images to avoid detection
-                await context.route("**/analytics*", lambda route: route.abort())
-                await context.route("**/tracking*", lambda route: route.abort())
-            else:
-                # For other sites, block images to speed up page load
-                await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-                await context.route("**/analytics*", lambda route: route.abort())
-                await context.route("**/tracking*", lambda route: route.abort())
+            await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+            await context.route("**/analytics*", lambda route: route.abort())
+            await context.route("**/tracking*", lambda route: route.abort())
             
             page = await context.new_page()
 
-            # Amazon warmup strategy: visit home page first to establish normal browsing session
-            if "amazon" in domain:
-                try:
-                    logger.info("Amazon Warmup: Visiting home page...")
-                    await asyncio.sleep(random.uniform(1.0, 2.5))
-                    await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
-                    await asyncio.sleep(random.uniform(2.0, 4.0))
-                    logger.info("Amazon Warmup: Completed successfully")
-                except Exception as e:
-                    logger.warning(f"Amazon warmup failed: {e}")
+        # Naviguer vers la page de recherche
+        await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
 
-            # Naviguer vers la page de recherche
-            await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
+        # Accepter les cookies si nécessaire
+        await _accept_cookies(page, domain)
 
-            # Simulation de comportement humain
-            if "amazon" in domain:
-                await _simulate_human_behavior(page)
-
-            # Accepter les cookies si nécessaire
-            await _accept_cookies(page, domain)
-
-            # Attendre que les résultats se chargent
-            if wait_selector:
-                try:
-                    await page.wait_for_selector(wait_selector, timeout=10000)
-                except Exception:
-                    logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
-
-            # Attendre un peu pour le JS (réduit pour parallélisation)
-            await asyncio.sleep(1.5)
-
-            # Extraire le HTML
-            html_content = await page.content()
-
-            # Check for Amazon blocking (503, "Sorry something went wrong", etc.)
-            if "amazon" in domain and _is_amazon_blocked(html_content):
-                logger.warning(f"Amazon blocked request (attempt {attempt+1}/{max_retries}) for '{query}'")
-                # Dump HTML for debugging
-                timestamp = int(time.time() * 1000)
-                safe_query = "".join(c if c.isalnum() else "_" for c in query)[:30]
-                dump_path = _dump_debug_html(html_content, domain, f"{safe_query}_blocked_attempt{attempt+1}_{timestamp}")
-                logger.info(f"HTML dump saved to {dump_path}")
-                # Raise exception to trigger retry with new User-Agent
-                if attempt < max_retries - 1:
-                    raise Exception(f"Amazon blocked (attempt {attempt+1})")
-                else:
-                    logger.error(f"Amazon still blocking after {max_retries} attempts for '{query}'")
-                    return []
-
-            # Check for CAPTCHA
-            if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
-                logger.warning(f"CAPTCHA detected on {domain}!")
-                _dump_debug_html(html_content, domain, query)
-                # Si c'est un captcha, on peut vouloir réessayer ou abandonner. 
-                # Ici on retourne vide pour cette tentative, ce qui déclenchera peut-être un retry si on levait une exception,
-                # mais le code original retournait [].
-                # Pour le retry, on va lever une exception si c'est Amazon
-                if "amazon" in domain:
-                    raise Exception("CAPTCHA detected")
-                return []
-
-            # Parser le HTML avec BeautifulSoup
-            soup = BeautifulSoup(html_content, "lxml")
-            results = []
-            seen_urls = set()
-
-            # Trouver les liens produits
-            links = []
-            if product_selector:
-                # Essayer plusieurs sélecteurs séparés par virgule
-                selectors = [s.strip() for s in product_selector.split(",")]
-                for sel in selectors:
-                    try:
-                        found = soup.select(sel)
-                        links.extend(found)
-                    except Exception:
-                        continue
-                logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
-
-            # Fallback: détection générique si le sélecteur n'a rien trouvé
-            if not links:
-                logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
-                links = _find_product_links(soup, domain)
-                logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
-
-            for link in links:
-                href = link.get("href", "")
-                if not href:
-                    continue
-
-                # Construire l'URL complète
-                if href.startswith("/"):
-                    href = f"https://{domain}{href}"
-                elif not href.startswith("http"):
-                    href = urljoin(final_url, href)
-
-                # Nettoyer l'URL
-                href = _clean_product_url(href, domain)
-
-                # Éviter les doublons
-                if href in seen_urls:
-                    continue
-                seen_urls.add(href)
-
-                # Vérifier que c'est bien un lien vers ce domaine
-                url_domain = _extract_domain(href)
-                if domain not in url_domain and url_domain not in domain:
-                    # logger.debug(f"Ignored external link: {href}")
-                    continue
-
-                # Filtrer les liens non-produits
-                if _is_non_product_url(href):
-                    # logger.debug(f"Ignored non-product link: {href}")
-                    continue
-
-                # Extraire le titre
-                title = _extract_title(link)
-                if not title or len(title) < MIN_TITLE_LENGTH:
-                    # logger.debug(f"Ignored link with no title: {href}")
-                    continue
-
-                results.append(SearchResult(
-                    url=href,
-                    title=title,
-                    snippet="",
-                    source=domain,
-                ))
-
-                if len(results) >= max_results:
-                    break
-
-            logger.info(f"{domain}: {len(results)} résultats extraits")
-            
-            if len(results) == 0:
-                logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
-                _dump_debug_html(html_content, domain, query)
-                # Si 0 résultats sur Amazon, on peut vouloir réessayer
-                if "amazon" in domain:
-                     raise Exception("No results found")
-                
-            return results
-
-        except Exception as e:
-            logger.error(f"Erreur Browserless sur {domain} (tentative {attempt+1}): {e}")
-            if attempt == max_retries - 1:
-                return []
-            
-        finally:
-            # Fermer le contexte et la page, mais PAS le navigateur
+        # Attendre que les résultats se chargent
+        if wait_selector:
             try:
-                if page:
-                    await page.close()
-                if context:
-                    await context.close()
-            except Exception as e:
-                logger.debug(f"Erreur fermeture contexte {domain}: {e}")
+                await page.wait_for_selector(wait_selector, timeout=10000)
+            except Exception:
+                logger.debug(f"Selector {wait_selector} non trouvé sur {domain}, on continue...")
 
-    return []
+        # Attendre un peu pour le JS (réduit pour parallélisation)
+        await asyncio.sleep(1.5)
+
+        # Extraire le HTML
+        html_content = await page.content()
+
+        # Check for CAPTCHA
+        if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
+            logger.warning(f"CAPTCHA detected on {domain}!")
+            _dump_debug_html(html_content, domain, query)
+            return []
+
+        # Parser le HTML avec BeautifulSoup
+        soup = BeautifulSoup(html_content, "lxml")
+        results = []
+        seen_urls = set()
+
+        # Trouver les liens produits
+        links = []
+        if product_selector:
+            # Essayer plusieurs sélecteurs séparés par virgule
+            selectors = [s.strip() for s in product_selector.split(",")]
+            for sel in selectors:
+                try:
+                    found = soup.select(sel)
+                    links.extend(found)
+                except Exception:
+                    continue
+            logger.info(f"{domain}: {len(links)} liens trouvés avec sélecteur configuré")
+
+        # Fallback: détection générique si le sélecteur n'a rien trouvé
+        if not links:
+            logger.info(f"{domain}: Sélecteur configuré n'a rien trouvé, utilisation détection générique")
+            links = _find_product_links(soup, domain)
+            logger.info(f"{domain}: {len(links)} liens trouvés avec détection générique")
+
+        for link in links:
+            href = link.get("href", "")
+            if not href:
+                continue
+
+            # Construire l'URL complète
+            if href.startswith("/"):
+                href = f"https://{domain}{href}"
+            elif not href.startswith("http"):
+                href = urljoin(final_url, href)
+
+            # Nettoyer l'URL
+            href = _clean_product_url(href, domain)
+
+            # Éviter les doublons
+            if href in seen_urls:
+                continue
+            seen_urls.add(href)
+
+            # Vérifier que c'est bien un lien vers ce domaine
+            url_domain = _extract_domain(href)
+            if domain not in url_domain and url_domain not in domain:
+                # logger.debug(f"Ignored external link: {href}")
+                continue
+
+            # Filtrer les liens non-produits
+            if _is_non_product_url(href):
+                # logger.debug(f"Ignored non-product link: {href}")
+                continue
+
+            # Extraire le titre
+            title = _extract_title(link)
+            if not title or len(title) < MIN_TITLE_LENGTH:
+                # logger.debug(f"Ignored link with no title: {href}")
+                continue
+
+            results.append(SearchResult(
+                url=href,
+                title=title,
+                snippet="",
+                source=domain,
+                # On ne peut pas extraire le prix facilement ici sans scraper chaque page
+                # Le scraping détaillé se fera dans la phase 2
+            ))
+
+            if len(results) >= max_results:
+                break
+
+        logger.info(f"{domain}: {len(results)} résultats extraits")
+        
+        if len(results) == 0:
+            logger.warning(f"{domain}: 0 results found. Dumping HTML for debugging.")
+            _dump_debug_html(html_content, domain, query)
+            
+        return results
+
+    except Exception as e:
+        logger.error(f"Erreur Browserless sur {domain}: {e}")
+        return []
+        
+    finally:
+        # Fermer le contexte et la page, mais PAS le navigateur
+        try:
+            if page:
+                await page.close()
+            if context:
+                await context.close()
+        except Exception as e:
+            logger.debug(f"Erreur fermeture contexte {domain}: {e}")
 
 
 def _get_default_search_url(domain: str) -> str | None:
