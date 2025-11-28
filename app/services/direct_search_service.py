@@ -7,7 +7,7 @@ import asyncio
 import logging
 import os
 import re
-import random
+import random  # Used for user-agent rotation and delays
 import time
 from urllib.parse import quote_plus, urljoin, urlparse
 
