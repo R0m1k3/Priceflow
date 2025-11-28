@@ -68,9 +68,9 @@ AMAZON_BLOCK_INDICATORS = [
 ]
 
 # Amazon retry configuration
-AMAZON_MAX_RETRIES = 4
-AMAZON_BASE_DELAY = 3.0  # seconds
-AMAZON_MAX_DELAY = 30.0  # seconds
+AMAZON_MAX_RETRIES = 5  # Increased from 4 to give more chances
+AMAZON_BASE_DELAY = 5.0  # seconds - Increased from 3.0 to be more patient
+AMAZON_MAX_DELAY = 45.0  # seconds - Increased from 30.0 for longer backoff
 
 
 def _get_random_user_agent() -> str:
