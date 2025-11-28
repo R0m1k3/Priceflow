@@ -948,11 +948,29 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             await context.add_init_script(STEALTH_JS)
             
             # Bloquer les ressources inutiles
-            await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
-            await context.route("**/analytics*", lambda route: route.abort())
-            await context.route("**/tracking*", lambda route: route.abort())
+            # IMPORTANT: Ne PAS bloquer les images pour Amazon - signal de bot !
+            if "amazon" in domain:
+                # For Amazon, only block tracking - keep images to avoid detection
+                await context.route("**/analytics*", lambda route: route.abort())
+                await context.route("**/tracking*", lambda route: route.abort())
+            else:
+                # For other sites, block images to speed up page load
+                await context.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico}", lambda route: route.abort())
+                await context.route("**/analytics*", lambda route: route.abort())
+                await context.route("**/tracking*", lambda route: route.abort())
             
             page = await context.new_page()
+
+            # Amazon warmup strategy: visit home page first to establish normal browsing session
+            if "amazon" in domain:
+                try:
+                    logger.info("Amazon Warmup: Visiting home page...")
+                    await asyncio.sleep(random.uniform(1.0, 2.5))
+                    await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    logger.info("Amazon Warmup: Completed successfully")
+                except Exception as e:
+                    logger.warning(f"Amazon warmup failed: {e}")
 
             # Naviguer vers la page de recherche
             await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))
@@ -976,6 +994,21 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
             # Extraire le HTML
             html_content = await page.content()
+
+            # Check for Amazon blocking (503, "Sorry something went wrong", etc.)
+            if "amazon" in domain and _is_amazon_blocked(html_content):
+                logger.warning(f"Amazon blocked request (attempt {attempt+1}/{max_retries}) for '{query}'")
+                # Dump HTML for debugging
+                timestamp = int(time.time() * 1000)
+                safe_query = "".join(c if c.isalnum() else "_" for c in query)[:30]
+                dump_path = _dump_debug_html(html_content, domain, f"{safe_query}_blocked_attempt{attempt+1}_{timestamp}")
+                logger.info(f"HTML dump saved to {dump_path}")
+                # Raise exception to trigger retry with new User-Agent
+                if attempt < max_retries - 1:
+                    raise Exception(f"Amazon blocked (attempt {attempt+1})")
+                else:
+                    logger.error(f"Amazon still blocking after {max_retries} attempts for '{query}'")
+                    return []
 
             # Check for CAPTCHA
             if "Enter the characters you see below" in html_content or "Saisissez les caractères" in html_content:
