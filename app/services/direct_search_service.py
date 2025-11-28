@@ -41,18 +41,14 @@ USER_AGENT_POOL = [
     # Chrome Windows - Latest versions
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     # Chrome Mac
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     # Firefox Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
-    # Firefox Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
     # Edge Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    # Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 ]
 
 # Amazon-specific blocking indicators
@@ -991,6 +987,18 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
             # Add random delay before navigation for Amazon
             if is_amazon:
                 await _random_delay(1.0, 3.0)
+
+            # Warmup for Amazon: Visit home page first to get cookies (only on first attempt)
+            if is_amazon and attempt == 0:
+                try:
+                    logger.info(f"Amazon Warmup: Visiting home page...")
+                    # Use a shorter timeout for warmup
+                    await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    # Simulate a bit of mouse movement
+                    await _simulate_human_behavior(page)
+                except Exception as e:
+                    logger.warning(f"Amazon warmup failed (non-critical): {e}")
 
             # Naviguer vers la page de recherche
             await page.goto(final_url, wait_until="domcontentloaded", timeout=int(timeout * 1000))

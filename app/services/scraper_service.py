@@ -40,6 +40,7 @@ USER_AGENT_POOL = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 ]
 
 # Amazon blocking indicators
@@ -564,6 +565,14 @@ class ScraperService:
                 # Add random delay before navigation for Amazon
                 if is_amazon:
                     await asyncio.sleep(random.uniform(1.0, 3.0))
+                    
+                    # Warmup: Visit home page first
+                    try:
+                        logger.info("Amazon Warmup: Visiting home page...")
+                        await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
+                        await asyncio.sleep(random.uniform(2.0, 4.0))
+                    except Exception as e:
+                        logger.warning(f"Amazon warmup failed: {e}")
 
                 logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
                 response = None
