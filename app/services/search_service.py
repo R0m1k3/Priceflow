@@ -137,8 +137,10 @@ async def search_products(
         results: list[SearchResultItem] = []
         completed = 0
 
-        # Créer un sémaphore pour limiter la concurrence
+        # Créer un sémaphore pour limiter la concurrence globale
         semaphore = asyncio.Semaphore(parallel_limit)
+        # Sémaphore spécifique pour Amazon (1 seul thread à la fois pour éviter le blocage)
+        amazon_semaphore = asyncio.Semaphore(1)
 
         async def process_url(search_result: direct_search_service.SearchResult) -> SearchResultItem | None:
             async with semaphore:
@@ -176,7 +178,14 @@ async def search_products(
                 # Fallback: Browserless + IA
                 try:
                     # Passer le navigateur partagé
-                    result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
+                    if "amazon" in domain.lower():
+                        async with amazon_semaphore:
+                            # Petit délai supplémentaire entre les requêtes Amazon
+                            await asyncio.sleep(2.0)
+                            result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
+                    else:
+                        result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
+                    
                     return result
                 except Exception as e:
                     logger.error(f"Erreur scraping {url}: {e}")
