@@ -40,6 +40,9 @@ AMAZON_PROXY_LIST = [
     if (parts := proxy.split(":")) and len(parts) == 4
 ]
 
+# Log proxy initialization at startup
+logger.info(f"Amazon proxies initialized: {len(AMAZON_PROXY_LIST)} proxies available")
+
 def _get_amazon_proxy() -> str | None:
     """Get a random proxy for Amazon requests from the rotating pool"""
     if AMAZON_PROXY_LIST:
@@ -48,6 +51,7 @@ def _get_amazon_proxy() -> str | None:
         ip_port = proxy.split("@")[1] if "@" in proxy else proxy
         logger.info(f"Using proxy: {ip_port}")
         return proxy
+    logger.warning("No Amazon proxies available!")
     return None
 
 # Constants
