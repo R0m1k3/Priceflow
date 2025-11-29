@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Search as SearchIcon, Loader2, ExternalLink, TrendingUp, Package } from 'lucide-react';
+import { Search as SearchIcon, Loader2, ExternalLink, TrendingUp, Package, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const API_URL = '/api';
 
@@ -17,12 +18,76 @@ export default function MultiSearch() {
     const [isSearching, setIsSearching] = useState(false);
     const [progress, setProgress] = useState(null);
     const [results, setResults] = useState([]);
+    const [availableSites, setAvailableSites] = useState([]);
+    const [selectedSiteIds, setSelectedSiteIds] = useState([]);
+    const [showSiteSelector, setShowSiteSelector] = useState(false);
     const eventSourceRef = useRef(null);
+
+    // Fetch available sites on mount
+    useEffect(() => {
+        const fetchSites = async () => {
+            try {
+                const response = await axios.get(`${API_URL}/search-sites`);
+                const sites = response.data.filter(site => site.is_active);
+                setAvailableSites(sites);
+
+                // Load selection from localStorage or select all by default
+                const savedSelection = localStorage.getItem('selectedSiteIds');
+                if (savedSelection) {
+                    setSelectedSiteIds(JSON.parse(savedSelection));
+                } else {
+                    setSelectedSiteIds(sites.map(s => s.id));
+                }
+            } catch (error) {
+                console.error('Error fetching sites:', error);
+                toast.error('Erreur lors du chargement des sites');
+            }
+        };
+        fetchSites();
+    }, []);
+
+    // Save selection to localStorage
+    useEffect(() => {
+        if (selectedSiteIds.length > 0) {
+            localStorage.setItem('selectedSiteIds', JSON.stringify(selectedSiteIds));
+        }
+    }, [selectedSiteIds]);
+
+    const toggleSite = (siteId) => {
+        setSelectedSiteIds(prev =>
+            prev.includes(siteId)
+                ? prev.filter(id => id !== siteId)
+                : [...prev, siteId]
+        );
+    };
+
+    const selectAll = () => {
+        setSelectedSiteIds(availableSites.map(s => s.id));
+    };
+
+    const deselectAll = () => {
+        setSelectedSiteIds([]);
+    };
+
+    // Group sites by category
+    const sitesByCategory = availableSites.reduce((acc, site) => {
+        const category = site.category || 'Autres';
+        if (!acc[category]) {
+            acc[category] = [];
+        }
+        acc[category].push(site);
+        return acc;
+    }, {});
 
     const handleSearch = async (e) => {
         e.preventDefault();
         if (!query.trim()) {
             toast.error('Veuillez entrer une recherche');
+            return;
+        }
+
+        if (selectedSiteIds.length === 0) {
+            toast.error('Veuillez sélectionner au moins un site');
             return;
         }
 
@@ -35,10 +100,11 @@ export default function MultiSearch() {
         setResults([]);
         setProgress({ status: 'searching', total: 0, completed: 0 });
 
-        // Construire l'URL - recherche sur TOUS les sites actifs
+        // Construire l'URL avec les sites sélectionnés
         const params = new URLSearchParams({
             q: query.trim(),
-            max_results: 50, // Plus de résultats pour la comparaison
+            max_results: 50,
+            sites: selectedSiteIds.join(','), // Include selected sites
         });
 
         // Créer l'EventSource pour SSE
@@ -147,6 +213,65 @@ export default function MultiSearch() {
                             </Button>
                         </div>
                     </form>
+
+                    {/* Site Selector */}
+                    <div className="mt-4 border-t pt-4">
+                        <button
+                            type="button"
+                            onClick={() => setShowSiteSelector(!showSiteSelector)}
+                            className="flex items-center justify-between w-full text-sm font-medium mb-2"
+                        >
+                            <span>
+                                Sites à rechercher ({selectedSiteIds.length} sur {availableSites.length} sélectionné{selectedSiteIds.length > 1 ? 's' : ''})
+                            </span>
+                            {showSiteSelector ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
+
+                        {showSiteSelector && (
+                            <div className="space-y-3">
+                                {/* Quick Actions */}
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={selectAll}
+                                    >
+                                        Tout sélectionner
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={deselectAll}
+                                    >
+                                        Tout désélectionner
+                                    </Button>
+                                </div>
+
+                                {/* Sites grouped by category */}
+                                {Object.entries(sitesByCategory).map(([category, sites]) => (
+                                    <div key={category} className="space-y-2">
+                                        <h4 className="text-sm font-medium text-muted-foreground">{category}</h4>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                            {sites.map(site => (
+                                                <label
+                                                    key={site.id}
+                                                    className="flex items-center space-x-2 cursor-pointer hover:bg-muted/50 p-2 rounded transition-colors"
+                                                >
+                                                    <Checkbox
+                                                        checked={selectedSiteIds.includes(site.id)}
+                                                        onCheckedChange={() => toggleSite(site.id)}
+                                                    />
+                                                    <span className="text-sm">{site.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
 
