@@ -30,6 +30,7 @@ class SearchResult:
         price: float | None = None,
         currency: str = "EUR",
         in_stock: bool | None = None,
+        image_url: str | None = None,
     ):
         self.url = url
         self.title = title
@@ -38,6 +39,7 @@ class SearchResult:
         self.price = price
         self.currency = currency
         self.in_stock = in_stock
+        self.image_url = image_url
 
     def to_dict(self):
         return {
@@ -48,6 +50,7 @@ class SearchResult:
             "price": self.price,
             "currency": self.currency,
             "in_stock": self.in_stock,
+            "image_url": self.image_url,
         }
 
 class NewSearchService:
@@ -76,6 +79,81 @@ class NewSearchService:
             return []
 
         return NewSearchService._parse_results(html_content, site_key, search_url)
+
+    @staticmethod
+    async def scrape_item(result: SearchResult) -> SearchResult:
+        """Scrape details for a single item"""
+        try:
+            # Use browserless to get content and screenshot
+            html, screenshot_path = await browserless_service.get_page_content(
+                result.url,
+                use_proxy="amazon" in result.source.lower(),
+                wait_selector=None 
+            )
+            
+            if not screenshot_path:
+                return result
+
+            # Use AI to analyze
+            from app.services.ai_service import AIService
+            ai_result = await AIService.analyze_image(screenshot_path, page_text=html)
+            
+            if ai_result:
+                extraction, _ = ai_result
+                result.price = extraction.price
+                result.currency = extraction.currency or "EUR"
+                result.in_stock = extraction.in_stock
+                
+                # Update image URL to point to our local screenshot
+                # The frontend expects /screenshots/filename
+                import os
+                filename = os.path.basename(screenshot_path)
+                result.image_url = f"/screenshots/{filename}"
+                
+        except Exception as e:
+            logger.error(f"Error scraping item {result.url}: {e}")
+            
+        return result
+
+    @staticmethod
+    async def search_site(site_key: str, query: str) -> list[SearchResult]:
+        """Search a single site"""
+        config = SITE_CONFIGS.get(site_key)
+        if not config:
+            logger.error(f"Unknown site: {site_key}")
+            return []
+
+        search_url = config["search_url"].format(query=quote_plus(query))
+        logger.info(f"Searching {config['name']} at {search_url}")
+
+        # Use proxy if required by config
+        use_proxy = config.get("requires_proxy", False)
+        
+        html_content, _ = await browserless_service.get_page_content(
+            search_url, 
+            use_proxy=use_proxy,
+            wait_selector=config.get("wait_selector")
+        )
+
+        if not html_content:
+            logger.warning(f"No content returned for {site_key}")
+            return []
+
+        # Phase 1: Parse results
+        initial_results = NewSearchService._parse_results(html_content, site_key, search_url)
+        
+        # Phase 2: Scrape details for each result (Parallel)
+        # Limit concurrency to avoid overloading
+        semaphore = asyncio.Semaphore(3)
+        
+        async def scrape_with_limit(res):
+            async with semaphore:
+                return await NewSearchService.scrape_item(res)
+
+        tasks = [scrape_with_limit(r) for r in initial_results]
+        enriched_results = await asyncio.gather(*tasks)
+        
+        return enriched_results
 
     @staticmethod
     def _parse_results(html: str, site_key: str, base_url: str) -> list[SearchResult]:
@@ -272,6 +350,7 @@ async def search_products(
                 in_stock=r.in_stock,
                 site_name=r.source,
                 site_domain=r.source, # approximate
+                image_url=r.image_url,
             ))
     
     yield SearchProgress(
