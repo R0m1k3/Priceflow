@@ -138,6 +138,7 @@ SITE_CONFIGS = {
         "search_url": "https://www.carrefour.fr/s?q={query}",
         "product_selector": "a.product-card-click-wrapper",
         "wait_selector": "a.product-card-click-wrapper",
+        "product_image_selector": "article > div > div > img:not([class])",
         "category": "Grande Surface",
         "requires_proxy": True,
     },
