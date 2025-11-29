@@ -587,302 +587,302 @@ class ScraperService:
             # Création du contexte
             context = await current_browser.new_context(**context_options)
 
-                # Inject stealth script before any page loads (especially for Amazon)
-                if is_amazon:
-                    await context.add_init_script(STEALTH_JS)
-                    logger.debug("Stealth JS injected for Amazon product page")
+            # Inject stealth script before any page loads (especially for Amazon)
+            if is_amazon:
+                await context.add_init_script(STEALTH_JS)
+                logger.debug("Stealth JS injected for Amazon product page")
 
-                # Stealth mode / Ad blocking attempts - don't block images for Amazon
-                if is_amazon:
-                    # For Amazon, only block tracking - keep images to avoid detection
-                    await context.route("**/analytics*", lambda route: route.abort())
-                    await context.route("**/tracking*", lambda route: route.abort())
-                else:
-                    await context.route("**/*", lambda route: route.continue_())
+            # Stealth mode / Ad blocking attempts - don't block images for Amazon
+            if is_amazon:
+                # For Amazon, only block tracking - keep images to avoid detection
+                await context.route("**/analytics*", lambda route: route.abort())
+                await context.route("**/tracking*", lambda route: route.abort())
+            else:
+                await context.route("**/*", lambda route: route.continue_())
 
-                page = await context.new_page()
+            page = await context.new_page()
 
-                # Add random delay before navigation for Amazon
-                if is_amazon:
-                    await asyncio.sleep(random.uniform(1.0, 3.0))
-                    
-                    # Warmup: Visit home page first
-                    try:
-                        logger.info("Amazon Warmup: Visiting home page...")
-                        await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
-                        await asyncio.sleep(random.uniform(2.0, 4.0))
-                    except Exception as e:
-                        logger.warning(f"Amazon warmup failed: {e}")
-
-                logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
-                response = None
-                amazon_blocked = False
+            # Add random delay before navigation for Amazon
+            if is_amazon:
+                await asyncio.sleep(random.uniform(1.0, 3.0))
+                
+                # Warmup: Visit home page first
                 try:
-                    # First wait for domcontentloaded - this is the minimum we need
-                    response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
-
-                    # Check HTTP status code
-                    if response:
-                        status = response.status
-                        logger.info(f"HTTP Status: {status}")
-
-                        # For Amazon, 503 is usually a block, not product unavailability
-                        if is_amazon and status == 503:
-                            logger.warning(f"Amazon returned 503 - likely blocking")
-                            amazon_blocked = True
-                        # Detect unavailable products by HTTP status (non-Amazon)
-                        elif status in [404, 410, 451]:
-                            logger.warning(f"Product unavailable - HTTP {status}")
-                            is_available = False
-                        elif status == 503 and not is_amazon:
-                            logger.warning(f"Product unavailable - HTTP {status}")
-                            is_available = False
-                        elif status >= 400:
-                            logger.warning(f"HTTP error {status}, marking as potentially unavailable")
-                            is_available = False
-
-                    logger.info(f"Page loaded (domcontentloaded): {url}")
-
-                    # Then try to wait for networkidle, but don't fail if it times out
-                    # This helps with heavy pages that never fully settle
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=5000)
-                        logger.info("Network idle reached")
-                    except PlaywrightTimeoutError:
-                        logger.info("Network idle timed out (non-critical), proceeding...")
-
+                    logger.info("Amazon Warmup: Visiting home page...")
+                    await page.goto("https://www.amazon.fr/", wait_until="domcontentloaded", timeout=20000)
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
                 except Exception as e:
-                    logger.error(f"Error navigating to {url}: {e}")
-                    # If navigation fails completely, mark as unavailable
-                    is_available = False
-                    # Try to take screenshot anyway if page partially loaded
-                    pass
+                    logger.warning(f"Amazon warmup failed: {e}")
 
-                # Wait a bit for dynamic content if needed - longer for Amazon
-                wait_time = random.uniform(2.0, 4.0) if is_amazon else 2.0
-                await page.wait_for_timeout(int(wait_time * 1000))
+            logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
+            response = None
+            amazon_blocked = False
+            try:
+                # First wait for domcontentloaded - this is the minimum we need
+                response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
 
-                # Check for Amazon blocking in page content
-                if is_amazon:
-                    try:
-                        page_html = await page.content()
-                        if _is_amazon_blocked(page_html):
-                            logger.warning(f"Amazon blocking detected in page content for {url}")
-                            amazon_blocked = True
-                    except Exception as e:
-                        logger.debug(f"Could not check Amazon blocking: {e}")
+                # Check HTTP status code
+                if response:
+                    status = response.status
+                    logger.info(f"HTTP Status: {status}")
 
-                # If Amazon blocked us, return None to trigger retry
-                if amazon_blocked:
-                    logger.warning(f"Amazon blocked - will retry with different User-Agent")
-                    return None, "", True  # Return None screenshot to trigger retry
+                    # For Amazon, 503 is usually a block, not product unavailability
+                    if is_amazon and status == 503:
+                        logger.warning(f"Amazon returned 503 - likely blocking")
+                        amazon_blocked = True
+                    # Detect unavailable products by HTTP status (non-Amazon)
+                    elif status in [404, 410, 451]:
+                        logger.warning(f"Product unavailable - HTTP {status}")
+                        is_available = False
+                    elif status == 503 and not is_amazon:
+                        logger.warning(f"Product unavailable - HTTP {status}")
+                        is_available = False
+                    elif status >= 400:
+                        logger.warning(f"HTTP error {status}, marking as potentially unavailable")
+                        is_available = False
 
-                # Try to close common popups and cookie banners
-                logger.info("Attempting to close popups and cookie banners...")
-                popup_selectors = [
-                    # === SITES SPÉCIFIQUES FRANÇAIS ===
-                    # Amazon France
-                    "#sp-cc-accept",
-                    "#sp-cc-rejectall-link",
-                    "input[data-action-type='DISMISS']",
-                    "#a-popover-content-1 button",
-                    "[data-action='a-popover-close']",
-                    # E.Leclerc, Darty, Fnac
-                    "#onetrust-accept-btn-handler",
-                    ".onetrust-accept-btn-handler",
-                    # Auchan
-                    "#popin_tc_privacy_button_2",
-                    ".popin_tc_privacy_button",
-                    "#didomi-notice-agree-button",
-                    # Carrefour
-                    "[data-testid='accept-cookies-button']",
-                    # Cdiscount
-                    "#footer_tc_privacy_button_2",
-                    ".privacy_prompt_accept",
-                    # Boulanger
-                    ".bcom-consent-accept-all",
-                    "#cookieBanner-accept",
-                    # Gifi, Centrakor, La Foir'Fouille (Magento)
-                    ".action-primary.action-accept",
-                    "#btn-cookie-allow",
-                    # PrestaShop (Stokomani, B&M, etc.)
-                    ".btn-primary[data-dismiss='modal']",
-                    "#gdpr_consent_agree",
+                logger.info(f"Page loaded (domcontentloaded): {url}")
 
-                    # === CMP (Consent Management Platforms) ===
-                    ".didomi-continue-without-agreeing",
-                    "#tarteaucitronPersonalize2",
-                    ".tarteaucitronAllow",
-                    "#tarteaucitronAllDenied2",
-                    ".cc-btn.cc-allow",
-                    ".cky-btn-accept",
-                    "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
-                    "#CybotCookiebotDialogBodyButtonAccept",
-                    ".qc-cmp2-summary-buttons button:first-child",
-                    "#axeptio_btn_acceptAll",
-                    ".axeptio_acceptAll",
-
-                    # === TEXTE FRANÇAIS ===
-                    "button:has-text('Tout accepter')",
-                    "button:has-text('Accepter tout')",
-                    "button:has-text('Accepter et fermer')",
-                    "button:has-text('Accepter les cookies')",
-                    "button:has-text('Accepter')",
-                    "button:has-text('J\\'accepte')",
-                    "button:has-text('OK')",
-                    "button:has-text('Continuer')",
-                    "a:has-text('Tout accepter')",
-                    "a:has-text('Accepter')",
-
-                    # === POPUPS GÉNÉRAUX ===
-                    "button[aria-label='Close']",
-                    "button[aria-label='close']",
-                    "button[aria-label='Fermer']",
-                    ".close-button",
-                    ".modal-close",
-                    "svg[data-name='Close']",
-                    "[class*='popup'] button",
-                    "[class*='modal'] button",
-                    "button:has-text('No, thanks')",
-                    "button:has-text('No thanks')",
-                    "button:has-text('Accept')",
-                    "a:has-text('No, thanks')",
-                    "div[role='dialog'] button[aria-label='Close']",
-                ]
-
-                for popup_selector in popup_selectors:
-                    try:
-                        if await page.locator(popup_selector).count() > 0:
-                            logger.info(f"Found popup close button: {popup_selector}")
-                            # Try to click it. If it fails, catch and continue
-                            await page.locator(popup_selector).first.click(timeout=2000)
-                            await page.wait_for_timeout(1000)  # Wait for animation
-                    except Exception as e:
-                        logger.debug(f"Could not close popup with selector {popup_selector}: {e}")
-
-                # Also try pressing Escape
+                # Then try to wait for networkidle, but don't fail if it times out
+                # This helps with heavy pages that never fully settle
                 try:
-                    await page.keyboard.press("Escape")
-                except Exception as e:
-                    logger.debug(f"Could not press Escape key: {e}")
-
-                if selector:
-                    try:
-                        logger.info(f"Waiting for selector: {selector}")
-                        await page.wait_for_selector(selector, timeout=5000)
-                        # Scroll to element
-                        element = page.locator(selector).first
-                        await element.scroll_into_view_if_needed()
-                        logger.info(f"Scrolled to selector: {selector}")
-                    except Exception as e:
-                        logger.warning(f"Selector {selector} not found or timed out: {e}")
-                else:
-                    # Auto-detect price if no selector
-                    logger.info("No selector provided. Attempting to find price element...")
-                    try:
-                        # Look for common price patterns
-                        price_locator = page.locator("text=/$[0-9,]+(\\.[0-9]{2})?/")
-                        if await price_locator.count() > 0:
-                            # Pick the first one that looks visible and reasonable size
-                            # This is heuristic
-                            await price_locator.first.scroll_into_view_if_needed()
-                            logger.info("Scrolled to potential price element")
-                    except Exception as e:
-                        logger.warning(f"Auto-price detection failed: {e}")
-
-                # Smart Scroll
-                if smart_scroll:
-                    logger.info(f"Performing smart scroll ({scroll_pixels}px)...")
-                    try:
-                        await page.evaluate(f"window.scrollBy(0, {scroll_pixels})")
-                        await page.wait_for_timeout(1000)
-                    except Exception as e:
-                        logger.warning(f"Smart scroll failed: {e}")
-
-                # IMPORTANT: Prendre le screenshot AVANT l'extraction de texte
-                # pour éviter de perdre le screenshot si le navigateur se ferme
-                screenshot_dir = "screenshots"
-                os.makedirs(screenshot_dir, exist_ok=True)
-                if item_id:
-                    filename = f"{screenshot_dir}/item_{item_id}.png"
-                else:
-                    url_part = url.split("//")[-1].replace("/", "_")[:50]  # Limiter la longueur
-                    timestamp = int(asyncio.get_event_loop().time())
-                    filename = f"{screenshot_dir}/{url_part}_{timestamp}.png"
-
-                try:
-                    await page.screenshot(path=filename, full_page=False)
-                    logger.info(f"Screenshot saved to {filename}")
-                except Exception as e:
-                    logger.error(f"Screenshot failed: {e}")
-                    return None, "", is_available
-
-                # Text Extraction (après le screenshot pour ne pas le perdre)
-                page_text = ""
-                if text_length > 0:
-                    try:
-                        logger.info(f"Extracting text (limit: {text_length} chars)...")
-                        # Get text from body avec un timeout court
-                        raw_text = await page.inner_text("body", timeout=10000)
-                        # Simple truncation
-                        page_text = raw_text[:text_length]
-                        logger.info(f"Extracted {len(page_text)} characters")
-                        
-                        # Check for "product not found" messages in page text
-                        unavailable_patterns = [
-                            "produit introuvable",
-                            "produit indisponible",
-                            "page introuvable",
-                            "404",
-                            "product not found",
-                            "item not found",
-                            "page not found",
-                            "n'existe plus",
-                            "plus disponible",
-                            "no longer available",
-                            "article introuvable",
-                            "cette page n'existe pas",
-                            "this page doesn't exist",
-                        ]
-                        
-                        page_text_lower = page_text.lower()
-                        for pattern in unavailable_patterns:
-                            if pattern in page_text_lower:
-                                logger.warning(f"Product unavailable - found pattern: '{pattern}'")
-                                is_available = False
-                                break
-                                
-                    except Exception as e:
-                        logger.warning(f"Text extraction failed (screenshot saved): {e}")
-                        # On continue car le screenshot a été pris
-
-                return filename, page_text, is_available
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                    logger.info("Network idle reached")
+                except PlaywrightTimeoutError:
+                    logger.info("Network idle timed out (non-critical), proceeding...")
 
             except Exception as e:
-                logger.error(f"Error scraping {url}: {e}")
-                return None, "", False  # Mark as unavailable on error
+                logger.error(f"Error navigating to {url}: {e}")
+                # If navigation fails completely, mark as unavailable
+                is_available = False
+                # Try to take screenshot anyway if page partially loaded
+                pass
 
-            finally:
-                # Fermeture propre des ressources dans l'ordre inverse
+            # Wait a bit for dynamic content if needed - longer for Amazon
+            wait_time = random.uniform(2.0, 4.0) if is_amazon else 2.0
+            await page.wait_for_timeout(int(wait_time * 1000))
+
+            # Check for Amazon blocking in page content
+            if is_amazon:
                 try:
-                    if page and not page.is_closed():
-                        await page.close()
+                    page_html = await page.content()
+                    if _is_amazon_blocked(page_html):
+                        logger.warning(f"Amazon blocking detected in page content for {url}")
+                        amazon_blocked = True
                 except Exception as e:
-                    logger.debug(f"Error closing page: {e}")
+                    logger.debug(f"Could not check Amazon blocking: {e}")
 
+            # If Amazon blocked us, return None to trigger retry
+            if amazon_blocked:
+                logger.warning(f"Amazon blocked - will retry with different User-Agent")
+                return None, "", True  # Return None screenshot to trigger retry
+
+            # Try to close common popups and cookie banners
+            logger.info("Attempting to close popups and cookie banners...")
+            popup_selectors = [
+                # === SITES SPÉCIFIQUES FRANÇAIS ===
+                # Amazon France
+                "#sp-cc-accept",
+                "#sp-cc-rejectall-link",
+                "input[data-action-type='DISMISS']",
+                "#a-popover-content-1 button",
+                "[data-action='a-popover-close']",
+                # E.Leclerc, Darty, Fnac
+                "#onetrust-accept-btn-handler",
+                ".onetrust-accept-btn-handler",
+                # Auchan
+                "#popin_tc_privacy_button_2",
+                ".popin_tc_privacy_button",
+                "#didomi-notice-agree-button",
+                # Carrefour
+                "[data-testid='accept-cookies-button']",
+                # Cdiscount
+                "#footer_tc_privacy_button_2",
+                ".privacy_prompt_accept",
+                # Boulanger
+                ".bcom-consent-accept-all",
+                "#cookieBanner-accept",
+                # Gifi, Centrakor, La Foir'Fouille (Magento)
+                ".action-primary.action-accept",
+                "#btn-cookie-allow",
+                # PrestaShop (Stokomani, B&M, etc.)
+                ".btn-primary[data-dismiss='modal']",
+                "#gdpr_consent_agree",
+
+                # === CMP (Consent Management Platforms) ===
+                ".didomi-continue-without-agreeing",
+                "#tarteaucitronPersonalize2",
+                ".tarteaucitronAllow",
+                "#tarteaucitronAllDenied2",
+                ".cc-btn.cc-allow",
+                ".cky-btn-accept",
+                "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+                "#CybotCookiebotDialogBodyButtonAccept",
+                ".qc-cmp2-summary-buttons button:first-child",
+                "#axeptio_btn_acceptAll",
+                ".axeptio_acceptAll",
+
+                # === TEXTE FRANÇAIS ===
+                "button:has-text('Tout accepter')",
+                "button:has-text('Accepter tout')",
+                "button:has-text('Accepter et fermer')",
+                "button:has-text('Accepter les cookies')",
+                "button:has-text('Accepter')",
+                "button:has-text('J\\'accepte')",
+                "button:has-text('OK')",
+                "button:has-text('Continuer')",
+                "a:has-text('Tout accepter')",
+                "a:has-text('Accepter')",
+
+                # === POPUPS GÉNÉRAUX ===
+                "button[aria-label='Close']",
+                "button[aria-label='close']",
+                "button[aria-label='Fermer']",
+                ".close-button",
+                ".modal-close",
+                "svg[data-name='Close']",
+                "[class*='popup'] button",
+                "[class*='modal'] button",
+                "button:has-text('No, thanks')",
+                "button:has-text('No thanks')",
+                "button:has-text('Accept')",
+                "a:has-text('No, thanks')",
+                "div[role='dialog'] button[aria-label='Close']",
+            ]
+
+            for popup_selector in popup_selectors:
                 try:
-                    if context:
-                        await context.close()
+                    if await page.locator(popup_selector).count() > 0:
+                        logger.info(f"Found popup close button: {popup_selector}")
+                        # Try to click it. If it fails, catch and continue
+                        await page.locator(popup_selector).first.click(timeout=2000)
+                        await page.wait_for_timeout(1000)  # Wait for animation
                 except Exception as e:
-                    logger.debug(f"Error closing context: {e}")
+                    logger.debug(f"Could not close popup with selector {popup_selector}: {e}")
 
-                # On ne ferme le navigateur que s'il est local (non partagé)
-                if local_browser:
-                    try:
-                        if local_browser.is_connected():
-                            await local_browser.close()
-                    except Exception as e:
-                        logger.debug(f"Error closing browser: {e}")
+            # Also try pressing Escape
+            try:
+                await page.keyboard.press("Escape")
+            except Exception as e:
+                logger.debug(f"Could not press Escape key: {e}")
+
+            if selector:
+                try:
+                    logger.info(f"Waiting for selector: {selector}")
+                    await page.wait_for_selector(selector, timeout=5000)
+                    # Scroll to element
+                    element = page.locator(selector).first
+                    await element.scroll_into_view_if_needed()
+                    logger.info(f"Scrolled to selector: {selector}")
+                except Exception as e:
+                    logger.warning(f"Selector {selector} not found or timed out: {e}")
+            else:
+                # Auto-detect price if no selector
+                logger.info("No selector provided. Attempting to find price element...")
+                try:
+                    # Look for common price patterns
+                    price_locator = page.locator("text=/$[0-9,]+(\\.[0-9]{2})?/")
+                    if await price_locator.count() > 0:
+                        # Pick the first one that looks visible and reasonable size
+                        # This is heuristic
+                        await price_locator.first.scroll_into_view_if_needed()
+                        logger.info("Scrolled to potential price element")
+                except Exception as e:
+                    logger.warning(f"Auto-price detection failed: {e}")
+
+            # Smart Scroll
+            if smart_scroll:
+                logger.info(f"Performing smart scroll ({scroll_pixels}px)...")
+                try:
+                    await page.evaluate(f"window.scrollBy(0, {scroll_pixels})")
+                    await page.wait_for_timeout(1000)
+                except Exception as e:
+                    logger.warning(f"Smart scroll failed: {e}")
+
+            # IMPORTANT: Prendre le screenshot AVANT l'extraction de texte
+            # pour éviter de perdre le screenshot si le navigateur se ferme
+            screenshot_dir = "screenshots"
+            os.makedirs(screenshot_dir, exist_ok=True)
+            if item_id:
+                filename = f"{screenshot_dir}/item_{item_id}.png"
+            else:
+                url_part = url.split("//")[-1].replace("/", "_")[:50]  # Limiter la longueur
+                timestamp = int(asyncio.get_event_loop().time())
+                filename = f"{screenshot_dir}/{url_part}_{timestamp}.png"
+
+            try:
+                await page.screenshot(path=filename, full_page=False)
+                logger.info(f"Screenshot saved to {filename}")
+            except Exception as e:
+                logger.error(f"Screenshot failed: {e}")
+                return None, "", is_available
+
+            # Text Extraction (après le screenshot pour ne pas le perdre)
+            page_text = ""
+            if text_length > 0:
+                try:
+                    logger.info(f"Extracting text (limit: {text_length} chars)...")
+                    # Get text from body avec un timeout court
+                    raw_text = await page.inner_text("body", timeout=10000)
+                    # Simple truncation
+                    page_text = raw_text[:text_length]
+                    logger.info(f"Extracted {len(page_text)} characters")
+                    
+                    # Check for "product not found" messages in page text
+                    unavailable_patterns = [
+                        "produit introuvable",
+                        "produit indisponible",
+                        "page introuvable",
+                        "404",
+                        "product not found",
+                        "item not found",
+                        "page not found",
+                        "n'existe plus",
+                        "plus disponible",
+                        "no longer available",
+                        "article introuvable",
+                        "cette page n'existe pas",
+                        "this page doesn't exist",
+                    ]
+                    
+                    page_text_lower = page_text.lower()
+                    for pattern in unavailable_patterns:
+                        if pattern in page_text_lower:
+                            logger.warning(f"Product unavailable - found pattern: '{pattern}'")
+                            is_available = False
+                            break
+                            
+                except Exception as e:
+                    logger.warning(f"Text extraction failed (screenshot saved): {e}")
+                    # On continue car le screenshot a été pris
+
+            return filename, page_text, is_available
+
+        except Exception as e:
+            logger.error(f"Error scraping {url}: {e}")
+            return None, "", False  # Mark as unavailable on error
+
+        finally:
+            # Fermeture propre des ressources dans l'ordre inverse
+            try:
+                if page and not page.is_closed():
+                    await page.close()
+            except Exception as e:
+                logger.debug(f"Error closing page: {e}")
+
+            try:
+                if context:
+                    await context.close()
+            except Exception as e:
+                logger.debug(f"Error closing context: {e}")
+
+            # On ne ferme le navigateur que s'il est local (non partagé)
+            if local_browser:
+                try:
+                    if local_browser.is_connected():
+                        await local_browser.close()
+                except Exception as e:
+                    logger.debug(f"Error closing browser: {e}")
                         
         finally:
             # Si on a créé un manager playwright local, on l'arrête
