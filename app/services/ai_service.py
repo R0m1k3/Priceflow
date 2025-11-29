@@ -343,8 +343,14 @@ class AIService:
                 if len(cleaned_text) > MAX_TEXT_LENGTH:
                     cleaned_text = cleaned_text[:MAX_TEXT_LENGTH] + "...(truncated)"
                 logger.info(f"Added text context (original: {len(page_text)}, cleaned: {len(cleaned_text)})")
+                # Debug: Log first 500 chars of cleaned text to see what AI receives
+                logger.debug(f"Cleaned text preview: {cleaned_text[:500]!r}")
+            else:
+                logger.warning("No page_text provided - AI will only use screenshot")
 
             prompt = get_extraction_prompt(cleaned_text if cleaned_text else None)
+            # Debug: Log prompt preview
+            logger.debug(f"Prompt preview (first 300 chars): {prompt[:300]!r}")
 
             # Call LLM
             response_text = await cls.call_llm(prompt, data_url, config)

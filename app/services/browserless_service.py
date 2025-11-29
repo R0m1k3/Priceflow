@@ -215,13 +215,39 @@ class BrowserlessService:
                 except Exception:
                     logger.warning(f"Wait selector {wait_selector} timed out")
 
+            # For Amazon product pages, wait for price to load
+            if "amazon" in url.lower() and "/dp/" in url:
+                amazon_price_selectors = [
+                    ".a-price .a-offscreen",  # Main price element
+                    "#corePriceDisplay_desktop_feature_div",  # Price section
+                    "#corePrice_desktop",  # Alternative price container
+                    ".a-price-whole",  # Price number
+                ]
+                for selector in amazon_price_selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=5000, state="visible")
+                        logger.info(f"Amazon price element found: {selector}")
+                        break
+                    except Exception:
+                        continue
+                else:
+                    logger.warning("No Amazon price selector found, proceeding anyway")
+
             # Wait for network idle to ensure dynamic content loads
             try:
                 await page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
 
-            content = await page.content()
+            # Extract visible text instead of raw HTML
+            # This gets the text as rendered by JavaScript, not the HTML source
+            try:
+                content = await page.inner_text('body')
+                logger.info(f"Extracted {len(content)} chars of visible text from page")
+            except Exception as e:
+                # Fallback to HTML content if inner_text fails
+                logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
+                content = await page.content()
             
             # Take screenshot if needed for AI analysis
             screenshot_path = ""
@@ -239,9 +265,42 @@ class BrowserlessService:
                 filename = f"{safe_name}_{timestamp}.jpg"
                 screenshot_path = f"{screenshots_dir}/{filename}"
 
-                # Use full_page=True to capture entire page, not just viewport
-                await page.screenshot(path=screenshot_path, full_page=True, quality=80, type="jpeg")
-                logger.info(f"Screenshot saved to {screenshot_path}")
+                # For Amazon, take focused screenshot of product info area
+                # Full-page screenshots of Amazon are too large and price becomes tiny when resized
+                is_amazon = "amazon" in url.lower() and "/dp/" in url
+
+                if is_amazon:
+                    # Try to screenshot just the main product area containing price
+                    try:
+                        # Look for main product container
+                        product_selectors = [
+                            "#dp-container",  # Main product container
+                            "#ppd",  # Product page data
+                            "#centerCol",  # Center column with price
+                        ]
+                        screenshot_taken = False
+                        for selector in product_selectors:
+                            try:
+                                element = page.locator(selector).first
+                                if await element.is_visible():
+                                    await element.screenshot(path=screenshot_path, quality=85, type="jpeg")
+                                    logger.info(f"Amazon focused screenshot saved using {selector}")
+                                    screenshot_taken = True
+                                    break
+                            except Exception:
+                                continue
+
+                        if not screenshot_taken:
+                            # Fallback to viewport screenshot (better than full-page for Amazon)
+                            await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
+                            logger.info("Amazon viewport screenshot saved (fallback)")
+                    except Exception as e:
+                        logger.warning(f"Amazon focused screenshot failed: {e}, using viewport")
+                        await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
+                else:
+                    # For non-Amazon sites, use full_page to capture entire page
+                    await page.screenshot(path=screenshot_path, full_page=True, quality=80, type="jpeg")
+                    logger.info(f"Full-page screenshot saved to {screenshot_path}")
             except Exception as e:
                 logger.warning(f"Failed to take screenshot: {e}")
 
