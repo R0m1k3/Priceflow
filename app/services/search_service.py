@@ -84,10 +84,21 @@ class NewSearchService:
     async def scrape_item(result: SearchResult) -> SearchResult:
         """Scrape details for a single item"""
         try:
+            # Determine if proxy is needed based on source config
+            config = SITE_CONFIGS.get(result.source) if result.source in SITE_CONFIGS else None
+            # Fallback: check if source name matches a config key
+            if not config:
+                for key, cfg in SITE_CONFIGS.items():
+                    if cfg["name"] == result.source:
+                        config = cfg
+                        break
+            
+            use_proxy = config.get("requires_proxy", False) if config else False
+
             # Use browserless to get content and screenshot
             html, screenshot_path = await browserless_service.get_page_content(
                 result.url,
-                use_proxy="amazon" in result.source.lower(),
+                use_proxy=use_proxy,
                 wait_selector=None 
             )
             
@@ -140,7 +151,7 @@ class NewSearchService:
             return []
 
         # Phase 1: Parse results
-        initial_results = NewSearchService._parse_results(html_content, site_key, search_url)
+        initial_results = NewSearchService._parse_results(html_content, site_key, search_url, query)
         
         # Phase 2: Scrape details for each result (Parallel)
         # Limit concurrency to avoid overloading
@@ -156,11 +167,15 @@ class NewSearchService:
         return enriched_results
 
     @staticmethod
-    def _parse_results(html: str, site_key: str, base_url: str) -> list[SearchResult]:
+    def _parse_results(html: str, site_key: str, base_url: str, query: str) -> list[SearchResult]:
         """Parse HTML content to extract search results"""
         config = SITE_CONFIGS[site_key]
         soup = BeautifulSoup(html, "html.parser")
         results = []
+
+        # Prepare query words for filtering
+        # Split by whitespace, lowercase, remove special chars if needed, filter out short words
+        query_words = [w.lower() for w in query.split() if len(w) > 2]
 
         # Select product links
         links = soup.select(config["product_selector"])
@@ -209,12 +224,47 @@ class NewSearchService:
             if not title or len(title) < 3:
                 continue
 
+            # STRICT FILTERING: Check if all query words are in the title
+            title_lower = title.lower()
+            if query_words:
+                all_words_found = True
+                for word in query_words:
+                    if word not in title_lower:
+                        all_words_found = False
+                        break
+                
+                if not all_words_found:
+                    # logger.debug(f"Skipping result '{title}' - does not contain all query words: {query_words}")
+                    continue
+
+            # Extract Image URL (New)
+            image_url = None
+            if "product_image_selector" in config:
+                # Try to find image relative to the link or its container
+                # This is tricky because 'link' is just the <a> tag.
+                # We might need to look up to a container.
+                container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
+                if container:
+                    img_el = container.select_one(config["product_image_selector"])
+                    if img_el:
+                        image_url = img_el.get("src") or img_el.get("data-src")
+            
+            # Fallback image extraction
+            if not image_url:
+                img = link.find("img")
+                if img:
+                    image_url = img.get("src") or img.get("data-src")
+
+            if image_url and not image_url.startswith("http"):
+                image_url = urljoin(base_url, image_url)
+
             # Create result
             results.append(SearchResult(
                 url=full_url,
                 title=title,
                 snippet=f"Product from {config['name']}",
-                source=config["name"]
+                source=config["name"],
+                image_url=image_url
             ))
 
         logger.info(f"Found {len(results)} results for {site_key}")
@@ -245,7 +295,7 @@ class NewSearchService:
             return
 
         # Phase 1: Parse results
-        initial_results = NewSearchService._parse_results(html_content, site_key, search_url)
+        initial_results = NewSearchService._parse_results(html_content, site_key, search_url, query)
         
         # Phase 2: Scrape details for each result (Parallel)
         # We want to yield results as they complete, not wait for all
