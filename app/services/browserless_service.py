@@ -147,35 +147,38 @@ class BrowserlessService:
         Extract price from generic e-commerce pages using common selectors and patterns.
         Returns price text (e.g., "1,99 €") or empty string if not found.
         """
-        # Common price selectors used across e-commerce sites
+        # Common price selectors used across e-commerce sites (ordered by priority)
         price_selectors = [
-            # Common class names
-            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original'])",
-            ".product-price",
-            ".price",
+            # Highest priority: semantic and explicit current prices
+            "[itemprop='price']",
             ".current-price",
             ".sale-price",
             ".final-price",
-            # Common data attributes
+            ".product-price",
             "[data-price]",
-            "[itemprop='price']",
+            # Medium priority: generic price classes (exclude old/was/original)
+            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original']):not([class*='before']):not([class*='regular'])",
             # ID-based
             "#price",
             "#product-price",
             "#our-price",
-            # Specific patterns
-            "span[class*='prix']",
-            "div[class*='prix']",
+            # French-specific
+            "span[class*='prix']:not([class*='ancien']):not([class*='barre'])",
+            "div[class*='prix']:not([class*='ancien'])",
             "span[class*='tarif']",
+            # Lower priority: generic .price (might catch old prices)
+            ".price",
         ]
+
+        found_prices = []
 
         for selector in price_selectors:
             try:
                 elements = page.locator(selector)
                 count = await elements.count()
 
-                # Try first visible element
-                for i in range(min(count, 3)):  # Check max 3 elements
+                # Check up to 3 elements per selector
+                for i in range(min(count, 3)):
                     try:
                         element = elements.nth(i)
                         if await element.is_visible(timeout=1000):
@@ -193,12 +196,26 @@ class BrowserlessService:
                             if price_text and ('€' in price_text or (',' in price_text and any(c.isdigit() for c in price_text))):
                                 # Clean up price text
                                 price_text = price_text.strip()
+                                found_prices.append((selector, price_text))
                                 logger.info(f"Found price via selector {selector}: {price_text}")
-                                return price_text
+
+                                # Return immediately if we found with high-priority selector
+                                if selector in ["[itemprop='price']", ".current-price", ".sale-price", ".final-price", ".product-price"]:
+                                    return price_text
                     except Exception:
                         continue
             except Exception:
                 continue
+
+        # If we found prices with lower-priority selectors
+        if found_prices:
+            # When multiple prices found, the LAST one in DOM order is usually the current price
+            # (websites typically show: old price first, then current price)
+            best_price = found_prices[-1][1]  # Take last (most recently added)
+            if len(found_prices) > 1:
+                prices_list = [p[1] for p in found_prices]
+                logger.info(f"Multiple prices found: {prices_list}, selecting last (most likely current): {best_price}")
+            return best_price
 
         # Fallback: Use regex to find price patterns in all text
         try:
