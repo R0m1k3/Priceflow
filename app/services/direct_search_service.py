@@ -33,22 +33,26 @@ AMAZON_PROXY_LIST_RAW = [
     "142.111.67.146:5611:jasuwwjr:elbsx170nmnl",
 ]
 
-# Convert to Playwright proxy format: http://user:pass@ip:port
-AMAZON_PROXY_LIST = [
-    f"http://{parts[2]}:{parts[3]}@{parts[0]}:{parts[1]}"
-    for proxy in AMAZON_PROXY_LIST_RAW
-    if (parts := proxy.split(":")) and len(parts) == 4
-]
+# Convert to Playwright proxy format: {"server": "http://ip:port", "username": "user", "password": "pass"}
+AMAZON_PROXY_LIST = []
+for proxy in AMAZON_PROXY_LIST_RAW:
+    parts = proxy.split(":")
+    if len(parts) == 4:
+        AMAZON_PROXY_LIST.append({
+            "server": f"http://{parts[0]}:{parts[1]}",
+            "username": parts[2],
+            "password": parts[3]
+        })
 
 # Log proxy initialization at startup
 logger.info(f"Amazon proxies initialized: {len(AMAZON_PROXY_LIST)} proxies available")
 
-def _get_amazon_proxy() -> str | None:
+def _get_amazon_proxy() -> dict | None:
     """Get a random proxy for Amazon requests from the rotating pool"""
     if AMAZON_PROXY_LIST:
         proxy = random.choice(AMAZON_PROXY_LIST)
         # Log only the IP part for security (hide credentials)
-        ip_port = proxy.split("@")[1] if "@" in proxy else proxy
+        ip_port = proxy["server"].replace("http://", "")
         logger.info(f"Using proxy: {ip_port}")
         return proxy
     logger.warning("No Amazon proxies available!")
@@ -989,10 +993,10 @@ async def _search_site_browserless(  # noqa: PLR0912, PLR0915
 
             # Add proxy for Amazon if configured
             if is_amazon:
-                proxy_url = _get_amazon_proxy()
-                if proxy_url:
-                    logger.info(f"Using proxy for Amazon: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
-                    context_options["proxy"] = {"server": proxy_url}
+                proxy_config = _get_amazon_proxy()
+                if proxy_config:
+                    # proxy_config is already a dict with {"server": "...", "username": "...", "password": "..."}
+                    context_options["proxy"] = proxy_config
 
             # Créer un nouveau contexte isolé pour ce site
             context = await browser.new_context(**context_options)
