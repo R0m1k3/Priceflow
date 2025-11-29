@@ -270,7 +270,25 @@ class AIService:
             f"(temp={config['temperature']}, max_tokens={config['max_tokens']}, "
             f"timeout={config['timeout']}s, key={sanitized_key})"
         )
-        response = await acompletion(**kwargs)
+        
+        try:
+            response = await acompletion(**kwargs)
+        except Exception as e:
+            # Check for BadRequestError (often due to unsupported parameters like response_format)
+            # We check string representation or type if possible, but litellm errors can be tricky
+            # The user log showed: litellm.exceptions.BadRequestError
+            is_bad_request = "BadRequestError" in str(type(e).__name__) or "400" in str(e)
+            
+            if is_bad_request and "response_format" in kwargs:
+                logger.warning(
+                    f"Model {config['model']} likely does not support JSON mode. "
+                    f"Retrying without response_format. Error: {e}"
+                )
+                del kwargs["response_format"]
+                # Retry without json mode
+                response = await acompletion(**kwargs)
+            else:
+                raise e
 
         content = response.choices[0].message.content
         return content or ""
