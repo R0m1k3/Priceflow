@@ -234,10 +234,18 @@ class NewSearchService:
         # Phase 1: Parse results
         initial_results = NewSearchService._parse_results(html_content, site_key, search_url)
         
-        # Phase 2: Scrape details for each result (Sequential or Limited Parallel)
-        # We yield as soon as one is done
-        for res in initial_results:
-            enriched_res = await NewSearchService.scrape_item(res)
+        # Phase 2: Scrape details for each result (Parallel)
+        # We want to yield results as they complete, not wait for all
+        semaphore = asyncio.Semaphore(3) # Limit concurrency per site
+
+        async def scrape_wrapper(res):
+            async with semaphore:
+                return await NewSearchService.scrape_item(res)
+
+        tasks = [scrape_wrapper(r) for r in initial_results]
+        
+        for future in asyncio.as_completed(tasks):
+            enriched_res = await future
             yield enriched_res
 
     @staticmethod
