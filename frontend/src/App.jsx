@@ -5,6 +5,7 @@ import Layout from '@/components/layout/Layout'
 import Dashboard from '@/pages/Dashboard'
 import Search from '@/pages/Search'
 import MultiSearch from '@/pages/MultiSearch'
+import Catalogues from '@/pages/Catalogues'
 import Login from '@/pages/Login'
 import Admin from '@/pages/Admin'
 import { useTheme } from '@/hooks/use-theme'
@@ -77,6 +78,7 @@ function AppRoutes() {
                                     <Route path="/" element={<Dashboard />} />
                                     <Route path="/search" element={<Search />} />
                                     <Route path="/compare" element={<MultiSearch />} />
+                                    <Route path="/catalogues" element={<Catalogues />} />
                                     <Route
                                         path="/admin"
                                         element={

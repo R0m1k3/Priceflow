@@ -29,8 +29,9 @@
 - **Historique visuel** : Conserve l'historique des captures d'écran avec les métadonnées IA
 - **Défilement intelligent** : Scroll automatique pour charger le contenu différé
 - **Notifications** : Support multi-canaux (Discord, Telegram, Email, etc.) via [Apprise](https://github.com/caronc/apprise)
+- **Catalogues promotionnels** : Consultation des catalogues et prospectus discount (Gifi, Action, Centrakor, etc.) scrapés depuis Bonial.fr
 - **Interface en français** : Application entièrement traduite en français
-- **Mode sombre** : Interface moderne avec support du thème clair/sombre
+- **Mode sombre** : Interface moderne avec support du thème clair/foncé
 - **Dockerisé** : Déploiement facile avec Docker Compose
 
 ## Prérequis

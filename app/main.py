@@ -13,9 +13,10 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug
+from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues
 from app.services.scheduler_service import scheduled_refresh, scheduler
-from app.services import auth_service, search_service
+from app.services import auth_service, search_service, seed_enseignes
+from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
 
 # Configure logging
 logging.basicConfig(
@@ -119,6 +120,13 @@ async def lifespan(app: FastAPI):
                 logger.info("Utilisateur admin par défaut créé (admin/admin)")
             else:
                 logger.info("Utilisateurs déjà initialisés")
+            
+            # Seed enseignes for catalog module
+            created_enseignes = seed_enseignes.seed_enseignes(db)
+            if created_enseignes > 0:
+                logger.info(f"{created_enseignes} enseigne(s) de catalogues créée(s)")
+            else:
+                 logger.info("Enseignes déjà initialisés")
         finally:
             db.close()
     except Exception as e:
@@ -127,10 +135,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting smart scheduler (Heartbeat: 1 minute)")
     scheduler.add_job(scheduled_refresh, IntervalTrigger(minutes=1), id="refresh_job", replace_existing=True)
     scheduler.start()
+    
+    # Start catalog scraping scheduler
+    logger.info("Starting catalog scraping scheduler (6h and 18h daily)")
+    start_catalog_scheduler()
+    
     logger.info("Application started")
     yield
-    logger.info("Shutting down scheduler...")
+    logger.info("Shutting down schedulers...")
     scheduler.shutdown(wait=True)
+    stop_catalog_scheduler()
     logger.info("Application shutdown complete")
 
 
@@ -169,6 +183,9 @@ for router in [notifications.router, items.router, settings.router, jobs.router,
 # Search routers (already have /api prefix)
 app.include_router(search.router)
 app.include_router(search_sites.router)
+
+# Catalog router (already has /api prefix)
+app.include_router(catalogues.router)
 
 # Auth router (already has /api prefix)
 app.include_router(auth.router)
