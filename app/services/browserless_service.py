@@ -93,9 +93,6 @@ class BrowserlessService:
 
         context = await self._browser.new_context(**options)
         
-        # Inject Stealth JS
-        await context.add_init_script(STEALTH_JS)
-        
         # Block aggressive tracking but keep images for visual verification if needed
         # (Optimized for speed vs detection)
         await context.route("**/*", lambda route: route.continue_())

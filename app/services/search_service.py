@@ -185,14 +185,27 @@ class NewSearchService:
 
             # Extract title
             title = link.get_text(strip=True)
-            if not title:
-                # Try finding title in children or attributes
-                img = link.find("img")
-                if img and img.get("alt"):
-                    title = img.get("alt")
-                elif link.get("title"):
-                    title = link.get("title")
             
+            # If no text, check title attribute or nested image alt
+            if not title:
+                if link.get("title"):
+                    title = link.get("title")
+                else:
+                    img = link.find("img")
+                    if img and img.get("alt"):
+                        title = img.get("alt")
+            
+            # Special case for Stokomani or similar where link might be wrapping text but get_text failed or we selected a container
+            if not title and config.get("name") == "Stokomani":
+                 # If we selected the container .product-card__title, the link is inside
+                 child_link = link.find("a")
+                 if child_link:
+                     title = child_link.get_text(strip=True)
+                     if not href: # Update href if we selected a container
+                        href = child_link.get("href")
+                        if href:
+                            full_url = urljoin(base_url, href)
+
             if not title or len(title) < 3:
                 continue
 
