@@ -376,6 +376,15 @@ class BrowserlessService:
                 try:
                     content = await page.inner_text('body')
                     logger.info(f"Extracted {len(content)} chars of visible text from page")
+
+                    # Normalize French prices to English format for AI (3,99 € → 3.99 €)
+                    import re
+                    # Replace comma with dot in price patterns: digits,XX € → digits.XX €
+                    content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
+                    # Remove spaces in thousands: 1 234.56 → 1234.56
+                    content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
+                    logger.debug("Normalized French price formats to English")
+
                 except Exception as e:
                     # Fallback to HTML content if inner_text fails
                     logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
@@ -397,8 +406,17 @@ class BrowserlessService:
 
                 # Prepend extracted price to content if found
                 if extracted_price:
-                    content = f"PRIX DÉTECTÉ: {extracted_price}\n\n{content}"
-                    logger.info(f"Prepended price to content: {extracted_price}")
+                    # Convert French format to English for AI (3,99 → 3.99)
+                    import re
+                    normalized_price = extracted_price
+                    # Replace comma with dot for decimal separator (French to English)
+                    # Pattern: digits, comma, 2 digits → digits, dot, 2 digits
+                    normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', normalized_price)
+                    # Remove spaces in thousands separators if any (1 234,56 → 1234.56)
+                    normalized_price = normalized_price.replace(' ', '')
+
+                    content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
+                    logger.info(f"Prepended normalized price to content: {normalized_price} (original: {extracted_price})")
                 else:
                     logger.warning("Could not extract price from DOM, relying on text/image only")
             else:
