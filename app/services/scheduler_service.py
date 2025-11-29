@@ -9,7 +9,7 @@ from app.ai_schema import AIExtractionMetadata, AIExtractionResponse
 from app.services.ai_service import AIService
 from app.services.item_service import ItemService
 from app.services.notification_service import NotificationService
-from app.services.scraper_service import ScraperService
+from app.services.browserless_service import browserless_service
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -103,15 +103,17 @@ async def process_item_check(item_id: int):
 
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
-        screenshot_path, page_text, is_available = await ScraperService.scrape_item(
+        # Use new browserless service
+        # Note: smart_scroll is handled internally by browserless_service
+        page_text, screenshot_path = await browserless_service.get_page_content(
             item_data["url"],
-            item_data["selector"],
-            item_id,
-            smart_scroll=config["smart_scroll"],
-            scroll_pixels=config["smart_scroll_pixels"],
-            text_length=config["text_length"],
-            timeout=config["scraper_timeout"],
+            use_proxy="amazon" in item_data["url"], # Simple heuristic for now
+            wait_selector=item_data["selector"]
         )
+        
+        # Determine availability based on content presence
+        # If we got content, we assume available unless proven otherwise
+        is_available = bool(page_text and len(page_text) > 500)
 
         # Update availability status in database
         with database.SessionLocal() as session:

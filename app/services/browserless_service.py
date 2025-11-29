@@ -168,7 +168,29 @@ class BrowserlessService:
                 pass
 
             content = await page.content()
-            return content, "" # Screenshot logic can be added if needed
+            
+            # Take screenshot if needed for AI analysis
+            screenshot_path = ""
+            try:
+                import os
+                from datetime import datetime
+                
+                # Ensure directory exists
+                screenshots_dir = "/app/screenshots"
+                if not os.path.exists(screenshots_dir):
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                
+                timestamp = int(time.time() * 1000)
+                safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
+                filename = f"{safe_name}_{timestamp}.jpg"
+                screenshot_path = f"{screenshots_dir}/{filename}"
+                
+                await page.screenshot(path=screenshot_path, full_page=True, quality=80, type="jpeg")
+                logger.info(f"Screenshot saved to {screenshot_path}")
+            except Exception as e:
+                logger.warning(f"Failed to take screenshot: {e}")
+
+            return content, screenshot_path
 
         except Exception as e:
             logger.error(f"Error fetching {url}: {e}")
