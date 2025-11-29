@@ -5,6 +5,7 @@ echo "Setting up screenshots directory..."
 mkdir -p screenshots
 
 echo "Running database migrations..."
+ls -la /app/app
 alembic upgrade head
 
 echo "Starting application..."
