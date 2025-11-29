@@ -1,8 +1,8 @@
 """
-Bonial.fr Scraper Service
+Tiendeo.fr Scraper Service
 
-Scrapes promotional catalogs from Bonial.fr for configured enseignes.
-Uses Playwright for browser automation.
+Scrapes promotional catalogs from Tiendeo.fr for configured enseignes.
+Much simpler structure than Bonial - catalog cards are clearly defined with direct links.
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import hashlib
 import logging
 import re
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from playwright.async_api import async_playwright, Page, Browser
@@ -20,29 +20,22 @@ from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
 
 logger = logging.getLogger(__name__)
 
-# Bonial CSS selectors (based on browser inspection - updated for new structure)
-BONIAL_SELECTORS = {
-    "catalog_link": "a:has-text('Ouvrir le catalogue')",  # Playwright syntax for "has text"
-    "catalog_title": "h2",  # Will be searched within the parent container
-    "catalog_image": "img",  # Will be searched within the parent container
-    "cookie_accept": "button:has-text('Accepter')",
-}
+# Tiendeo site base URL
+TIENDEO_BASE_URL = "https://www.tiendeo.fr"
 
+# Date pattern for Tiendeo: "Expire le 31/12" or "mar. 25/11 - lun. 08/12"
 DATE_PATTERN = r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
 
 
-def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
+def parse_tiendeo_dates(date_str: str) -> tuple[datetime, datetime]:
     """
-    Parse Bonial date format to datetime objects.
+    Parse Tiendeo date format to datetime objects.
     
     Args:
-        date_str: Date string like "mar. 25/11 - lun. 08/12/2025"
+        date_str: Date string like "Expire le 31/12" or "mar. 25/11 - lun. 08/12"
     
     Returns:
         Tuple of (date_debut, date_fin)
-    
-    Raises:
-        ValueError: If date format is invalid
     """
     matches = re.findall(DATE_PATTERN, date_str)
     
@@ -65,6 +58,7 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
         if year < 100:
             year += 2000
             
+        # Handle year rollover
         if len(parts) == 2:
             if month < today.month - 3:
                 year += 1
@@ -80,11 +74,8 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
     if len(parsed_dates) >= 2:
         return min(parsed_dates), max(parsed_dates)
     elif len(parsed_dates) == 1:
-        date = parsed_dates[0]
-        if date > today:
-            return today, date
-        else:
-            return date, date
+        # If only one date (expire date), use today as start
+        return today, parsed_dates[0]
     
     return parsed_dates[0], parsed_dates[0]
 
@@ -95,79 +86,63 @@ def compute_catalog_hash(enseigne_id: int, titre: str, date_debut: datetime) -> 
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-async def accept_cookies(page: Page) -> None:
-    """Accept cookie consent banner if present."""
-    try:
-        await page.click(BONIAL_SELECTORS["cookie_accept"], timeout=3000)
-        logger.debug("Accepted cookies")
-        await asyncio.sleep(1)
-    except Exception:
-        logger.debug("No cookie banner found or already accepted")
-
-
 async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, Any]]:
-    """Scrape the list of catalogs for an enseigne from Bonial using full-page scroll."""
-    url = f"https://www.bonial.fr/Enseignes/{enseigne.slug_bonial}"
+    """Scrape the list of catalogs for an enseigne from Tiendeo."""
+    # Tiendeo uses store URLs like: /Magasins/{city}/{enseigne-slug}
+    # We'll use Nancy as default city for now
+    url = f"{TIENDEO_BASE_URL}/Magasins/nancy/{enseigne.slug_bonial.lower()}"
     logger.info(f"Scraping catalog list for {enseigne.nom} from {url}")
     
     await page.goto(url, wait_until="networkidle")
-    await accept_cookies(page)
+    await asyncio.sleep(2)  # Wait for dynamic content
     
-    # Scroll the page multiple times to trigger lazy loading
-    logger.info("Scrolling page to load all dynamic content...")
-    for i in range(5):  # Scroll 5 times
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(2)  # Wait for content to load
-    
-    # Scroll back to top
-    await page.evaluate("window.scrollTo(0, 0)")
-    await asyncio.sleep(1)
-    
-    # Extract all catalog data using JavaScript to find patterns
+    # Extract catalog data using JavaScript
     catalogs_data = await page.evaluate("""
         () => {
             const results = [];
             
-            // Find all h2 elements which typically contain catalog titles
-            const h2Elements = document.querySelectorAll('h2');
+            // Find all links to catalog pages (format: /Catalogues/{id})
+            const catalogLinks = document.querySelectorAll('a[href*="/Catalogues/"]');
             
-            h2Elements.forEach((h2, index) => {
-                const title = h2.textContent.trim();
+            catalogLinks.forEach((link) => {
+                const href = link.href;
+                const catalogId = href.split('/Catalogues/')[1];
                 
-                // Skip generic titles
-                const genericTitles = ['restez informé', 'catalogues bazar', 'une enseigne', 'optimisez'];
-                if (genericTitles.some(generic => title.toLowerCase().includes(generic))) {
-                    return;
+                if (!catalogId) return;
+                
+                // Extract title from link text or nearby heading
+                let title = link.textContent.trim();
+                
+                // Try to find h3 or h4 near this link for better title
+                const parentContainer = link.closest('div, section, article');
+                if (parentContainer) {
+                    const heading = parentContainer.querySelector('h3, h4, h2');
+                    if (heading && heading.textContent.trim().length > title.length) {
+                        title = heading.textContent.trim();
+                    }
                 }
                 
-                // Find parent container
-                let container = h2.parentElement;
-                for (let i = 0; i < 10 && container; i++) {
-                    // Look for image in this container
-                    const img = container.querySelector('img');
-                    // Look for link in this container
-                    const link = container.querySelector('a[href*="/contentViewer/"]');
-                    
-                    if (img && link) {
-                        // Found a complete catalog card!
-                        const imgSrc = img.src || img.getAttribute('data-src') || img.getAttribute('srcset')?.split(' ')[0];
-                        const href = link.href;
-                        
-                        // Try to extract dates from container text
-                        const containerText = container.textContent;
-                        const dateMatch = containerText.match(/(\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)/g);
-                        
-                        results.push({
-                            title: title,
-                            image: imgSrc,
-                            url: href,
-                            dates: dateMatch || [],
-                            containerText: containerText.substring(0, 500)  // First 500 chars for debugging
-                        });
-                        break;  // Found it, stop going up
+                // Look for image in the same container
+                let imgSrc = null;
+                if (parentContainer) {
+                    const img = parentContainer.querySelector('img');
+                    if (img) {
+                        imgSrc = img.src || img.getAttribute('data-src') || img.getAttribute('srcset')?.split(' ')[0];
                     }
-                    
-                    container = container.parentElement;
+                }
+                
+                // Extract date information from container text
+                const containerText = parentContainer ? parentContainer.textContent : link.textContent;
+                
+                // Avoid duplicates
+                if (!results.some(r => r.url === href)) {
+                    results.push({
+                        title: title,
+                        url: href,
+                        image: imgSrc,
+                        containerText: containerText.substring(0, 300),  // For date parsing
+                        catalogId: catalogId
+                    });
                 }
             });
             
@@ -175,7 +150,7 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
         }
     """)
     
-    logger.info(f"Found {len(catalogs_data)} potential catalog cards for {enseigne.nom}")
+    logger.info(f"Found {len(catalogs_data)} catalog links for {enseigne.nom}")
     
     catalogues = []
     
@@ -184,33 +159,41 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
             titre = cat_data.get('title', 'Catalogue')
             image_url = cat_data.get('image')
             catalogue_url = cat_data.get('url')
-            dates_list = cat_data.get('dates', [])
             container_text = cat_data.get('containerText', '')
             
-            if not catalogue_url or not image_url:
-                logger.warning(f"Skipping catalog {idx}: missing URL or image")
+            if not catalogue_url:
+                logger.warning(f"Skipping catalog {idx}: missing URL")
                 continue
             
-            # Ensure absolute URLs
+            # Clean title - remove extra info like distances, "Gifi", etc.
+            titre = titre.replace('Gifi', '').replace('Action', '').replace('Centrakor', '')
+            titre = re.sub(r'\d+\.\d+\s*km', '', titre)  # Remove "3.2 km"
+            titre = re.sub(r'Nancy', '', titre, flags=re.IGNORECASE)
+            titre = re.sub(r'Expire\s+le.*', '', titre)  # Remove expire info from title
+            titre = titre.strip()
+            
+            # Skip if title is empty or too short
+            if len(titre) < 3:
+                logger.warning(f"Skipping catalog {idx}: title too short after cleaning")
+                continue
+            
+            # Ensure absolute URL
             if image_url and image_url.startswith('//'):
                 image_url = 'https:' + image_url
             
-            # Parse dates
-            date_debut, date_fin = datetime.now(), datetime.now()
+            # Parse dates from container text
+            date_debut, date_fin = datetime.now(), datetime.now() + timedelta(days=30)
             try:
-                if dates_list:
-                    dates_str = ' - '.join(dates_list)
-                    date_debut, date_fin = parse_bonial_dates(dates_str)
+                date_debut, date_fin = parse_tiendeo_dates(container_text)
             except ValueError:
-                # Default to 1 week validity
-                from datetime import timedelta
-                date_fin = datetime.now() + timedelta(days=7)
+                # Default to 30 days validity
+                logger.debug(f"Could not parse dates for '{titre}', using 30 days default")
             
             catalogues.append({
-                "titre": titre.strip(),
+                "titre": titre,
                 "date_debut": date_debut,
                 "date_fin": date_fin,
-                "image_couverture_url": image_url,
+                "image_couverture_url": image_url or "",
                 "catalogue_url": catalogue_url,
             })
             logger.info(f"Extracted catalog: {titre}")
@@ -224,19 +207,14 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
 
 
 async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str, Any]]:
-    """Scrape all pages of a catalog from the Bonial viewer."""
+    """Scrape all pages of a catalog from the Tiendeo viewer."""
     logger.info(f"Scraping catalog pages from {catalogue_url}")
     
     await page.goto(catalogue_url, wait_until="networkidle")
-    await asyncio.sleep(2)
+    await asyncio.sleep(3)  # Wait for viewer to load
     
-    try:
-        await page.click("button:has-text('Continuer'), button:has-text('Fermer')", timeout=2000)
-        await asyncio.sleep(1)
-    except Exception:
-        pass
-    
-    images = await page.query_selector_all("img[src*='content-media.bonial.biz']")
+    # Find all catalog page images
+    images = await page.query_selector_all("img[src*='tiendeo'], img[src*='cdn']")
     
     if not images:
         logger.warning(f"No images found in catalog viewer: {catalogue_url}")
@@ -253,6 +231,7 @@ async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str,
                 width = await img.evaluate("el => el.naturalWidth")
                 height = await img.evaluate("el => el.naturalHeight")
                 
+                # Skip small images (thumbnails)
                 if width < 200 or height < 200:
                     continue
                 
@@ -273,7 +252,7 @@ async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str,
 
 
 async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | None = None) -> ScrapingLog:
-    """Scrape all catalogs for a specific enseigne."""
+    """Scrape all catalogs for a specific enseigne from Tiendeo."""
     start_time = datetime.now()
     log = ScrapingLog(
         enseigne_id=enseigne.id,
@@ -320,7 +299,7 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | No
                     logger.debug(f"Catalog already exists: {cat_data['titre']}")
                     continue
                 
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)  # Respectful delay
                 pages_data = await scrape_catalog_pages(page, cat_data["catalogue_url"])
                 
                 catalogue = Catalogue(
@@ -376,9 +355,9 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | No
 
 
 async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
-    """Scrape all active enseignes. Uses Browserless service via WebSocket."""
+    """Scrape all active enseignes from Tiendeo."""
     enseignes = db.query(Enseigne).filter_by(is_active=True).all()
-    logger.info(f"Starting scraping for {len(enseignes)} active enseignes")
+    logger.info(f"Starting Tiendeo scraping for {len(enseignes)} active enseignes")
     
     logs = []
     
@@ -398,5 +377,5 @@ async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
         
         await browser.close()
     
-    logger.info(f"Scraping complete: {len(logs)} enseignes processed")
+    logger.info(f"Tiendeo scraping complete: {len(logs)} enseignes processed")
     return logs

@@ -24,7 +24,7 @@ from app.schemas_catalogues import (
     ScrapingLogResponse,
     ScrapingStatsResponse,
 )
-from app.services.bonial_scraper import scrape_all_enseignes, scrape_enseigne
+from app.services.tiendeo_scraper import scrape_all_enseignes, scrape_enseigne
 
 logger = logging.getLogger(__name__)
 
