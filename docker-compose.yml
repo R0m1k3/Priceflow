@@ -21,6 +21,7 @@ services:
       browserless:
         condition: service_started
     volumes:
+      - ./app:/app/app
       - screenshots_data:/app/screenshots
     networks:
       - nginx_default
