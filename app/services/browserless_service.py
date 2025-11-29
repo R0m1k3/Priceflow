@@ -403,9 +403,11 @@ class BrowserlessService:
                     content = await page.inner_text('body')
                     logger.info(f"Extracted {len(content)} chars of visible text from page")
 
-                    # Normalize French prices to English format for AI (3,99 € → 3.99 €)
+                    # Normalize French prices to English format for AI
                     import re
-                    # Replace comma with dot in price patterns: digits,XX € → digits.XX €
+                    # Pattern 1: digits€XX → digits.XX € (e.g., "3€99" → "3.99 €")
+                    content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
+                    # Pattern 2: digits,XX € → digits.XX € (e.g., "3,99 €" → "3.99 €")
                     content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
                     # Remove spaces in thousands: 1 234.56 → 1234.56
                     content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
@@ -432,11 +434,12 @@ class BrowserlessService:
 
                 # Prepend extracted price to content if found
                 if extracted_price:
-                    # Convert French format to English for AI (3,99 → 3.99)
+                    # Convert French format to English for AI
                     import re
                     normalized_price = extracted_price
-                    # Replace comma with dot for decimal separator (French to English)
-                    # Pattern: digits, comma, 2 digits → digits, dot, 2 digits
+                    # Pattern 1: digits€digits → digits.digits € (e.g., "3€99" → "3.99 €")
+                    normalized_price = re.sub(r'(\d+)€(\d{2})', r'\1.\2 €', normalized_price)
+                    # Pattern 2: digits,digits → digits.digits (e.g., "3,99" → "3.99")
                     normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', normalized_price)
                     # Remove spaces in thousands separators if any (1 234,56 → 1234.56)
                     normalized_price = normalized_price.replace(' ', '')
