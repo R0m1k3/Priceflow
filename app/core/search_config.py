@@ -139,7 +139,7 @@ SITE_CONFIGS = {
     "lincroyable.fr": {
         "name": "L'Incroyable",
         "search_url": "https://www.lincroyable.fr/recherche-query={query}/",
-        "product_selector": "a[href*='.html']",
+        "product_selector": "a[href^='/p']",
         "wait_selector": ".product-item, .product-list",
         "category": "Discount",
         "requires_proxy": False,
