@@ -23,7 +23,7 @@ from app.utils.text import clean_text
 
 # Default configuration (can be overridden by DB settings)
 DEFAULT_PROVIDER = "ollama"
-DEFAULT_MODEL = "gemma3:4b"
+DEFAULT_MODEL = "google/gemini-flash-1.5"
 DEFAULT_API_BASE = "http://ollama:11434"
 DEFAULT_TEMPERATURE = 0.1
 DEFAULT_MAX_TOKENS = 300
@@ -90,6 +90,12 @@ class AIService:
                 "enable_multi_sample": settings_map.get("enable_multi_sample", "false").lower() == "true",
                 "multi_sample_threshold": float(settings_map.get("multi_sample_confidence_threshold", "0.6")),
             }
+
+            # Force override for known problematic model
+            if config["model"] == "openai/gpt-5-nano":
+                logger.warning("Overriding problematic model 'openai/gpt-5-nano' with 'google/gemini-flash-1.5'")
+                config["model"] = "google/gemini-flash-1.5"
+                config["provider"] = "openrouter"
 
             # Update cache
             _config_cache["data"] = config  # type: ignore
