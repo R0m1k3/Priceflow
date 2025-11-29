@@ -184,8 +184,9 @@ class NewSearchService:
         seen_urls = set()
         
         for link in links:
-            if len(results) >= 5:  # Limit to 5 results per site
-                break
+            # Limit removed as per user request
+            # if len(results) >= 5:
+            #    break
 
             href = link.get("href")
             if not href:
