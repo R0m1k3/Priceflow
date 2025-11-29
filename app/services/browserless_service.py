@@ -185,7 +185,7 @@ class BrowserlessService:
                 filename = f"{safe_name}_{timestamp}.jpg"
                 screenshot_path = f"{screenshots_dir}/{filename}"
                 
-                await page.screenshot(path=screenshot_path, full_page=True, quality=80, type="jpeg")
+                await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
                 logger.info(f"Screenshot saved to {screenshot_path}")
             except Exception as e:
                 logger.warning(f"Failed to take screenshot: {e}")
