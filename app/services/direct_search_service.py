@@ -460,7 +460,7 @@ DEFAULT_SITE_CONFIGS = {
         "name": "Gifi",
         "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
         "product_selector": (
-            "a.link, a[aria-label='Afficher les détails du produit']"
+            ".product-tile a.link, .product-tile a[aria-label='Afficher les détails du produit']"
         ),
         "wait_selector": ".products-grid, .product-items, .search-results, .products",
         "category": "Discount",
