@@ -142,6 +142,71 @@ class BrowserlessService:
         except Exception:
             pass
 
+    async def _extract_generic_price(self, page: Page) -> str:
+        """
+        Extract price from generic e-commerce pages using common selectors and patterns.
+        Returns price text (e.g., "1,99 €") or empty string if not found.
+        """
+        # Common price selectors used across e-commerce sites
+        price_selectors = [
+            # Common class names
+            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original'])",
+            ".product-price",
+            ".price",
+            ".current-price",
+            ".sale-price",
+            ".final-price",
+            # Common data attributes
+            "[data-price]",
+            "[itemprop='price']",
+            # ID-based
+            "#price",
+            "#product-price",
+            "#our-price",
+            # Specific patterns
+            "span[class*='prix']",
+            "div[class*='prix']",
+            "span[class*='tarif']",
+        ]
+
+        for selector in price_selectors:
+            try:
+                elements = page.locator(selector)
+                count = await elements.count()
+
+                # Try first visible element
+                for i in range(min(count, 3)):  # Check max 3 elements
+                    try:
+                        element = elements.nth(i)
+                        if await element.is_visible(timeout=1000):
+                            price_text = await element.inner_text()
+                            # Check if it looks like a price (contains € or digits with comma/dot)
+                            if price_text and ('€' in price_text or (',' in price_text and any(c.isdigit() for c in price_text))):
+                                # Clean up price text
+                                price_text = price_text.strip()
+                                logger.info(f"Found price via selector {selector}: {price_text}")
+                                return price_text
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+        # Fallback: Use regex to find price patterns in all text
+        try:
+            all_text = await page.inner_text('body')
+            import re
+            # Match French price formats: "1,99 €", "12,99€", "1.234,56 €"
+            price_matches = re.findall(r'\d+[,\.]\d{2}\s*€', all_text)
+            if price_matches:
+                # Return first price found
+                logger.info(f"Found price via regex: {price_matches[0]}")
+                return price_matches[0]
+        except Exception:
+            pass
+
+        logger.warning("Could not extract generic price with any method")
+        return ""
+
     async def _extract_amazon_price(self, page: Page) -> str:
         """
         Extract price directly from Amazon product page using CSS selectors.
@@ -316,13 +381,26 @@ class BrowserlessService:
                     logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
                     content = await page.content()
 
-                # For Amazon, extract price directly and prepend to content
-                # This helps AI by providing explicit price information
+                # Extract price directly from DOM for better accuracy
+                extracted_price = None
+
+                # For Amazon, use specific selectors
                 if "amazon" in url.lower() and "/dp/" in url:
-                    amazon_price_text = await self._extract_amazon_price(page)
-                    if amazon_price_text:
-                        content = f"PRIX DÉTECTÉ: {amazon_price_text}\n\n{content}"
-                        logger.info(f"Prepended Amazon price to content: {amazon_price_text}")
+                    extracted_price = await self._extract_amazon_price(page)
+                    if extracted_price:
+                        logger.info(f"Extracted Amazon price: {extracted_price}")
+                else:
+                    # For other sites, try common price selectors
+                    extracted_price = await self._extract_generic_price(page)
+                    if extracted_price:
+                        logger.info(f"Extracted generic price: {extracted_price}")
+
+                # Prepend extracted price to content if found
+                if extracted_price:
+                    content = f"PRIX DÉTECTÉ: {extracted_price}\n\n{content}"
+                    logger.info(f"Prepended price to content: {extracted_price}")
+                else:
+                    logger.warning("Could not extract price from DOM, relying on text/image only")
             else:
                 # Extract raw HTML for parsing (search use case)
                 content = await page.content()
