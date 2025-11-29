@@ -21,7 +21,6 @@ services:
       browserless:
         condition: service_started
     volumes:
-      - ./app:/app/app
       - screenshots_data:/app/screenshots
     networks:
       - nginx_default
@@ -41,7 +40,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U priceflow -d priceflow"]
+      test: [ "CMD-SHELL", "pg_isready -U priceflow -d priceflow" ]
       interval: 10s
       timeout: 5s
       retries: 5
