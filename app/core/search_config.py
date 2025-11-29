@@ -119,6 +119,31 @@ SITE_CONFIGS = {
         "category": "Culture & Tech",
         "requires_proxy": False,
     },
+    # === NOUVEAUX SITES ===
+    "bmstores.fr": {
+        "name": "B&M",
+        "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",
+        "product_selector": "a.thumbnail.product-thumbnail",
+        "wait_selector": ".products, .product-miniature",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "centrakor.com": {
+        "name": "Centrakor",
+        "search_url": "https://www.centrakor.com/search/{query}",
+        "product_selector": "a.link.link--block",
+        "wait_selector": ".product-list, .product-item",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "lincroyable.fr": {
+        "name": "L'Incroyable",
+        "search_url": "https://www.lincroyable.fr/recherche-query={query}/",
+        "product_selector": "a[href*='.html']",
+        "wait_selector": ".product-item, .product-list",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
 }
 
 # === COOKIE BANNERS ===
