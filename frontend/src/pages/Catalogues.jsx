@@ -27,7 +27,12 @@ export default function Catalogues() {
     const loadEnseignes = async () => {
         try {
             const response = await axios.get(`${API_BASE}/enseignes`);
-            setEnseignes(response.data);
+            if (Array.isArray(response.data)) {
+                setEnseignes(response.data);
+            } else {
+                console.error('API response for enseignes is not an array:', response.data);
+                setEnseignes([]);
+            }
         } catch (error) {
             console.error('Error loading enseignes:', error);
             toast.error('Erreur lors du chargement des enseignes');
@@ -52,8 +57,13 @@ export default function Catalogues() {
             }
 
             const response = await axios.get(API_BASE, { params });
-            setCatalogues(response.data.data);
-            setPagination(prev => ({ ...prev, total: response.data.pagination.total }));
+            if (response.data && Array.isArray(response.data.data)) {
+                setCatalogues(response.data.data);
+                setPagination(prev => ({ ...prev, total: response.data.pagination.total }));
+            } else {
+                console.error('API response for catalogues is invalid:', response.data);
+                setCatalogues([]);
+            }
         } catch (error) {
             console.error('Error loading catalogues:', error);
             toast.error('Erreur lors du chargement des catalogues');
@@ -130,8 +140,8 @@ export default function Catalogues() {
                             setPagination(prev => ({ ...prev, page: 1 }));
                         }}
                         className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${!selectedEnseigne
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-secondary hover:bg-secondary/80'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-secondary hover:bg-secondary/80'
                             }`}
                     >
                         Toutes les enseignes
@@ -144,8 +154,8 @@ export default function Catalogues() {
                                 setPagination(prev => ({ ...prev, page: 1 }));
                             }}
                             className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${selectedEnseigne?.id === enseigne.id
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-secondary hover:bg-secondary/80'
+                                ? 'bg-primary text-primary-foreground'
+                                : 'bg-secondary hover:bg-secondary/80'
                                 }`}
                             style={
                                 selectedEnseigne?.id === enseigne.id
