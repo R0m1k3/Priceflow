@@ -142,6 +142,58 @@ class BrowserlessService:
         except Exception:
             pass
 
+    async def _extract_amazon_price(self, page: Page) -> str:
+        """
+        Extract price directly from Amazon product page using CSS selectors.
+        Returns price text (e.g., "89,99 €") or empty string if not found.
+        """
+        # Amazon price selectors in priority order
+        # Note: .a-offscreen elements are hidden but contain the full price for screen readers
+        price_selectors = [
+            ".a-price .a-offscreen",  # Most reliable - hidden text with full price
+            "#corePrice_desktop .a-price .a-offscreen",
+            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
+            ".a-price[data-a-color='price'] .a-offscreen",
+            "#priceblock_ourprice",  # Older Amazon layout
+            "#priceblock_dealprice",  # Deal prices
+            "span.a-price-whole",  # Visible whole number part
+        ]
+
+        for selector in price_selectors:
+            try:
+                # Don't check visibility for .a-offscreen elements (they're hidden by design)
+                element = page.locator(selector).first
+
+                # For offscreen elements, just check if they exist and have text
+                if "offscreen" in selector or "priceblock" in selector:
+                    price_text = await element.inner_text(timeout=2000)
+                else:
+                    # For visible elements, check visibility first
+                    if await element.is_visible(timeout=2000):
+                        price_text = await element.inner_text()
+                    else:
+                        continue
+
+                if price_text and price_text.strip():
+                    logger.info(f"Extracted Amazon price via {selector}: {price_text}")
+                    return price_text.strip()
+            except Exception:
+                continue
+
+        # Try combination: whole + fraction
+        try:
+            whole = await page.locator("span.a-price-whole").first.inner_text()
+            fraction = await page.locator("span.a-price-fraction").first.inner_text()
+            if whole and fraction:
+                price_text = f"{whole}{fraction}"
+                logger.info(f"Extracted Amazon price from whole+fraction: {price_text}")
+                return price_text
+        except Exception:
+            pass
+
+        logger.warning("Could not extract Amazon price with any selector")
+        return ""
+
     async def get_page_content(self, url: str, use_proxy: bool = False, wait_selector: str = None) -> tuple[str, str]:
         """
         Fetch page content with full stealth lifecycle.
@@ -248,6 +300,15 @@ class BrowserlessService:
                 # Fallback to HTML content if inner_text fails
                 logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
                 content = await page.content()
+
+            # For Amazon, extract price directly and prepend to content
+            # This helps AI by providing explicit price information
+            if "amazon" in url.lower() and "/dp/" in url:
+                amazon_price_text = await self._extract_amazon_price(page)
+                if amazon_price_text:
+                    content = f"PRIX DÉTECTÉ: {amazon_price_text}\n\n{content}"
+                    logger.info(f"Prepended Amazon price to content: {amazon_price_text}")
+
             
             # Take screenshot if needed for AI analysis
             screenshot_path = ""
