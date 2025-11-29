@@ -481,6 +481,8 @@ class ScraperService:
                 timeout=timeout,
                 browser=browser,
                 is_amazon=is_amazon,
+                attempt=attempt,
+                max_retries=max_retries,
             )
 
             if result[0] is not None:  # Screenshot réussi
@@ -503,6 +505,8 @@ class ScraperService:
         timeout: int = 90000,
         browser=None,
         is_amazon: bool = False,
+        attempt: int = 0,
+        max_retries: int = 1,
     ) -> tuple[str | None, str, bool]:
         """Exécute le scraping réel (appelé par scrape_item avec retries)."""
 
@@ -553,26 +557,35 @@ class ScraperService:
             if is_amazon:
                 extra_headers["Referer"] = "https://www.google.fr/"
 
-            try:
-                # Prepare context options
-                context_options = {
-                    "viewport": {"width": 1920, "height": 1080},
-                    "user_agent": current_user_agent,
-                    "locale": "fr-FR",
-                    "timezone_id": "Europe/Paris",
-                    "extra_http_headers": extra_headers,
-                    "java_script_enabled": True,
-                    "bypass_csp": True,
-                }
+            # Gestion intelligente du Proxy :
+            # - Tentatives 0 à MAX-1 : Utiliser un Proxy (si dispo)
+            # - Dernière tentative (max_retries) : Essayer SANS Proxy (Direct IP) en dernier recours
+            #   (car l'utilisateur signale que l'accès direct marche parfois mieux pour les pages produits)
+            use_proxy = is_amazon and (attempt < max_retries)
+            
+            if not use_proxy and is_amazon and attempt > 0:
+                logger.info(f"Tentative {attempt + 1}/{max_retries + 1} : Passage en mode DIRECT (Sans Proxy) pour tenter de contourner le blocage proxy")
 
-                # Add proxy for Amazon if configured
-                if is_amazon:
-                    proxy_config = _get_amazon_proxy()
-                    if proxy_config:
-                        # proxy_config is already a dict with {"server": "...", "username": "...", "password": "..."}
-                        context_options["proxy"] = proxy_config
+            # Prepare context options
+            context_options = {
+                "viewport": {"width": 1920, "height": 1080},
+                "user_agent": current_user_agent,
+                "locale": "fr-FR",
+                "timezone_id": "Europe/Paris",
+                "extra_http_headers": extra_headers,
+                "java_script_enabled": True,
+                "bypass_csp": True,
+            }
 
-                context = await current_browser.new_context(**context_options)
+            # Add proxy for Amazon if configured AND enabled for this attempt
+            if use_proxy:
+                proxy_config = _get_amazon_proxy()
+                if proxy_config:
+                    # proxy_config is already a dict with {"server": "...", "username": "...", "password": "..."}
+                    context_options["proxy"] = proxy_config
+            
+            # Création du contexte
+            context = await current_browser.new_context(**context_options)
 
                 # Inject stealth script before any page loads (especially for Amazon)
                 if is_amazon:
