@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Loader2, Play, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { useAuth } from '../../hooks/use-auth';
 
 const API_BASE = '/api/catalogues/admin';
 
@@ -11,6 +12,7 @@ export default function CatalogueAdmin() {
     const [logs, setLogs] = useState([]);
     const [stats, setStats] = useState(null);
     const [enseignes, setEnseignes] = useState([]);
+    const { getAuthHeaders } = useAuth();
 
     useEffect(() => {
         loadEnseignes();
@@ -29,7 +31,9 @@ export default function CatalogueAdmin() {
 
     const loadStats = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/stats`);
+            const response = await axios.get(`${API_BASE}/stats`, {
+                headers: getAuthHeaders()
+            });
             setStats(response.data);
         } catch (error) {
             console.error('Error loading stats:', error);
@@ -39,7 +43,9 @@ export default function CatalogueAdmin() {
     const loadLogs = async () => {
         setLoading(true);
         try {
-            const response = await axios.get(`${API_BASE}/scraping/logs?limit=20`);
+            const response = await axios.get(`${API_BASE}/scraping/logs?limit=20`, {
+                headers: getAuthHeaders()
+            });
             setLogs(response.data);
         } catch (error) {
             console.error('Error loading logs:', error);
@@ -53,7 +59,10 @@ export default function CatalogueAdmin() {
         setScraping(true);
         try {
             const params = enseigneId ? { enseigne_id: enseigneId } : {};
-            const response = await axios.post(`${API_BASE}/scraping/trigger`, null, { params });
+            const response = await axios.post(`${API_BASE}/scraping/trigger`, null, {
+                params,
+                headers: getAuthHeaders()
+            });
 
             toast.success(response.data.message);
             toast.info(`${response.data.catalogues_nouveaux} nouveaux catalogues trouvés`);
