@@ -147,49 +147,75 @@ class BrowserlessService:
         Extract price from generic e-commerce pages using common selectors and patterns.
         Returns price text (e.g., "1,99 €") or empty string if not found.
         """
-        # Common price selectors used across e-commerce sites
+        # Common price selectors used across e-commerce sites (ordered by priority)
         price_selectors = [
-            # Common class names
-            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original'])",
-            ".product-price",
-            ".price",
+            # Highest priority: semantic and explicit current prices
+            "[itemprop='price']",
             ".current-price",
             ".sale-price",
             ".final-price",
-            # Common data attributes
+            ".product-price",
             "[data-price]",
-            "[itemprop='price']",
+            # Medium priority: generic price classes (exclude old/was/original)
+            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original']):not([class*='before']):not([class*='regular'])",
             # ID-based
             "#price",
             "#product-price",
             "#our-price",
-            # Specific patterns
-            "span[class*='prix']",
-            "div[class*='prix']",
+            # French-specific
+            "span[class*='prix']:not([class*='ancien']):not([class*='barre'])",
+            "div[class*='prix']:not([class*='ancien'])",
             "span[class*='tarif']",
+            # Lower priority: generic .price (might catch old prices)
+            ".price",
         ]
+
+        found_prices = []
 
         for selector in price_selectors:
             try:
                 elements = page.locator(selector)
                 count = await elements.count()
 
-                # Try first visible element
-                for i in range(min(count, 3)):  # Check max 3 elements
+                # Check up to 3 elements per selector
+                for i in range(min(count, 3)):
                     try:
                         element = elements.nth(i)
                         if await element.is_visible(timeout=1000):
+                            # Check if element is strikethrough (old price)
+                            try:
+                                text_decoration = await element.evaluate("el => window.getComputedStyle(el).textDecoration")
+                                if "line-through" in text_decoration:
+                                    logger.debug(f"Skipping strikethrough price at {selector}")
+                                    continue  # Skip crossed-out prices
+                            except Exception:
+                                pass  # If we can't check, continue anyway
+
                             price_text = await element.inner_text()
                             # Check if it looks like a price (contains € or digits with comma/dot)
                             if price_text and ('€' in price_text or (',' in price_text and any(c.isdigit() for c in price_text))):
                                 # Clean up price text
                                 price_text = price_text.strip()
+                                found_prices.append((selector, price_text))
                                 logger.info(f"Found price via selector {selector}: {price_text}")
-                                return price_text
+
+                                # Return immediately if we found with high-priority selector
+                                if selector in ["[itemprop='price']", ".current-price", ".sale-price", ".final-price", ".product-price"]:
+                                    return price_text
                     except Exception:
                         continue
             except Exception:
                 continue
+
+        # If we found prices with lower-priority selectors
+        if found_prices:
+            # When multiple prices found, the LAST one in DOM order is usually the current price
+            # (websites typically show: old price first, then current price)
+            best_price = found_prices[-1][1]  # Take last (most recently added)
+            if len(found_prices) > 1:
+                prices_list = [p[1] for p in found_prices]
+                logger.info(f"Multiple prices found: {prices_list}, selecting last (most likely current): {best_price}")
+            return best_price
 
         # Fallback: Use regex to find price patterns in all text
         try:
@@ -376,6 +402,17 @@ class BrowserlessService:
                 try:
                     content = await page.inner_text('body')
                     logger.info(f"Extracted {len(content)} chars of visible text from page")
+
+                    # Normalize French prices to English format for AI
+                    import re
+                    # Pattern 1: digits€XX → digits.XX € (e.g., "3€99" → "3.99 €")
+                    content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
+                    # Pattern 2: digits,XX € → digits.XX € (e.g., "3,99 €" → "3.99 €")
+                    content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
+                    # Remove spaces in thousands: 1 234.56 → 1234.56
+                    content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
+                    logger.debug("Normalized French price formats to English")
+
                 except Exception as e:
                     # Fallback to HTML content if inner_text fails
                     logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
@@ -397,8 +434,18 @@ class BrowserlessService:
 
                 # Prepend extracted price to content if found
                 if extracted_price:
-                    content = f"PRIX DÉTECTÉ: {extracted_price}\n\n{content}"
-                    logger.info(f"Prepended price to content: {extracted_price}")
+                    # Convert French format to English for AI
+                    import re
+                    normalized_price = extracted_price
+                    # Pattern 1: digits€digits → digits.digits € (e.g., "3€99" → "3.99 €")
+                    normalized_price = re.sub(r'(\d+)€(\d{2})', r'\1.\2 €', normalized_price)
+                    # Pattern 2: digits,digits → digits.digits (e.g., "3,99" → "3.99")
+                    normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', normalized_price)
+                    # Remove spaces in thousands separators if any (1 234,56 → 1234.56)
+                    normalized_price = normalized_price.replace(' ', '')
+
+                    content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
+                    logger.info(f"Prepended normalized price to content: {normalized_price} (original: {extracted_price})")
                 else:
                     logger.warning("Could not extract price from DOM, relying on text/image only")
             else:
