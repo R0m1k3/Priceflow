@@ -356,15 +356,19 @@ def update_site(db: Session, site_id: int, site_data: dict[str, Any]) -> SearchS
     return site
 
 def seed_default_sites(db: Session) -> int:
-    """Initialise la base de données avec les sites configurés"""
+    """Initialise ou met à jour la base de données avec les sites configurés"""
+    updated_count = 0
     created_count = 0
-    existing_domains = {site.domain.lower().replace("www.", "") for site in db.query(SearchSite).all()}
+    
+    # Get all existing sites mapped by domain
+    existing_sites = {
+        site.domain.lower().replace("www.", ""): site 
+        for site in db.query(SearchSite).all()
+    }
 
     for domain, config in SITE_CONFIGS.items():
         clean_domain = domain.lower().replace("www.", "")
-        if clean_domain in existing_domains:
-            continue
-
+        
         site_data = {
             "name": config.get("name", domain),
             "domain": domain,
@@ -376,16 +380,36 @@ def seed_default_sites(db: Session) -> int:
             "is_active": True,
         }
 
-        try:
-            site = SearchSite(**site_data)
-            db.add(site)
-            db.commit()
-            created_count += 1
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Erreur création site {domain}: {e}")
+        if clean_domain in existing_sites:
+            # Update existing site
+            site = existing_sites[clean_domain]
+            changed = False
+            for key, value in site_data.items():
+                if getattr(site, key) != value:
+                    setattr(site, key, value)
+                    changed = True
+            
+            if changed:
+                try:
+                    db.commit()
+                    updated_count += 1
+                    logger.info(f"Site mis à jour: {domain}")
+                except Exception as e:
+                    db.rollback()
+                    logger.error(f"Erreur mise à jour site {domain}: {e}")
+        else:
+            # Create new site
+            try:
+                site = SearchSite(**site_data)
+                db.add(site)
+                db.commit()
+                created_count += 1
+                logger.info(f"Nouveau site créé: {domain}")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"Erreur création site {domain}: {e}")
 
-    return created_count
+    return created_count + updated_count
 
 def reset_sites_to_defaults(db: Session) -> int:
     """Réinitialise tous les sites"""
