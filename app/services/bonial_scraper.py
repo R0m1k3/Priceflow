@@ -371,6 +371,7 @@ async def scrape_enseigne(
 async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
     """
     Scrape all active enseignes.
+    Uses Browserless service via WebSocket.
     
     Args:
         db: Database session
@@ -378,13 +379,20 @@ async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
     Returns:
         List of ScrapingLog objects
     """
+    import os
+    
     enseignes = db.query(Enseigne).filter_by(is_active=True).all()
     logger.info(f"Starting scraping for {len(enseignes)} active enseignes")
     
     logs = []
     
+    # Get Browserless URL from environment
+    browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
+    logger.info(f"Connecting to Browserless at {browserless_url}")
+    
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # Connect to Browserless instead of launching local browser
+        browser = await p.chromium.connect_over_cdp(browserless_url)
         
         for enseigne in enseignes:
             try:
