@@ -1,483 +1,144 @@
 """
-Search Service - Orchestrateur de recherche de produits
-Combine recherche directe sur sites + Light Scraper + Browserless fallback
+New Search Service
+Orchestrates searches across multiple e-commerce sites using BrowserlessService.
 """
 
 import asyncio
 import logging
-import os
-from collections.abc import AsyncGenerator
-from typing import Any
+import re
+from urllib.parse import quote_plus, urljoin
 
-from playwright.async_api import async_playwright
-from sqlalchemy.orm import Session
+from bs4 import BeautifulSoup
 
-from app.models import SearchSite
-from app.schemas import SearchProgress, SearchResultItem
-from app.services import direct_search_service, light_scraper_service
-from app.services.ai_service import AIService
-from app.services.scraper_service import ScraperService
-from app.services.settings_service import SettingsService
+from app.core.search_config import SITE_CONFIGS
+from app.services.browserless_service import browserless_service
 
 logger = logging.getLogger(__name__)
 
-# Configuration par défaut
-DEFAULT_MAX_RESULTS = 20
-DEFAULT_PARALLEL_LIMIT = 5
-DEFAULT_TIMEOUT = 30
+class SearchResult:
+    def __init__(
+        self,
+        url: str,
+        title: str,
+        snippet: str,
+        source: str,
+        price: float | None = None,
+        currency: str = "EUR",
+        in_stock: bool | None = None,
+    ):
+        self.url = url
+        self.title = title
+        self.snippet = snippet
+        self.source = source
+        self.price = price
+        self.currency = currency
+        self.in_stock = in_stock
 
-
-async def search_products(
-    query: str,
-    db: Session,
-    site_ids: list[int] | None = None,
-    max_results: int | None = None,
-) -> AsyncGenerator[SearchProgress, None]:
-    """
-    Recherche des produits sur les sites configurés.
-
-    Flux:
-    1. Recherche directe sur les pages de recherche de chaque site
-    2. Light scraper tente extraction HTTP rapide
-    3. Browserless fallback pour les sites JS
-
-    Args:
-        query: Terme de recherche
-        db: Session de base de données
-        site_ids: IDs des sites à utiliser (None = tous les actifs)
-        max_results: Nombre max de résultats
-
-    Yields:
-        SearchProgress avec les résultats au fur et à mesure
-    """
-    # Récupérer la configuration
-    if max_results is None:
-        max_results = int(SettingsService.get_setting_value(db, "search_max_results", str(DEFAULT_MAX_RESULTS)))
-
-    parallel_limit = int(SettingsService.get_setting_value(db, "search_parallel_limit", str(DEFAULT_PARALLEL_LIMIT)))
-
-    # Récupérer les sites
-    sites = _get_sites(db, site_ids)
-    if not sites:
-        yield SearchProgress(
-            status="error",
-            total=0,
-            completed=0,
-            message="Aucun site de recherche configuré",
-            results=[],
-        )
-        return
-
-    # Préparer les données des sites pour la recherche directe
-    sites_data = [
-        {
-            "domain": site.domain,
-            "name": site.name,
-            "search_url": site.search_url,
-            "product_link_selector": site.product_link_selector,
-            "requires_js": site.requires_js,
-            "debug_enabled": site.debug_enabled,
+    def to_dict(self):
+        return {
+            "url": self.url,
+            "title": self.title,
+            "snippet": self.snippet,
+            "source": self.source,
+            "price": self.price,
+            "currency": self.currency,
+            "in_stock": self.in_stock,
         }
-        for site in sites
-    ]
-    site_map = {site.domain: site for site in sites}
 
-    # Phase 1: Recherche directe sur les sites
-    yield SearchProgress(
-        status="searching",
-        total=0,
-        completed=0,
-        message=f"Recherche sur {len(sites)} sites...",
-        results=[],
-    )
+class NewSearchService:
+    @staticmethod
+    async def search_site(site_key: str, query: str) -> list[SearchResult]:
+        """Search a single site"""
+        config = SITE_CONFIGS.get(site_key)
+        if not config:
+            logger.error(f"Unknown site: {site_key}")
+            return []
 
-    browser = None
-    playwright = None
-    
-    try:
-        # Initialiser Playwright et Browserless pour TOUTE la session de recherche
-        logger.info(f"Initialisation session Browserless globale pour '{query}'")
-        playwright = await async_playwright().start()
-        browser = await playwright.chromium.connect_over_cdp(
-            os.getenv("BROWSERLESS_URL", "ws://browserless:3000"),
-            timeout=60000
-        )
+        search_url = config["search_url"].format(query=quote_plus(query))
+        logger.info(f"Searching {config['name']} at {search_url}")
 
-        try:
-            search_results = await direct_search_service.search(
-                query=query,
-                sites=sites_data,
-                max_results=max_results,
-                browser=browser,  # Utiliser le navigateur partagé
-            )
-        except Exception as e:
-            logger.error(f"Erreur critique lors de la recherche directe: {e}")
-            yield SearchProgress(
-                status="error",
-                total=0,
-                completed=0,
-                message=f"Erreur de recherche: {str(e)}",
-                results=[],
-            )
-            return
-
-        if not search_results:
-            yield SearchProgress(
-                status="completed",
-                total=0,
-                completed=0,
-                message="Aucun résultat trouvé sur les sites configurés",
-                results=[],
-            )
-            return
-
-        total = len(search_results)
-        logger.info(f"Recherche directe: {total} URLs trouvées pour '{query}'")
-
-        # Phase 2: Scraping des URLs
-        results: list[SearchResultItem] = []
-        completed = 0
-
-        # Créer un sémaphore pour limiter la concurrence globale
-        semaphore = asyncio.Semaphore(parallel_limit)
-        # Sémaphore spécifique pour Amazon (1 seul thread à la fois pour éviter le blocage)
-        amazon_semaphore = asyncio.Semaphore(1)
-
-        async def process_url(search_result: direct_search_service.SearchResult) -> SearchResultItem | None:
-            async with semaphore:
-                url = search_result.url
-                domain = search_result.source
-                site = site_map.get(domain)
-
-                if not site:
-                    # Trouver le site par correspondance partielle
-                    for d, s in site_map.items():
-                        if d in domain or domain in d:
-                            site = s
-                            break
-
-                site_name = site.name if site else domain
-                requires_js = site.requires_js if site else False
-
-                # Essayer le scraping léger d'abord (sauf si le site requiert JS)
-                if not requires_js:
-                    light_result = await light_scraper_service.scrape_url(url)
-
-                    if light_result.success and light_result.price is not None:
-                        return SearchResultItem(
-                            url=url,
-                            title=light_result.title or search_result.title,
-                            price=light_result.price,
-                            currency=light_result.currency,
-                            in_stock=light_result.in_stock,
-                            image_url=light_result.image_url,
-                            site_name=site_name,
-                            site_domain=domain,
-                            confidence=0.7,  # Confiance moyenne pour le scraping léger
-                        )
-
-                # Fallback: Browserless + IA
-                try:
-                    # Passer le navigateur partagé
-                    if "amazon" in domain.lower():
-                        async with amazon_semaphore:
-                            # Petit délai supplémentaire entre les requêtes Amazon
-                            await asyncio.sleep(2.0)
-                            result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
-                    else:
-                        result = await _scrape_with_browserless(url, site_name, domain, search_result.title, browser)
-                    
-                    return result
-                except Exception as e:
-                    logger.error(f"Erreur scraping {url}: {e}")
-                    return SearchResultItem(
-                        url=url,
-                        title=search_result.title,
-                        price=None,
-                        site_name=site_name,
-                        site_domain=domain,
-                        error=str(e),
-                    )
-
-        # Traiter les URLs en parallèle avec mises à jour progressives
-        tasks = [asyncio.create_task(process_url(r)) for r in search_results]
-
-        for coro in asyncio.as_completed(tasks):
-            try:
-                result = await coro
-                completed += 1
-
-                if result:
-                    # Ajouter tous les résultats, même sans prix (le frontend affichera "Prix non disponible")
-                    results.append(result)
-
-                    yield SearchProgress(
-                        status="scraping",
-                        total=total,
-                        completed=completed,
-                        current_site=result.site_name if result else None,
-                        results=results.copy(),
-                        message=f"Extraction {completed}/{total}...",
-                    )
-            except Exception as e:
-                completed += 1
-                logger.error(f"Erreur lors du traitement: {e}")
-
-        # Trier les résultats par prix
-        results.sort(key=lambda x: x.price if x.price else float("inf"))
-
-        yield SearchProgress(
-            status="completed",
-            total=total,
-            completed=completed,
-            results=results,
-            message=f"{len(results)} produits trouvés avec prix",
-        )
+        # Use proxy if required by config
+        use_proxy = config.get("requires_proxy", False)
         
-    finally:
-        # Nettoyage global des ressources
-        if browser:
-            try:
-                if browser.is_connected():
-                    await browser.close()
-                logger.info("Navigateur global fermé")
-            except Exception as e:
-                logger.error(f"Erreur fermeture navigateur: {e}")
+        html_content, _ = await browserless_service.get_page_content(
+            search_url, 
+            use_proxy=use_proxy,
+            wait_selector=config.get("wait_selector")
+        )
+
+        if not html_content:
+            logger.warning(f"No content returned for {site_key}")
+            return []
+
+        return NewSearchService._parse_results(html_content, site_key, search_url)
+
+    @staticmethod
+    def _parse_results(html: str, site_key: str, base_url: str) -> list[SearchResult]:
+        """Parse HTML content to extract search results"""
+        config = SITE_CONFIGS[site_key]
+        soup = BeautifulSoup(html, "html.parser")
+        results = []
+
+        # Select product links
+        links = soup.select(config["product_selector"])
         
-        # Petit délai pour laisser le temps aux connexions de se fermer proprement
-        await asyncio.sleep(0.5)
-                
-        if playwright:
-            try:
-                await playwright.stop()
-            except Exception as e:
-                # Ignorer les erreurs courantes lors de l'arrêt si déjà fermé
-                if "Event loop is closed" not in str(e):
-                    logger.error(f"Erreur arrêt Playwright: {e}")
+        # Deduplicate links
+        seen_urls = set()
+        
+        for link in links:
+            if len(results) >= 5:  # Limit to 5 results per site
+                break
 
+            href = link.get("href")
+            if not href:
+                continue
 
-async def _scrape_with_browserless(
-    url: str,
-    site_name: str,
-    domain: str,
-    fallback_title: str,
-    browser=None,  # Navigateur partagé
-) -> SearchResultItem:
-    """Scrape une URL avec Browserless + extraction IA"""
-    try:
-        # Scraper avec Browserless (utiliser le navigateur partagé)
-        screenshot_path, page_text, is_available = await ScraperService.scrape_item(
-            url=url,
-            item_id=None,
-            smart_scroll=True,
-            scroll_pixels=350,
-            text_length=3000,
-            timeout=30000,
-            browser=browser,
-        )
+            full_url = urljoin(base_url, href)
+            
+            # Basic cleanup
+            if full_url in seen_urls:
+                continue
+            seen_urls.add(full_url)
 
-        if not screenshot_path:
-            return SearchResultItem(
-                url=url,
-                title=fallback_title,
-                price=None,
-                site_name=site_name,
-                site_domain=domain,
-                error="Screenshot failed",
-            )
+            # Extract title
+            title = link.get_text(strip=True)
+            if not title:
+                # Try finding title in children or attributes
+                img = link.find("img")
+                if img and img.get("alt"):
+                    title = img.get("alt")
+                elif link.get("title"):
+                    title = link.get("title")
+            
+            if not title or len(title) < 3:
+                continue
 
-        # Extraction IA
-        ai_result = await AIService.analyze_image(
-            image_path=screenshot_path,
-            page_text=page_text,
-        )
+            # Create result
+            results.append(SearchResult(
+                url=full_url,
+                title=title,
+                snippet=f"Product from {config['name']}",
+                source=config["name"]
+            ))
 
-        # Construire l'URL du screenshot pour le frontend
-        screenshot_url = None
-        if screenshot_path:
-            screenshot_filename = os.path.basename(screenshot_path)
-            screenshot_url = f"/screenshots/{screenshot_filename}"
+        logger.info(f"Found {len(results)} results for {site_key}")
+        return results
 
-        if ai_result:
-            extraction, metadata = ai_result
-            if extraction and extraction.price is not None:
-                return SearchResultItem(
-                    url=url,
-                    title=fallback_title,
-                    price=extraction.price,
-                    currency=extraction.currency or "EUR",
-                    in_stock=extraction.in_stock,
-                    image_url=screenshot_url,
-                    site_name=site_name,
-                    site_domain=domain,
-                    confidence=extraction.price_confidence or 0.5,
-                )
+    @staticmethod
+    async def search_all(query: str) -> list[SearchResult]:
+        """Search all configured sites in parallel"""
+        tasks = []
+        for site_key in SITE_CONFIGS.keys():
+            tasks.append(NewSearchService.search_site(site_key, query))
+        
+        results_list = await asyncio.gather(*tasks)
+        
+        # Flatten list
+        all_results = []
+        for site_results in results_list:
+            all_results.extend(site_results)
+            
+        return all_results
 
-        return SearchResultItem(
-            url=url,
-            title=fallback_title,
-            price=None,
-            image_url=screenshot_url,
-            site_name=site_name,
-            site_domain=domain,
-            error="AI extraction failed",
-        )
-
-    except Exception as e:
-        logger.error(f"Browserless scraping error for {url}: {e}")
-        return SearchResultItem(
-            url=url,
-            title=fallback_title,
-            price=None,
-            site_name=site_name,
-            site_domain=domain,
-            error=str(e),
-        )
-
-
-def _get_sites(db: Session, site_ids: list[int] | None = None) -> list[SearchSite]:
-    """Récupère les sites de recherche actifs"""
-    query = db.query(SearchSite).filter(SearchSite.is_active == True)
-
-    if site_ids:
-        query = query.filter(SearchSite.id.in_(site_ids))
-
-    return query.order_by(SearchSite.priority).all()
-
-
-def get_all_sites(db: Session) -> list[SearchSite]:
-    """Récupère tous les sites de recherche"""
-    return db.query(SearchSite).order_by(SearchSite.priority).all()
-
-
-def get_site_by_id(db: Session, site_id: int) -> SearchSite | None:
-    """Récupère un site par son ID"""
-    return db.query(SearchSite).filter(SearchSite.id == site_id).first()
-
-
-def create_site(db: Session, site_data: dict[str, Any]) -> SearchSite:
-    """Crée un nouveau site de recherche"""
-    site = SearchSite(**site_data)
-    db.add(site)
-    db.commit()
-    db.refresh(site)
-    return site
-
-
-def update_site(db: Session, site_id: int, site_data: dict[str, Any]) -> SearchSite | None:
-    """Met à jour un site de recherche"""
-    site = get_site_by_id(db, site_id)
-    if not site:
-        return None
-
-    for key, value in site_data.items():
-        if value is not None:
-            setattr(site, key, value)
-
-    db.commit()
-    db.refresh(site)
-    return site
-
-
-def delete_site(db: Session, site_id: int) -> bool:
-    """Supprime un site de recherche"""
-    site = get_site_by_id(db, site_id)
-    if not site:
-        return False
-
-    db.delete(site)
-    db.commit()
-    return True
-
-
-def seed_default_sites(db: Session) -> int:
-    """
-    Initialise la base de données avec les sites configurés en dur.
-    Ne crée que les sites qui n'existent pas encore (basé sur le domaine).
-
-    Returns:
-        Nombre de sites créés
-    """
-    from app.services.direct_search_service import DEFAULT_SITE_CONFIGS
-
-    created_count = 0
-
-    # Récupérer les domaines existants
-    existing_domains = {site.domain.lower().replace("www.", "")
-                       for site in db.query(SearchSite).all()}
-
-    for domain, config in DEFAULT_SITE_CONFIGS.items():
-        # Normaliser le domaine pour comparaison
-        clean_domain = domain.lower().replace("www.", "")
-
-        # Ne pas créer si déjà existant
-        if clean_domain in existing_domains:
-            logger.debug(f"Site {domain} déjà existant, ignoré")
-            continue
-
-        # Créer le site
-        site_data = {
-            "name": config.get("name", domain),
-            "domain": domain,
-            "search_url": config.get("search_url"),
-            "product_link_selector": config.get("product_selector"),
-            "category": config.get("category"),
-            "requires_js": config.get("requires_js", True),
-            "priority": config.get("priority", 99),
-            "is_active": True,
-        }
-
-        try:
-            site = SearchSite(**site_data)
-            db.add(site)
-            db.commit()
-            created_count += 1
-            logger.info(f"Site créé: {config.get('name', domain)} ({domain})")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Erreur création site {domain}: {e}")
-
-    return created_count
-
-
-def reset_sites_to_defaults(db: Session) -> int:
-    """
-    Réinitialise tous les sites avec les valeurs par défaut.
-    Supprime tous les sites existants et recrée à partir de la config.
-
-    Returns:
-        Nombre de sites créés
-    """
-    from app.services.direct_search_service import DEFAULT_SITE_CONFIGS
-
-    # Supprimer tous les sites existants
-    db.query(SearchSite).delete()
-    db.commit()
-    logger.info("Tous les sites supprimés")
-
-    # Recréer avec les valeurs par défaut
-    created_count = 0
-
-    for domain, config in DEFAULT_SITE_CONFIGS.items():
-        site_data = {
-            "name": config.get("name", domain),
-            "domain": domain,
-            "search_url": config.get("search_url"),
-            "product_link_selector": config.get("product_selector"),
-            "category": config.get("category"),
-            "requires_js": config.get("requires_js", True),
-            "priority": config.get("priority", 99),
-            "is_active": True,
-        }
-
-        try:
-            site = SearchSite(**site_data)
-            db.add(site)
-            db.commit()
-            created_count += 1
-            logger.info(f"Site créé: {config.get('name', domain)} ({domain})")
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Erreur création site {domain}: {e}")
-
-    return created_count
+# Global instance
+new_search_service = NewSearchService()
