@@ -273,10 +273,17 @@ class AIService:
         
         try:
             response = await acompletion(**kwargs)
+            content = response.choices[0].message.content
+
+            # If content is empty and we used response_format, try again without it
+            if not content and "response_format" in kwargs:
+                logger.warning(f"Model {config['model']} returned empty content with JSON mode. Retrying without response_format.")
+                del kwargs["response_format"]
+                response = await acompletion(**kwargs)
+                content = response.choices[0].message.content
+
         except Exception as e:
             # Check for BadRequestError (often due to unsupported parameters like response_format)
-            # We check string representation or type if possible, but litellm errors can be tricky
-            # The user log showed: litellm.exceptions.BadRequestError
             is_bad_request = "BadRequestError" in str(type(e).__name__) or "400" in str(e)
             
             if is_bad_request and "response_format" in kwargs:
@@ -287,10 +294,10 @@ class AIService:
                 del kwargs["response_format"]
                 # Retry without json mode
                 response = await acompletion(**kwargs)
+                content = response.choices[0].message.content
             else:
                 raise e
 
-        content = response.choices[0].message.content
         return content or ""
 
     @classmethod
@@ -336,7 +343,11 @@ class AIService:
             # Call LLM
             response_text = await cls.call_llm(prompt, data_url, config)
 
-            logger.info(f"AI Response: {response_text[:200]}...")
+            logger.info(f"AI Response (Length: {len(response_text)}): {response_text[:500]!r}")
+
+            if not response_text or not response_text.strip():
+                logger.error("AI returned empty response")
+                return None
 
             # Parse and validate response
             repair_used = False
