@@ -884,7 +884,7 @@ class ScraperService:
                 except Exception as e:
                     logger.debug(f"Error closing browser: {e}")
                         
-        finally:
+
             # Si on a créé un manager playwright local, on l'arrête
             if playwright_manager:
                 try:
