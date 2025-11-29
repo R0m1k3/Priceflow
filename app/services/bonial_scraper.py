@@ -116,10 +116,28 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
     # Wait a bit for dynamic content
     await asyncio.sleep(3)
     
-    # Find all "Ouvrir le catalogue" buttons/links
+    # Find all "Ouvrir le catalogue" buttons/links using Playwright's get_by_text
     try:
-        catalog_links = await page.locator(BONIAL_SELECTORS["catalog_link"]).all()
-        logger.info(f"Found {len(catalog_links)} catalog links for {enseigne.nom}")
+        catalog_links = await page.get_by_text("Ouvrir le catalogue").all()
+        logger.info(f"Found {len(catalog_links)} catalog text elements for {enseigne.nom}")
+        
+        # Filter to only get actual links (not just text)
+        actual_links = []
+        for element in catalog_links:
+            # Check if this element is a link or contains a link
+            tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+            if tag_name == "a":
+                actual_links.append(element)
+            else:
+                # Try to find a link parent
+                link_parent = await element.evaluate_handle("el => el.closest('a')")
+                if link_parent:
+                    link_el = link_parent.as_element()
+                    if link_el:
+                        actual_links.append(link_el)
+        
+        catalog_links = actual_links
+        logger.info(f"Found {len(catalog_links)} actual catalog links for {enseigne.nom}")
     except Exception as e:
         logger.error(f"No catalog links found for {enseigne.nom}: {e}")
         return []
