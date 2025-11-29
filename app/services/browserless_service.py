@@ -162,21 +162,48 @@ class BrowserlessService:
                 # Retry logic could be handled here or by caller, 
                 # for now we return what we have, caller decides
             
-            # Handle pre-search interaction if configured (e.g. Centrakor store selection)
-            # We can't easily pass the config here without changing the signature,
-            # but we can check if the URL matches a site with pre_search_selector
+            # Handle pre-search interaction
             from app.core.search_config import SITE_CONFIGS
             for config in SITE_CONFIGS.values():
-                if config.get("pre_search_selector") and config["search_url"].split("/")[2] in url:
-                    try:
-                        selector = config["pre_search_selector"]
-                        logger.info(f"Attempting pre-search interaction: {selector}")
-                        if await page.locator(selector).is_visible(timeout=5000):
-                            await page.click(selector)
-                            logger.info("Clicked pre-search selector")
-                            await asyncio.sleep(2) # Wait for transition
-                    except Exception as e:
-                        logger.warning(f"Pre-search interaction failed: {e}")
+                if config["search_url"].split("/")[2] in url:
+                    # Handle complex interaction list
+                    if config.get("pre_search_interaction"):
+                        try:
+                            logger.info(f"Executing pre-search interaction sequence for {config['name']}")
+                            for step in config["pre_search_interaction"]:
+                                step_type = step.get("type")
+                                selector = step.get("selector")
+                                
+                                if step_type == "input":
+                                    logger.info(f"Inputting text into {selector}")
+                                    await page.fill(selector, step["value"])
+                                    
+                                elif step_type == "click":
+                                    logger.info(f"Clicking {selector}")
+                                    # Use force=True to bypass potential overlays
+                                    await page.click(selector, timeout=5000)
+                                    
+                                elif step_type == "wait":
+                                    seconds = step.get("seconds", 1)
+                                    logger.info(f"Waiting {seconds}s")
+                                    await asyncio.sleep(seconds)
+                                    
+                            logger.info("Pre-search sequence completed")
+                            await asyncio.sleep(2) # Final stabilization wait
+                        except Exception as e:
+                            logger.warning(f"Pre-search sequence failed: {e}")
+
+                    # Handle simple selector (legacy support)
+                    elif config.get("pre_search_selector"):
+                        try:
+                            selector = config["pre_search_selector"]
+                            logger.info(f"Attempting pre-search interaction: {selector}")
+                            if await page.locator(selector).is_visible(timeout=5000):
+                                await page.click(selector)
+                                logger.info("Clicked pre-search selector")
+                                await asyncio.sleep(2) # Wait for transition
+                        except Exception as e:
+                            logger.warning(f"Pre-search interaction failed: {e}")
                     break
 
             await self.handle_popups(page)
