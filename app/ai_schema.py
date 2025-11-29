@@ -133,13 +133,19 @@ class AIExtractionMetadata(BaseModel):
 EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this French e-commerce page.
 
 **PRICE (IMPORTANT - French format):**
+- **FIRST**: Look for "PRIX DÉTECTÉ:" at the start of text - this is the extracted price
 - French prices use COMMA for decimals: "12,99 €" means 12.99
 - Thousands separator is SPACE or DOT: "1 234,56 €" or "1.234,56 €" means 1234.56
 - Currency symbol is usually € at the end
-- Look for: price tags, "Prix:", "€", numbers near "Ajouter au panier"
+- Look for: "PRIX DÉTECTÉ:", price tags, "Prix:", "€", numbers near "Ajouter au panier"
 - Extract as DECIMAL NUMBER (convert comma to dot): 12,99 -> 12.99
 - Ignore crossed-out/barré prices (old prices)
 - If multiple prices, take the current/main price (not the original)
+- Examples of valid prices:
+  * "89,99 €" -> 89.99
+  * "1 234,56 €" -> 1234.56
+  * "PRIX DÉTECTÉ: 89,99 €" -> 89.99
+- If you find ANY price with € symbol, extract it with confidence >= 0.8
 - If unclear: set null and confidence < 0.5
 
 **STOCK:**
