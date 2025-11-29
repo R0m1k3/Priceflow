@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 
 # Bonial selectors based on manual analysis
 BONIAL_SELECTORS = {
-    "catalog_card": "section:has(img[src*='content-media.bonial.biz'])",
-    "catalog_title": "div.text-dark.text-lg.font-bold, h3, h2",
-    "catalog_image": "img[src*='content-media.bonial.biz']",
-    "catalog_link": "a:has-text('Ouvrir le catalogue')",
-    "cookie_accept": "button:has-text('OK'), button:has-text('Accepter')",
+    "catalog_card": "a[href*='/catalogue/']:has(img), section:has(img[src*='content-media.bonial.biz'])",
+    "catalog_title": "div[class*='title'], h3, h2, h4, .text-lg, span[class*='text-']",
+    "catalog_image": "img[src*='content-media.bonial.biz'], img[src*='bonial']",
+    "catalog_link": "a[href*='/catalogue/']",
+    "cookie_accept": "button:has-text('OK'), button:has-text('Accepter'), #onetrust-accept-btn-handler",
 }
 
-# Date pattern: "mar. 25/11 - lun. 08/12/2025"
-DATE_PATTERN = r"(\d{2}/\d{2})\s*-\s*(\d{2}/\d{2}/\d{4})"
+# Date pattern: matches dd/mm or dd/mm/yyyy
+DATE_PATTERN = r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
 
 
 def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
@@ -45,24 +45,60 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
     Raises:
         ValueError: If date format is invalid
     """
-    match = re.search(DATE_PATTERN, date_str)
+    # Find all dates in the string
+    matches = re.findall(DATE_PATTERN, date_str)
     
-    if not match:
+    if not matches:
+        # Fallback: try to find "Valable ... jours" or similar
+        # For now, default to today + 7 days if no date found
+        logger.warning(f"No dates found in '{date_str}', using default duration")
+        return datetime.now(), datetime.now().replace(year=datetime.now().year + 1) # Valid for 1 year if unknown? No, better to be safe.
+        # Actually, let's raise error to filter out bad data, or handle gracefully
         raise ValueError(f"Invalid date format: {date_str}")
     
-    debut_str, fin_str = match.groups()
+    today = datetime.now()
+    current_year = today.year
     
-    # Extract year from end date
-    year = fin_str.split("/")[2]
+    parsed_dates = []
+    for date_match in matches:
+        # Normalize separators
+        date_match = date_match.replace("-", "/")
+        parts = date_match.split("/")
+        
+        day = int(parts[0])
+        month = int(parts[1])
+        year = int(parts[2]) if len(parts) > 2 else current_year
+        
+        # Handle 2-digit years
+        if year < 100:
+            year += 2000
+            
+        # Handle year rollover (e.g. in Dec, date is Jan)
+        if len(parts) == 2: # No year specified
+            if month < today.month - 3: # Date is in past months -> likely next year
+                year += 1
+            elif month > today.month + 3: # Date is far in future -> likely current year (or previous if looking at old catalogs)
+                pass
+                
+        try:
+            parsed_dates.append(datetime(year, month, day))
+        except ValueError:
+            continue
+            
+    if not parsed_dates:
+        raise ValueError("No valid dates parsed")
+        
+    if len(parsed_dates) >= 2:
+        return min(parsed_dates), max(parsed_dates)
+    elif len(parsed_dates) == 1:
+        # If only one date, assume it's end date if it's in the future
+        date = parsed_dates[0]
+        if date > today:
+            return today, date
+        else:
+            return date, date # Expired or start date? Assume start
     
-    # Add year to start date
-    debut_full = f"{debut_str}/{year}"
-    
-    # Parse dates
-    debut = datetime.strptime(debut_full, "%d/%m/%Y")
-    fin = datetime.strptime(fin_str, "%d/%m/%Y")
-    
-    return debut, fin
+    return parsed_dates[0], parsed_dates[0]
 
 
 def compute_catalog_hash(enseigne_id: int, titre: str, date_debut: datetime) -> str:
@@ -128,36 +164,48 @@ async def scrape_catalog_list(
         try:
             # Extract title
             title_el = await card.query_selector(BONIAL_SELECTORS["catalog_title"])
-            titre = await title_el.inner_text() if title_el else None
+            titre = await title_el.inner_text() if title_el else "Catalogue"
             
             # Extract dates - look for any element containing date pattern
             dates_text = await card.inner_text()
-            date_match = re.search(DATE_PATTERN, dates_text)
             
             # Extract image
             image_el = await card.query_selector(BONIAL_SELECTORS["catalog_image"])
             image_url = await image_el.get_attribute("src") if image_el else None
+            if image_url and image_url.startswith("//"):
+                image_url = "https:" + image_url
             
             # Extract link - try multiple strategies
-            link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
-            if not link_el:
-                # Fallback: click on image
-                link_el = image_el
+            # Strategy 1: The card itself is a link
+            catalogue_url = await card.get_attribute("href")
             
-            catalogue_url = await link_el.get_attribute("href") if link_el else None
+            # Strategy 2: Look for link inside
+            if not catalogue_url:
+                link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
+                if link_el:
+                    catalogue_url = await link_el.get_attribute("href")
             
             # Make URL absolute if relative
             if catalogue_url and not catalogue_url.startswith("http"):
                 catalogue_url = f"https://www.bonial.fr{catalogue_url}"
             
-            if all([titre, date_match, image_url, catalogue_url]):
-                # Parse dates
-                try:
-                    date_debut, date_fin = parse_bonial_dates(dates_text)
-                except ValueError as e:
-                    logger.warning(f"Failed to parse dates for catalog {idx}: {e}")
-                    continue
-                
+            # Validate data
+            has_url = bool(catalogue_url)
+            has_image = bool(image_url)
+            
+            # Try to parse dates, but be lenient
+            date_debut, date_fin = datetime.now(), datetime.now()
+            try:
+                date_debut, date_fin = parse_bonial_dates(dates_text)
+                has_dates = True
+            except ValueError:
+                has_dates = False
+                # If we have URL and Image, we might still want it, but maybe mark as "dates unknown"
+                # For now, let's require dates or default to 1 week validity if title looks like a promo
+                if "semaine" in dates_text.lower() or "valable" in dates_text.lower():
+                     date_fin = datetime.now().replace(day=datetime.now().day + 7) # Rough approx
+            
+            if has_url and has_image:
                 catalogues.append({
                     "titre": titre.strip(),
                     "date_debut": date_debut,
@@ -165,10 +213,9 @@ async def scrape_catalog_list(
                     "image_couverture_url": image_url,
                     "catalogue_url": catalogue_url,
                 })
-                
                 logger.debug(f"Extracted catalog: {titre}")
             else:
-                logger.warning(f"Incomplete data for catalog {idx}: title={titre}, dates={bool(date_match)}, image={bool(image_url)}, url={bool(catalogue_url)}")
+                logger.warning(f"Incomplete data for catalog {idx}: title={titre}, dates={has_dates}, image={has_image}, url={has_url}")
         
         except Exception as e:
             logger.error(f"Error extracting catalog {idx} for {enseigne.nom}: {e}")
