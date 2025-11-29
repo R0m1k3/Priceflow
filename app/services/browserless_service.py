@@ -120,15 +120,28 @@ class BrowserlessService:
         except Exception:
             pass
 
-    async def handle_cookie_banners(self, page: Page):
-        """Attempt to close cookie banners"""
+    async def handle_popups(self, page: Page):
+        """Attempt to close cookie banners and popups"""
         try:
-            for selector in COOKIE_ACCEPT_SELECTORS:
-                if await page.locator(selector).first.is_visible(timeout=200):
-                    await page.locator(selector).first.click()
-                    logger.info(f"Closed cookie banner with {selector}")
-                    await asyncio.sleep(0.5)
-                    return
+            # Check for multiple popups (cookies + promo)
+            # We iterate through all selectors and click any that are visible
+            # We do this in a loop to handle sequential popups
+            for _ in range(3): # Try up to 3 times for sequential popups
+                clicked_something = False
+                for selector in COOKIE_ACCEPT_SELECTORS:
+                    try:
+                        # Use a short timeout for check
+                        element = page.locator(selector).first
+                        if await element.is_visible(timeout=100):
+                            await element.click()
+                            logger.info(f"Closed popup/banner with {selector}")
+                            await asyncio.sleep(0.5) # Wait for animation
+                            clicked_something = True
+                    except Exception:
+                        continue
+                
+                if not clicked_something:
+                    break
         except Exception:
             pass
 
@@ -152,7 +165,7 @@ class BrowserlessService:
                 # Retry logic could be handled here or by caller, 
                 # for now we return what we have, caller decides
             
-            await self.handle_cookie_banners(page)
+            await self.handle_popups(page)
             await self.simulate_human_behavior(page)
             
             if wait_selector:

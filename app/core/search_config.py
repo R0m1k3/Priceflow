@@ -203,4 +203,17 @@ COOKIE_ACCEPT_SELECTORS = [
     "button:has-text('Accepter tout')",
     "button:has-text('Accepter')",
     "button:has-text('J\\'accepte')",
+    # Promotional Popups / Modals
+    ".modal-close",
+    ".close-modal",
+    ".popup-close",
+    "button[aria-label='Close']",
+    "button[aria-label='Fermer']",
+    ".js-modal-close",
+    "div[class*='popup'] button[class*='close']",
+    "div[class*='modal'] button[class*='close']",
+    # Specific Gifi/Discount popups
+    ".popin-close",
+    "#popin-close",
+    "a.close-popin",
 ]
