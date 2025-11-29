@@ -238,8 +238,9 @@ class BrowserlessService:
                 safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
                 filename = f"{safe_name}_{timestamp}.jpg"
                 screenshot_path = f"{screenshots_dir}/{filename}"
-                
-                await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
+
+                # Use full_page=True to capture entire page, not just viewport
+                await page.screenshot(path=screenshot_path, full_page=True, quality=80, type="jpeg")
                 logger.info(f"Screenshot saved to {screenshot_path}")
             except Exception as e:
                 logger.warning(f"Failed to take screenshot: {e}")
