@@ -1,16 +1,21 @@
 """
-New Search Service
+Search Service
 Orchestrates searches across multiple e-commerce sites using BrowserlessService.
+Includes compatibility methods for API routers.
 """
 
 import asyncio
 import logging
 import re
+from typing import Any, AsyncGenerator
 from urllib.parse import quote_plus, urljoin
 
 from bs4 import BeautifulSoup
+from sqlalchemy.orm import Session
 
 from app.core.search_config import SITE_CONFIGS
+from app.models import SearchSite
+from app.schemas import SearchProgress, SearchResultItem
 from app.services.browserless_service import browserless_service
 
 logger = logging.getLogger(__name__)
@@ -142,3 +147,137 @@ class NewSearchService:
 
 # Global instance
 new_search_service = NewSearchService()
+
+# ==========================================
+# COMPATIBILITY LAYER FOR API ROUTERS
+# ==========================================
+
+def get_all_sites(db: Session) -> list[SearchSite]:
+    """Récupère tous les sites de recherche"""
+    return db.query(SearchSite).order_by(SearchSite.priority).all()
+
+def get_site_by_id(db: Session, site_id: int) -> SearchSite | None:
+    """Récupère un site par son ID"""
+    return db.query(SearchSite).filter(SearchSite.id == site_id).first()
+
+def update_site(db: Session, site_id: int, site_data: dict[str, Any]) -> SearchSite | None:
+    """Met à jour un site de recherche"""
+    site = get_site_by_id(db, site_id)
+    if not site:
+        return None
+
+    for key, value in site_data.items():
+        if value is not None:
+            setattr(site, key, value)
+
+    db.commit()
+    db.refresh(site)
+    return site
+
+def seed_default_sites(db: Session) -> int:
+    """Initialise la base de données avec les sites configurés"""
+    created_count = 0
+    existing_domains = {site.domain.lower().replace("www.", "") for site in db.query(SearchSite).all()}
+
+    for domain, config in SITE_CONFIGS.items():
+        clean_domain = domain.lower().replace("www.", "")
+        if clean_domain in existing_domains:
+            continue
+
+        site_data = {
+            "name": config.get("name", domain),
+            "domain": domain,
+            "search_url": config.get("search_url"),
+            "product_link_selector": config.get("product_selector"),
+            "category": config.get("category"),
+            "requires_js": True, # Always true for browserless
+            "priority": 99,
+            "is_active": True,
+        }
+
+        try:
+            site = SearchSite(**site_data)
+            db.add(site)
+            db.commit()
+            created_count += 1
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Erreur création site {domain}: {e}")
+
+    return created_count
+
+def reset_sites_to_defaults(db: Session) -> int:
+    """Réinitialise tous les sites"""
+    db.query(SearchSite).delete()
+    db.commit()
+    return seed_default_sites(db)
+
+async def search_products(
+    query: str,
+    db: Session,
+    site_ids: list[int] | None = None,
+    max_results: int | None = None,
+) -> AsyncGenerator[SearchProgress, None]:
+    """
+    Compatibility wrapper for search_products.
+    Yields SearchProgress events.
+    """
+    # 1. Get sites to search
+    sites = get_all_sites(db)
+    if site_ids:
+        sites = [s for s in sites if s.id in site_ids]
+    
+    active_sites = [s for s in sites if s.is_active]
+    
+    yield SearchProgress(
+        status="searching",
+        total=len(active_sites),
+        completed=0,
+        message=f"Recherche sur {len(active_sites)} sites...",
+        results=[],
+    )
+
+    # 2. Map DB sites to Config keys
+    # We need to match DB sites (domain) to SITE_CONFIGS keys
+    tasks = []
+    
+    for site in active_sites:
+        # Find matching config key
+        site_key = None
+        for key in SITE_CONFIGS.keys():
+            if key in site.domain or site.domain in key:
+                site_key = key
+                break
+        
+        if site_key:
+            tasks.append(NewSearchService.search_site(site_key, query))
+        else:
+            logger.warning(f"No config found for site {site.domain}")
+
+    # 3. Execute searches
+    # To stream results, we should ideally use as_completed, but search_site returns a list
+    # Let's just wait for all for now to keep it simple, or implement a generator in NewSearchService
+    
+    # Simple implementation: Wait for all (streaming is harder with current architecture)
+    results_lists = await asyncio.gather(*tasks)
+    
+    all_results = []
+    for res_list in results_lists:
+        for r in res_list:
+            all_results.append(SearchResultItem(
+                url=r.url,
+                title=r.title,
+                price=r.price,
+                currency=r.currency,
+                in_stock=r.in_stock,
+                site_name=r.source,
+                site_domain=r.source, # approximate
+            ))
+    
+    yield SearchProgress(
+        status="completed",
+        total=len(active_sites),
+        completed=len(active_sites),
+        message=f"Terminé. {len(all_results)} résultats trouvés.",
+        results=all_results,
+    )
