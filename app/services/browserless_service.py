@@ -179,6 +179,15 @@ class BrowserlessService:
                     try:
                         element = elements.nth(i)
                         if await element.is_visible(timeout=1000):
+                            # Check if element is strikethrough (old price)
+                            try:
+                                text_decoration = await element.evaluate("el => window.getComputedStyle(el).textDecoration")
+                                if "line-through" in text_decoration:
+                                    logger.debug(f"Skipping strikethrough price at {selector}")
+                                    continue  # Skip crossed-out prices
+                            except Exception:
+                                pass  # If we can't check, continue anyway
+
                             price_text = await element.inner_text()
                             # Check if it looks like a price (contains € or digits with comma/dot)
                             if price_text and ('€' in price_text or (',' in price_text and any(c.isdigit() for c in price_text))):
