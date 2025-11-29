@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import os
 from datetime import datetime
 from typing import Any
 
@@ -19,17 +20,15 @@ from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
 
 logger = logging.getLogger(__name__)
 
-# Bonial selectors based on browser inspection
+# Bonial CSS selectors (based on browser inspection - updated for new structure)
 BONIAL_SELECTORS = {
-    # Card must contain a catalog link AND an image
-    "catalog_card": "section:has(a[href*='/catalogue/']), div[class*='brochure-card']",
-    "catalog_title": "div[class*='title'], h2, h3, h4, .text-lg",
-    "catalog_image": "img[src*='content-media.bonial.biz']",
-    "catalog_link": "a[href*='/catalogue/']",
-    "cookie_accept": "button:has-text('OK'), button:has-text('Accepter'), #onetrust-accept-btn-handler",
+    "catalog_card": "div:has(> a[href*='/contentViewer/'])",
+    "catalog_title": "a[href*='/contentViewer/'] h2",
+    "catalog_image": "a[href*='/contentViewer/'] img",
+    "catalog_link": "a[href*='/contentViewer/']",
+    "cookie_accept": "button:has-text('Accepter')",
 }
 
-# Date pattern: matches "lun. 25/11 - mar. 08/12/2025" or similar
 DATE_PATTERN = r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
 
 
@@ -46,15 +45,10 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
     Raises:
         ValueError: If date format is invalid
     """
-    # Find all dates in the string
     matches = re.findall(DATE_PATTERN, date_str)
     
     if not matches:
-        # Fallback: try to find "Valable ... jours" or similar
-        # For now, default to today + 7 days if no date found
         logger.warning(f"No dates found in '{date_str}', using default duration")
-        return datetime.now(), datetime.now().replace(year=datetime.now().year + 1) # Valid for 1 year if unknown? No, better to be safe.
-        # Actually, let's raise error to filter out bad data, or handle gracefully
         raise ValueError(f"Invalid date format: {date_str}")
     
     today = datetime.now()
@@ -62,7 +56,6 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
     
     parsed_dates = []
     for date_match in matches:
-        # Normalize separators
         date_match = date_match.replace("-", "/")
         parts = date_match.split("/")
         
@@ -70,16 +63,12 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
         month = int(parts[1])
         year = int(parts[2]) if len(parts) > 2 else current_year
         
-        # Handle 2-digit years
         if year < 100:
             year += 2000
             
-        # Handle year rollover (e.g. in Dec, date is Jan)
-        if len(parts) == 2: # No year specified
-            if month < today.month - 3: # Date is in past months -> likely next year
+        if len(parts) == 2:
+            if month < today.month - 3:
                 year += 1
-            elif month > today.month + 3: # Date is far in future -> likely current year (or previous if looking at old catalogs)
-                pass
                 
         try:
             parsed_dates.append(datetime(year, month, day))
@@ -92,28 +81,17 @@ def parse_bonial_dates(date_str: str) -> tuple[datetime, datetime]:
     if len(parsed_dates) >= 2:
         return min(parsed_dates), max(parsed_dates)
     elif len(parsed_dates) == 1:
-        # If only one date, assume it's end date if it's in the future
         date = parsed_dates[0]
         if date > today:
             return today, date
         else:
-            return date, date # Expired or start date? Assume start
+            return date, date
     
     return parsed_dates[0], parsed_dates[0]
 
 
 def compute_catalog_hash(enseigne_id: int, titre: str, date_debut: datetime) -> str:
-    """
-    Compute SHA256 hash for duplicate detection.
-    
-    Args:
-        enseigne_id: ID of the enseigne
-        titre: Catalog title
-        date_debut: Start date
-    
-    Returns:
-        SHA256 hash string
-    """
+    """Compute SHA256 hash for duplicate detection."""
     content = f"{enseigne_id}|{titre}|{date_debut.isoformat()}"
     return hashlib.sha256(content.encode()).hexdigest()
 
@@ -128,34 +106,20 @@ async def accept_cookies(page: Page) -> None:
         logger.debug("No cookie banner found or already accepted")
 
 
-async def scrape_catalog_list(
-    page: Page,
-    enseigne: Enseigne
-) -> list[dict[str, Any]]:
-    """
-    Scrape the list of catalogs for an ens enseigne from Bonial.
-    
-    Args:
-        page: Playwright page object
-        enseigne: Enseigne object
-    
-    Returns:
-        List of catalog data dictionaries
-    """
+async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, Any]]:
+    """Scrape the list of catalogs for an enseigne from Bonial."""
     url = f"https://www.bonial.fr/Enseignes/{enseigne.slug_bonial}"
     logger.info(f"Scraping catalog list for {enseigne.nom} from {url}")
     
     await page.goto(url, wait_until="networkidle")
     await accept_cookies(page)
     
-    # Wait for catalog cards to load
     try:
         await page.wait_for_selector(BONIAL_SELECTORS["catalog_card"], timeout=10000)
     except Exception as e:
         logger.error(f"No catalog cards found for {enseigne.nom}: {e}")
         return []
     
-    # Extract all catalog cards
     cards = await page.query_selector_all(BONIAL_SELECTORS["catalog_card"])
     logger.info(f"Found {len(cards)} catalog cards for {enseigne.nom}")
     
@@ -163,80 +127,52 @@ async def scrape_catalog_list(
     
     for idx, card in enumerate(cards):
         try:
-            # Extract title
             title_el = await card.query_selector(BONIAL_SELECTORS["catalog_title"])
             titre = await title_el.inner_text() if title_el else "Catalogue"
             
-            # Extract dates - look for any element containing date pattern
             dates_text = await card.inner_text()
             
-            # Extract image
             image_el = await card.query_selector(BONIAL_SELECTORS["catalog_image"])
             image_url = await image_el.get_attribute("src") if image_el else None
             if image_url and image_url.startswith("//"):
                 image_url = "https:" + image_url
             
-            # Extract link - try multiple strategies
-            # Strategy 1: The card itself is a link
-            catalogue_url = await card.get_attribute("href")
+            link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
+            catalogue_url = await link_el.get_attribute("href") if link_el else None
             
-            # Strategy 2: Look for specific catalog link inside
-            if not catalogue_url:
-                link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
-                if link_el:
-                    catalogue_url = await link_el.get_attribute("href")
-            
-            # Strategy 3: Look for ANY link inside
-            if not catalogue_url:
-                link_el = await card.query_selector("a")
-                if link_el:
-                    catalogue_url = await link_el.get_attribute("href")
-            
-            # Make URL absolute if relative
             if catalogue_url and not catalogue_url.startswith("http"):
                 catalogue_url = f"https://www.bonial.fr{catalogue_url}"
             
-            # Validate URL - Must be a real catalog viewer, not an app link or generic page
+            # Validate URL
             if catalogue_url and ("adjust.com" in catalogue_url or "/Mobile" in catalogue_url):
-                logger.warning(f"Skipping app/mobile link for catalog {idx}: {catalogue_url}")
-                catalogue_url = None
+                logger.debug(f"Skipping app/mobile link: {catalogue_url}")
+                continue
             
-            if catalogue_url and "/catalogue/" not in catalogue_url:
-                logger.warning(f"Skipping non-catalog URL for catalog {idx}: {catalogue_url}")
-                catalogue_url = None
-
-            # Filter out generic banners/newsletters based on title
+            if catalogue_url and "/contentViewer/" not in catalogue_url:
+                logger.debug(f"Skipping non-catalog URL: {catalogue_url}")
+                continue
+            
+            # Filter generic titles
             if titre:
                 lower_title = titre.lower()
                 ignored_titles = [
-                    "restez informé",
-                    "catalogues bazar",
-                    "toutes les offres",
-                    "voir les offres",
-                    "téléchargez l'application",
-                    "newsletter"
+                    "restez informé", "catalogues bazar", "toutes les offres",
+                    "voir les offres", "téléchargez l'application", "newsletter"
                 ]
                 if any(ignored in lower_title for ignored in ignored_titles):
                     logger.info(f"Skipping generic/banner card: {titre}")
                     continue
-
-            # Validate data
+            
             has_url = bool(catalogue_url)
             has_image = bool(image_url)
             
-            # Try to parse dates, but be lenient
             date_debut, date_fin = datetime.now(), datetime.now()
             try:
                 date_debut, date_fin = parse_bonial_dates(dates_text)
-                has_dates = True
             except ValueError:
-                has_dates = False
-                # If we have URL and Image, we might still want it, but maybe mark as "dates unknown"
-                # For now, let's require dates or default to 1 week validity if title looks like a promo
                 if "semaine" in dates_text.lower() or "valable" in dates_text.lower():
-                     date_fin = datetime.now().replace(day=datetime.now().day + 7) # Rough approx
+                    date_fin = datetime.now().replace(day=datetime.now().day + 7)
             
-            # STRICTER VALIDATION: Must have URL, Image AND (Dates OR strong title signal)
             if has_url and has_image:
                 catalogues.append({
                     "titre": titre.strip(),
@@ -247,16 +183,10 @@ async def scrape_catalog_list(
                 })
                 logger.debug(f"Extracted catalog: {titre}")
             else:
-                # DEBUG: Log HTML content if extraction failed to help diagnosis
-                try:
-                    html_content = await card.inner_html()
-                    # Only log if it's not obviously bad
-                    if not has_url: 
-                        logger.warning(f"Skipping card {idx} (No URL): {titre}")
-                    elif not has_image:
-                        logger.warning(f"Skipping card {idx} (No Image): {titre}")
-                except Exception:
-                    pass
+                if not has_url:
+                    logger.warning(f"Skipping card {idx} (No URL): {titre}")
+                elif not has_image:
+                    logger.warning(f"Skipping card {idx} (No Image): {titre}")
         
         except Exception as e:
             logger.error(f"Error extracting catalog {idx} for {enseigne.nom}: {e}")
@@ -267,36 +197,24 @@ async def scrape_catalog_list(
 
 
 async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str, Any]]:
-    """
-    Scrape all pages of a catalog from the Bonial viewer.
-    
-    Args:
-        page: Playwright page object
-        catalogue_url: URL of the catalog viewer
-    
-    Returns:
-        List of page data dictionaries
-    """
+    """Scrape all pages of a catalog from the Bonial viewer."""
     logger.info(f"Scraping catalog pages from {catalogue_url}")
     
     await page.goto(catalogue_url, wait_until="networkidle")
-    await asyncio.sleep(2)  # Wait for viewer to initialize
+    await asyncio.sleep(2)
     
-    # Try to close any popup/modal
     try:
         await page.click("button:has-text('Continuer'), button:has-text('Fermer')", timeout=2000)
         await asyncio.sleep(1)
     except Exception:
         pass
     
-    # Find all images from content-media.bonial.biz
     images = await page.query_selector_all("img[src*='content-media.bonial.biz']")
     
     if not images:
         logger.warning(f"No images found in catalog viewer: {catalogue_url}")
         return []
     
-    # Extract unique image URLs (filter duplicates and thumbnails)
     seen_urls = set()
     pages = []
     
@@ -305,12 +223,9 @@ async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str,
             src = await img.get_attribute("src")
             
             if src and src not in seen_urls:
-                # Filter out blurred/low-res images if possible
-                # Full res images are typically larger
                 width = await img.evaluate("el => el.naturalWidth")
                 height = await img.evaluate("el => el.naturalHeight")
                 
-                # Skip very small images (likely thumbnails)
                 if width < 200 or height < 200:
                     continue
                 
@@ -330,26 +245,12 @@ async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str,
     return pages
 
 
-async def scrape_enseigne(
-    enseigne: Enseigne,
-    db: Session,
-    browser: Browser | None = None
-) -> ScrapingLog:
-    """
-    Scrape all catalogs for a specific enseigne.
-    
-    Args:
-        enseigne: Enseigne to scrape
-        db: Database session
-        browser: Optional existing browser instance
-    
-    Returns:
-        ScrapingLog object with execution details
-    """
+async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | None = None) -> ScrapingLog:
+    """Scrape all catalogs for a specific enseigne."""
     start_time = datetime.now()
     log = ScrapingLog(
         enseigne_id=enseigne.id,
-        statut="error",  # Will be updated
+        statut="error",
         catalogues_trouves=0,
         catalogues_nouveaux=0,
         catalogues_mis_a_jour=0,
@@ -358,19 +259,17 @@ async def scrape_enseigne(
     own_browser = browser is None
     
     try:
-        # Create browser if not provided
         if own_browser:
-            p = await async_playwright().start()
-            browser = await p.chromium.launch(headless=True)
+            browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(browserless_url)
         
         page = await browser.new_page()
         
-        # Set realistic user agent
         await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         })
         
-        # Scrape catalog list
         catalogues_data = await scrape_catalog_list(page, enseigne)
         log.catalogues_trouves = len(catalogues_data)
         
@@ -380,28 +279,23 @@ async def scrape_enseigne(
             await page.close()
             return log
         
-        # Process each catalog
         for cat_data in catalogues_data:
             try:
-                # Compute hash for duplicate detection
                 content_hash = compute_catalog_hash(
                     enseigne.id,
                     cat_data["titre"],
                     cat_data["date_debut"]
                 )
                 
-                # Check if catalog already exists
                 existing = db.query(Catalogue).filter_by(content_hash=content_hash).first()
                 
                 if existing:
                     logger.debug(f"Catalog already exists: {cat_data['titre']}")
                     continue
                 
-                # Scrape catalog pages
-                await asyncio.sleep(3)  # Respectful delay
+                await asyncio.sleep(3)
                 pages_data = await scrape_catalog_pages(page, cat_data["catalogue_url"])
                 
-                # Create new catalog
                 catalogue = Catalogue(
                     enseigne_id=enseigne.id,
                     titre=cat_data["titre"],
@@ -409,37 +303,36 @@ async def scrape_enseigne(
                     date_fin=cat_data["date_fin"],
                     image_couverture_url=cat_data["image_couverture_url"],
                     catalogue_url=cat_data["catalogue_url"],
+                    statut="actif",
                     nombre_pages=len(pages_data),
                     content_hash=content_hash,
-                    statut="actif" if cat_data["date_fin"] >= datetime.now() else "termine",
                 )
-                
                 db.add(catalogue)
-                db.flush()  # Get catalogue.id
+                db.flush()
                 
-                # Add pages
                 for page_data in pages_data:
-                    cat_page = CataloguePage(
+                    catalogue_page = CataloguePage(
                         catalogue_id=catalogue.id,
-                        **page_data
+                        numero_page=page_data["numero_page"],
+                        image_url=page_data["image_url"],
+                        largeur=page_data["largeur"],
+                        hauteur=page_data["hauteur"],
                     )
-                    db.add(cat_page)
+                    db.add(catalogue_page)
                 
                 log.catalogues_nouveaux += 1
-                logger.info(f"Created catalog: {cat_data['titre']} ({len(pages_data)} pages)")
-            
+                logger.info(f"Added new catalog: {cat_data['titre']}")
+                
             except Exception as e:
-                logger.error(f"Error processing catalog {cat_data.get('titre')}: {e}")
+                logger.error(f"Error processing catalog: {e}")
                 continue
         
+        db.commit()
+        log.statut = "success"
         await page.close()
         
-        # Update status
-        log.statut = "success" if log.catalogues_nouveaux > 0 else "partial"
-        db.commit()
-    
     except Exception as e:
-        logger.error(f"Error scraping enseigne {enseigne.nom}: {e}")
+        logger.error(f"Error scraping {enseigne.nom}: {e}")
         log.statut = "error"
         log.message_erreur = str(e)
         db.rollback()
@@ -447,44 +340,30 @@ async def scrape_enseigne(
     finally:
         if own_browser and browser:
             await browser.close()
-        
-        # Record duration
-        log.duree_secondes = (datetime.now() - start_time).total_seconds()
-        db.add(log)
-        db.commit()
+    
+    log.duree_secondes = (datetime.now() - start_time).total_seconds()
+    db.add(log)
+    db.commit()
     
     return log
 
 
 async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
-    """
-    Scrape all active enseignes.
-    Uses Browserless service via WebSocket.
-    
-    Args:
-        db: Database session
-    
-    Returns:
-        List of ScrapingLog objects
-    """
-    import os
-    
+    """Scrape all active enseignes. Uses Browserless service via WebSocket."""
     enseignes = db.query(Enseigne).filter_by(is_active=True).all()
     logger.info(f"Starting scraping for {len(enseignes)} active enseignes")
     
     logs = []
     
-    # Get Browserless URL from environment
     browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
     logger.info(f"Connecting to Browserless at {browserless_url}")
     
     async with async_playwright() as p:
-        # Connect to Browserless instead of launching local browser
         browser = await p.chromium.connect_over_cdp(browserless_url)
         
         for enseigne in enseignes:
             try:
-                await asyncio.sleep(2)  # Delay between enseignes
+                await asyncio.sleep(2)
                 log = await scrape_enseigne(enseigne, db, browser)
                 logs.append(log)
             except Exception as e:
