@@ -415,8 +415,9 @@ def simplify_url(url: str) -> str:
 
 
 class ScraperService:
-    @staticmethod
-    async def scrape_item(  # noqa: PLR0913, PLR0912, PLR0915
+    @classmethod
+    async def scrape_item(
+        cls,
         url: str,
         selector: str | None = None,
         item_id: int | None = None,
@@ -424,78 +425,110 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
-        browser=None,  # Instance de navigateur partagée optionnelle
     ) -> tuple[str | None, str, bool]:
         """
-        Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text, is_available)
-
-        Args:
-            url: Target URL to scrape
-            selector: Optional CSS selector to focus on
-            item_id: Optional item ID for screenshot naming
-            smart_scroll: Enable scrolling to load lazy content
-            scroll_pixels: Number of pixels to scroll (must be positive)
-            text_length: Number of characters to extract (0 = disabled)
-            timeout: Page load timeout in milliseconds
-            browser: Optional shared Playwright browser instance
+        Scrape a product page with retries and rotation.
+        Manages the browser lifecycle to reuse connections across retries.
         """
-        # Simplifier l'URL avant le scraping
-        original_url = url
-        url = simplify_url(url)
-
-        # Input validation
-        if scroll_pixels <= 0:
-            logger.warning(f"Invalid scroll_pixels value: {scroll_pixels}, using default 350")
-            scroll_pixels = 350
-
-        if timeout <= 0:
-            logger.warning(f"Invalid timeout value: {timeout}, using default 90000")
-            timeout = 90000
-
-        # Amazon needs more retries with longer delays
         is_amazon = _is_amazon_url(url)
         max_retries = AMAZON_MAX_RETRIES if is_amazon else MAX_RETRIES
-        base_delay = AMAZON_BASE_DELAY if is_amazon else RETRY_DELAY
+        
+        playwright_manager = None
+        browser = None
+        
+        try:
+            # Initial browser creation
+            try:
+                playwright_manager = async_playwright()
+                p = await playwright_manager.start()
+                logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
+                browser = await p.chromium.connect_over_cdp(
+                    BROWSERLESS_URL,
+                    timeout=60000,
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize browser: {e}")
+                return None, "", False
 
-        # Retries avec backoff
-        last_error = None
-        for attempt in range(max_retries + 1):
-            if attempt > 0:
-                # Exponential backoff with jitter for Amazon
-                if is_amazon:
-                    jitter = random.uniform(0.5, 1.5)
-                    delay = min(base_delay * (2 ** attempt) * jitter, 30.0)
-                else:
-                    delay = base_delay * attempt
-                logger.info(f"Tentative {attempt + 1}/{max_retries + 1} pour {url} (délai: {delay:.1f}s)")
-                await asyncio.sleep(delay)
+            for attempt in range(max_retries + 1):
+                try:
+                    # Check if browser is still connected, if not recreate it
+                    if not browser or not browser.is_connected():
+                        logger.warning("Browser disconnected, reconnecting...")
+                        try:
+                            if browser:
+                                try:
+                                    await browser.close()
+                                except:
+                                    pass
+                            
+                            browser = await p.chromium.connect_over_cdp(
+                                BROWSERLESS_URL,
+                                timeout=60000,
+                            )
+                        except Exception as re_e:
+                            logger.error(f"Failed to reconnect browser: {re_e}")
+                            await asyncio.sleep(5)
+                            continue
 
-            result = await ScraperService._do_scrape(
-                url=url,
-                selector=selector,
-                item_id=item_id,
-                smart_scroll=smart_scroll,
-                scroll_pixels=scroll_pixels,
-                text_length=text_length,
-                timeout=timeout,
-                browser=browser,
-                is_amazon=is_amazon,
-                attempt=attempt,
-                max_retries=max_retries,
-            )
+                    logger.info(f"Scraping attempt {attempt + 1}/{max_retries + 1} for {url}")
+                    
+                    screenshot, text, is_available = await cls._do_scrape(
+                        url,
+                        selector,
+                        item_id,
+                        smart_scroll,
+                        scroll_pixels,
+                        text_length,
+                        timeout,
+                        browser=browser,
+                        is_amazon=is_amazon,
+                        attempt=attempt,
+                        max_retries=max_retries,
+                    )
 
-            if result[0] is not None:  # Screenshot réussi
-                return result
+                    if screenshot or (text and len(text) > 0):
+                        return screenshot, text, is_available
+                    
+                    logger.warning(f"Tentative {attempt + 1} échouée pour {url}")
 
-            last_error = "Scraping failed"
-            logger.warning(f"Tentative {attempt + 1} échouée pour {url}")
+                except Exception as e:
+                    logger.error(f"Error in scrape_item attempt {attempt + 1}: {e}")
+                    # If it's a critical browser error, force recreation next loop
+                    if "Target page, context or browser has been closed" in str(e) or "Connection closed" in str(e):
+                        logger.warning("Critical browser error detected, forcing reconnection.")
+                        try:
+                            if browser:
+                                await browser.close()
+                        except:
+                            pass
+                        browser = None
 
-        logger.error(f"Toutes les tentatives ont échoué pour {url}")
-        return None, "", False  # Product unavailable if all retries failed
+                if attempt < max_retries:
+                    delay = AMAZON_BASE_DELAY * (attempt + 1) + random.uniform(1, 3) if is_amazon else RETRY_DELAY
+                    logger.info(f"Tentative {attempt + 2}/{max_retries + 1} pour {url} (délai: {delay:.1f}s)")
+                    await asyncio.sleep(delay)
 
-    @staticmethod
-    async def _do_scrape(  # noqa: PLR0913, PLR0912, PLR0915
+            logger.error(f"Toutes les tentatives ont échoué pour {url}")
+            return None, "", False
+
+        finally:
+            if browser:
+                try:
+                    if browser.is_connected():
+                        await browser.close()
+                except Exception as e:
+                    logger.debug(f"Error closing browser in scrape_item: {e}")
+            
+            if playwright_manager:
+                try:
+                    await playwright_manager.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping playwright manager in scrape_item: {e}")
+
+    @classmethod
+    async def _do_scrape(
+        cls,
         url: str,
         selector: str | None = None,
         item_id: int | None = None,
