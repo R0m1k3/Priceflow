@@ -96,18 +96,20 @@ class NewSearchService:
             use_proxy = config.get("requires_proxy", False) if config else False
 
             # Use browserless to get content and screenshot
-            html, screenshot_path = await browserless_service.get_page_content(
+            # extract_text=True to get visible text for AI analysis
+            page_text, screenshot_path = await browserless_service.get_page_content(
                 result.url,
                 use_proxy=use_proxy,
-                wait_selector=None 
+                wait_selector=None,
+                extract_text=True  # Get visible text for AI price extraction
             )
-            
+
             if not screenshot_path:
                 return result
 
             # Use AI to analyze
             from app.services.ai_service import AIService
-            ai_result = await AIService.analyze_image(screenshot_path, page_text=html)
+            ai_result = await AIService.analyze_image(screenshot_path, page_text=page_text)
             
             if ai_result:
                 extraction, _ = ai_result

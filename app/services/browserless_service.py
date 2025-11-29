@@ -194,10 +194,24 @@ class BrowserlessService:
         logger.warning("Could not extract Amazon price with any selector")
         return ""
 
-    async def get_page_content(self, url: str, use_proxy: bool = False, wait_selector: str = None) -> tuple[str, str]:
+    async def get_page_content(
+        self,
+        url: str,
+        use_proxy: bool = False,
+        wait_selector: str = None,
+        extract_text: bool = False
+    ) -> tuple[str, str]:
         """
         Fetch page content with full stealth lifecycle.
-        Returns (html_content, screenshot_path)
+
+        Args:
+            url: URL to fetch
+            use_proxy: Whether to use proxy rotation
+            wait_selector: CSS selector to wait for before capturing
+            extract_text: If True, returns visible text; if False, returns HTML source
+
+        Returns:
+            (content, screenshot_path) where content is either HTML or visible text
         """
         context = await self.get_context(use_proxy=use_proxy)
         page = await context.new_page()
@@ -291,23 +305,28 @@ class BrowserlessService:
             except Exception:
                 pass
 
-            # Extract visible text instead of raw HTML
-            # This gets the text as rendered by JavaScript, not the HTML source
-            try:
-                content = await page.inner_text('body')
-                logger.info(f"Extracted {len(content)} chars of visible text from page")
-            except Exception as e:
-                # Fallback to HTML content if inner_text fails
-                logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
-                content = await page.content()
+            # Extract content based on extract_text parameter
+            if extract_text:
+                # Extract visible text for AI analysis (monitoring use case)
+                try:
+                    content = await page.inner_text('body')
+                    logger.info(f"Extracted {len(content)} chars of visible text from page")
+                except Exception as e:
+                    # Fallback to HTML content if inner_text fails
+                    logger.warning(f"Failed to extract inner_text, falling back to HTML: {e}")
+                    content = await page.content()
 
-            # For Amazon, extract price directly and prepend to content
-            # This helps AI by providing explicit price information
-            if "amazon" in url.lower() and "/dp/" in url:
-                amazon_price_text = await self._extract_amazon_price(page)
-                if amazon_price_text:
-                    content = f"PRIX DÉTECTÉ: {amazon_price_text}\n\n{content}"
-                    logger.info(f"Prepended Amazon price to content: {amazon_price_text}")
+                # For Amazon, extract price directly and prepend to content
+                # This helps AI by providing explicit price information
+                if "amazon" in url.lower() and "/dp/" in url:
+                    amazon_price_text = await self._extract_amazon_price(page)
+                    if amazon_price_text:
+                        content = f"PRIX DÉTECTÉ: {amazon_price_text}\n\n{content}"
+                        logger.info(f"Prepended Amazon price to content: {amazon_price_text}")
+            else:
+                # Extract raw HTML for parsing (search use case)
+                content = await page.content()
+                logger.debug(f"Extracted {len(content)} chars of HTML from page")
 
             
             # Take screenshot if needed for AI analysis
