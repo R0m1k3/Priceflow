@@ -165,6 +165,23 @@ class BrowserlessService:
                 # Retry logic could be handled here or by caller, 
                 # for now we return what we have, caller decides
             
+            # Handle pre-search interaction if configured (e.g. Centrakor store selection)
+            # We can't easily pass the config here without changing the signature,
+            # but we can check if the URL matches a site with pre_search_selector
+            from app.core.search_config import SITE_CONFIGS
+            for config in SITE_CONFIGS.values():
+                if config.get("pre_search_selector") and config["search_url"].split("/")[2] in url:
+                    try:
+                        selector = config["pre_search_selector"]
+                        logger.info(f"Attempting pre-search interaction: {selector}")
+                        if await page.locator(selector).is_visible(timeout=5000):
+                            await page.click(selector)
+                            logger.info("Clicked pre-search selector")
+                            await asyncio.sleep(2) # Wait for transition
+                    except Exception as e:
+                        logger.warning(f"Pre-search interaction failed: {e}")
+                    break
+
             await self.handle_popups(page)
             await self.simulate_human_behavior(page)
             
