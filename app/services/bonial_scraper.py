@@ -19,16 +19,17 @@ from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
 
 logger = logging.getLogger(__name__)
 
-# Bonial selectors based on manual analysis
+# Bonial selectors based on browser inspection
 BONIAL_SELECTORS = {
-    "catalog_card": "a[href*='/catalogue/']:has(img), section:has(img[src*='content-media.bonial.biz'])",
-    "catalog_title": "div[class*='title'], h3, h2, h4, .text-lg, span[class*='text-']",
-    "catalog_image": "img[src*='content-media.bonial.biz'], img[src*='bonial']",
+    # Card must contain a catalog link AND an image
+    "catalog_card": "section:has(a[href*='/catalogue/']), div[class*='brochure-card']",
+    "catalog_title": "div[class*='title'], h2, h3, h4, .text-lg",
+    "catalog_image": "img[src*='content-media.bonial.biz']",
     "catalog_link": "a[href*='/catalogue/']",
     "cookie_accept": "button:has-text('OK'), button:has-text('Accepter'), #onetrust-accept-btn-handler",
 }
 
-# Date pattern: matches dd/mm or dd/mm/yyyy
+# Date pattern: matches "lun. 25/11 - mar. 08/12/2025" or similar
 DATE_PATTERN = r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
 
 
@@ -195,6 +196,30 @@ async def scrape_catalog_list(
             if catalogue_url and not catalogue_url.startswith("http"):
                 catalogue_url = f"https://www.bonial.fr{catalogue_url}"
             
+            # Validate URL - Must be a real catalog viewer, not an app link or generic page
+            if catalogue_url and ("adjust.com" in catalogue_url or "/Mobile" in catalogue_url):
+                logger.warning(f"Skipping app/mobile link for catalog {idx}: {catalogue_url}")
+                catalogue_url = None
+            
+            if catalogue_url and "/catalogue/" not in catalogue_url:
+                logger.warning(f"Skipping non-catalog URL for catalog {idx}: {catalogue_url}")
+                catalogue_url = None
+
+            # Filter out generic banners/newsletters based on title
+            if titre:
+                lower_title = titre.lower()
+                ignored_titles = [
+                    "restez informé",
+                    "catalogues bazar",
+                    "toutes les offres",
+                    "voir les offres",
+                    "téléchargez l'application",
+                    "newsletter"
+                ]
+                if any(ignored in lower_title for ignored in ignored_titles):
+                    logger.info(f"Skipping generic/banner card: {titre}")
+                    continue
+
             # Validate data
             has_url = bool(catalogue_url)
             has_image = bool(image_url)
@@ -211,6 +236,7 @@ async def scrape_catalog_list(
                 if "semaine" in dates_text.lower() or "valable" in dates_text.lower():
                      date_fin = datetime.now().replace(day=datetime.now().day + 7) # Rough approx
             
+            # STRICTER VALIDATION: Must have URL, Image AND (Dates OR strong title signal)
             if has_url and has_image:
                 catalogues.append({
                     "titre": titre.strip(),
@@ -224,8 +250,11 @@ async def scrape_catalog_list(
                 # DEBUG: Log HTML content if extraction failed to help diagnosis
                 try:
                     html_content = await card.inner_html()
-                    logger.warning(f"Incomplete data for catalog {idx}: title={titre}, dates={has_dates}, image={has_image}, url={has_url}")
-                    logger.warning(f"Card HTML snippet: {html_content[:200]}...")
+                    # Only log if it's not obviously bad
+                    if not has_url: 
+                        logger.warning(f"Skipping card {idx} (No URL): {titre}")
+                    elif not has_image:
+                        logger.warning(f"Skipping card {idx} (No Image): {titre}")
                 except Exception:
                     pass
         

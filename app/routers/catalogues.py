@@ -315,3 +315,48 @@ async def get_scraping_stats(
         derniere_mise_a_jour=derniere_mise_a_jour,
         prochaine_execution=prochaine,
     )
+
+
+@router.post("/admin/cleanup", response_model=dict)
+async def cleanup_catalogs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Delete invalid catalogs (0 pages or generic titles).
+    Admin only.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    deleted_count = 0
+    
+    # 1. Delete catalogs with 0 pages
+    bad_catalogs = db.query(Catalogue).filter(Catalogue.nombre_pages == 0).all()
+    for cat in bad_catalogs:
+        db.delete(cat)
+        deleted_count += 1
+    
+    # 2. Delete generic titles
+    generic_titles = [
+        "Restez informé",
+        "Catalogues Bazar",
+        "Toutes les offres",
+        "Voir les offres",
+        "Téléchargez l'application",
+        "Newsletter",
+        "BLACK FRIDAY"
+    ]
+    
+    for title_part in generic_titles:
+        generic_cats = db.query(Catalogue).filter(Catalogue.titre.ilike(f"%{title_part}%")).all()
+        for cat in generic_cats:
+            # Only delete if it has few pages (e.g. < 2) to be safe
+            if cat.nombre_pages < 2:
+                db.delete(cat)
+                deleted_count += 1
+    
+    db.commit()
+    logger.info(f"Cleanup: deleted {deleted_count} invalid catalogs")
+    
+    return {"message": f"Cleanup complete. Deleted {deleted_count} invalid catalogs."}
