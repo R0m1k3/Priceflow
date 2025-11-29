@@ -113,30 +113,68 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
     await page.goto(url, wait_until="networkidle")
     await accept_cookies(page)
     
-    # Wait a bit for dynamic content
-    await asyncio.sleep(3)
-    
     # Find all "Ouvrir le catalogue" buttons/links using Playwright's get_by_text
     try:
-        catalog_links = await page.get_by_text("Ouvrir le catalogue").all()
-        logger.info(f"Found {len(catalog_links)} catalog text elements for {enseigne.nom}")
+        catalog_elements = await page.get_by_text("Ouvrir le catalogue").all()
+        logger.info(f"Found {len(catalog_elements)} catalog text elements for {enseigne.nom}")
         
-        # Filter to only get actual links (not just text)
-        actual_links = []
-        for element in catalog_links:
-            # Check if this element is a link or contains a link
+        # Extract links from these elements
+        catalog_links = []
+        for element in catalog_elements:
+            link_el = None
+            
+            # Strategy 1: Element itself is a link
             tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
             if tag_name == "a":
-                actual_links.append(element)
-            else:
-                # Try to find a link parent
+                link_el = element
+            
+            # Strategy 2: Find link parent
+            if not link_el:
                 link_parent = await element.evaluate_handle("el => el.closest('a')")
                 if link_parent:
                     link_el = link_parent.as_element()
-                    if link_el:
-                        actual_links.append(link_el)
+            
+            # Strategy 3: Find link child
+            if not link_el:
+                try:
+                    link_child = await element.query_selector("a")
+                    if link_child:
+                        link_el = link_child
+                except:
+                    pass
+            
+            # Strategy 4: Find link sibling (next or previous)
+            if not link_el:
+                try:
+                    # Try next sibling
+                    next_sibling = await element.evaluate_handle("el => el.nextElementSibling")
+                    if next_sibling:
+                        sibling_el = next_sibling.as_element()
+                        if sibling_el:
+                            sibling_tag = await sibling_el.evaluate("el => el.tagName.toLowerCase()")
+                            if sibling_tag == "a":
+                                link_el = sibling_el
+                except:
+                    pass
+            
+            # Strategy 5: Go up to parent container and find ANY link
+            if not link_el:
+                try:
+                    parent_container = await element.evaluate_handle("el => el.parentElement")
+                    if parent_container:
+                        parent_el = parent_container.as_element()
+                        if parent_el:
+                            link_in_parent = await parent_el.query_selector("a")
+                            if link_in_parent:
+                                link_el = link_in_parent
+                except:
+                    pass
+            
+            if link_el:
+                catalog_links.append(link_el)
+            else:
+                logger.debug(f"Could not find link for element with text 'Ouvrir le catalogue'")
         
-        catalog_links = actual_links
         logger.info(f"Found {len(catalog_links)} actual catalog links for {enseigne.nom}")
     except Exception as e:
         logger.error(f"No catalog links found for {enseigne.nom}: {e}")
