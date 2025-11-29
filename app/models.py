@@ -197,3 +197,7 @@ class ScrapingLog(Base):
     # Relationship
     enseigne = relationship("Enseigne", back_populates="scraping_logs")
 
+    @property
+    def enseigne_nom(self) -> str | None:
+        return self.enseigne.nom if self.enseigne else None
+
