@@ -382,10 +382,14 @@ async def search_products(
     active_producers = len(generators)
     
     async def producer(gen):
-        async for item in gen:
-            await queue.put(item)
-        await queue.put(None) # Sentinel
-    
+        try:
+            async for item in gen:
+                await queue.put(item)
+        except Exception as e:
+            logger.error(f"Error in search producer: {e}")
+        finally:
+            await queue.put(None) # Sentinel
+
     # Start producers
     for gen in generators:
         asyncio.create_task(producer(gen))
