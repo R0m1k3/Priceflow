@@ -425,47 +425,63 @@ class ScraperService:
         scroll_pixels: int = 350,
         text_length: int = 0,
         timeout: int = 90000,
+        browser=None,  # Support external browser instance
     ) -> tuple[str | None, str, bool]:
         """
         Scrape a product page with retries and rotation.
         Manages the browser lifecycle to reuse connections across retries.
+        If 'browser' is provided, it uses that instance and DOES NOT close it.
         """
         is_amazon = _is_amazon_url(url)
         max_retries = AMAZON_MAX_RETRIES if is_amazon else MAX_RETRIES
         
         playwright_manager = None
-        browser = None
+        local_browser = None
         
+        # Determine if we are managing the browser or using an external one
+        using_external_browser = browser is not None
+        current_browser = browser
+
         try:
-            # Initial browser creation
-            try:
-                playwright_manager = async_playwright()
-                p = await playwright_manager.start()
-                logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-                browser = await p.chromium.connect_over_cdp(
-                    BROWSERLESS_URL,
-                    timeout=60000,
-                )
-            except Exception as e:
-                logger.error(f"Failed to initialize browser: {e}")
-                return None, "", False
+            # Initial browser creation if not provided
+            if not current_browser:
+                try:
+                    playwright_manager = async_playwright()
+                    p = await playwright_manager.start()
+                    logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
+                    local_browser = await p.chromium.connect_over_cdp(
+                        BROWSERLESS_URL,
+                        timeout=60000,
+                    )
+                    current_browser = local_browser
+                except Exception as e:
+                    logger.error(f"Failed to initialize browser: {e}")
+                    return None, "", False
 
             for attempt in range(max_retries + 1):
                 try:
-                    # Check if browser is still connected, if not recreate it
-                    if not browser or not browser.is_connected():
+                    # Check if browser is still connected
+                    if not current_browser or not current_browser.is_connected():
+                        if using_external_browser:
+                            logger.warning("External browser disconnected! Cannot proceed with this browser.")
+                            # We cannot reconnect an external browser here as we don't own the playwright instance
+                            # We could try to fall back to a local browser, but for now let's just fail
+                            return None, "", False
+                        
                         logger.warning("Browser disconnected, reconnecting...")
                         try:
-                            if browser:
+                            if current_browser:
                                 try:
-                                    await browser.close()
+                                    await current_browser.close()
                                 except:
                                     pass
                             
-                            browser = await p.chromium.connect_over_cdp(
+                            # Reconnect local browser
+                            current_browser = await p.chromium.connect_over_cdp(
                                 BROWSERLESS_URL,
                                 timeout=60000,
                             )
+                            local_browser = current_browser
                         except Exception as re_e:
                             logger.error(f"Failed to reconnect browser: {re_e}")
                             await asyncio.sleep(5)
@@ -481,7 +497,7 @@ class ScraperService:
                         scroll_pixels,
                         text_length,
                         timeout,
-                        browser=browser,
+                        browser=current_browser,
                         is_amazon=is_amazon,
                         attempt=attempt,
                         max_retries=max_retries,
@@ -494,15 +510,20 @@ class ScraperService:
 
                 except Exception as e:
                     logger.error(f"Error in scrape_item attempt {attempt + 1}: {e}")
-                    # If it's a critical browser error, force recreation next loop
+                    # If it's a critical browser error
                     if "Target page, context or browser has been closed" in str(e) or "Connection closed" in str(e):
+                        if using_external_browser:
+                             logger.warning("Critical error with external browser.")
+                             # Stop retrying with this browser
+                             return None, "", False
+                        
                         logger.warning("Critical browser error detected, forcing reconnection.")
                         try:
-                            if browser:
-                                await browser.close()
+                            if current_browser:
+                                await current_browser.close()
                         except:
                             pass
-                        browser = None
+                        current_browser = None
 
                 if attempt < max_retries:
                     delay = AMAZON_BASE_DELAY * (attempt + 1) + random.uniform(1, 3) if is_amazon else RETRY_DELAY
@@ -513,12 +534,13 @@ class ScraperService:
             return None, "", False
 
         finally:
-            if browser:
+            # Only close resources we created
+            if local_browser:
                 try:
-                    if browser.is_connected():
-                        await browser.close()
+                    if local_browser.is_connected():
+                        await local_browser.close()
                 except Exception as e:
-                    logger.debug(f"Error closing browser in scrape_item: {e}")
+                    logger.debug(f"Error closing local browser in scrape_item: {e}")
             
             if playwright_manager:
                 try:
