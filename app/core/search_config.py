@@ -51,66 +51,6 @@ USER_AGENT_POOL = [
     # Firefox Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
     # Edge Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-]
-
-def get_random_user_agent() -> str:
-    return random.choice(USER_AGENT_POOL)
-
-# === SITE CONFIGURATIONS ===
-SITE_CONFIGS = {
-    # === MAGASINS DISCOUNT ===
-    "gifi.fr": {
-        "name": "Gifi",
-        "search_url": "https://www.gifi.fr/resultat-recherche?q={query}",
-        "product_selector": "a.link, .product-item a.link, .product-tile a.link",
-        "wait_selector": ".product-item, .product-tile, .products-grid",
-        "category": "Discount",
-        "requires_proxy": False,
-    },
-    "stokomani.fr": {
-        "name": "Stokomani",
-        "search_url": "https://www.stokomani.fr/search?options%5Bprefix%5D=last&q={query}",
-        "product_selector": "a[href^='/products/']",
-        "wait_selector": "a[href^='/products/']",
-        "category": "Discount",
-        "requires_proxy": False,
-    },
-    "bmstores.fr": {
-        "name": "B&M",
-        "wait_selector": ".product-card, .search-results",
-        "category": "Discount",
-        "requires_proxy": False,
-    },
-    "lafoirfouille.fr": {
-        "name": "La Foir'Fouille",
-        "search_url": "https://www.lafoirfouille.fr/catalogsearch/result/?q={query}",
-        "product_selector": ".product-item a.product-item-link, .product-item-info a",
-        "wait_selector": ".products-grid, .product-items",
-        "category": "Discount",
-        "requires_proxy": False,
-    },
-    # === GRANDES SURFACES ===
-    "e.leclerc": {
-        "name": "E.Leclerc",
-        "search_url": "https://www.e.leclerc/recherche?q={query}",
-        "product_selector": "a[href*='/fp/'][href*='-']:not([href*='promo'])",
-        "wait_selector": "[data-testid='product-grid'], .search-results-list",
-        "category": "Grande Surface",
-        "requires_proxy": False,
-    },
-    "auchan.fr": {
-        "name": "Auchan",
-        "search_url": "https://www.auchan.fr/recherche?text={query}",
-        "product_selector": "a[href*='/p/'][href$='.html']",
-        "wait_selector": ".search-results, .product-grid",
-        "category": "Grande Surface",
-        "requires_proxy": False,
-    },
-    "carrefour.fr": {
-        "name": "Carrefour",
-        "search_url": "https://www.carrefour.fr/s?q={query}",
-        "product_selector": "a.product-card-click-wrapper[href^='/p/']",
         "wait_selector": "a.product-card-click-wrapper[href^='/p/']",
         "category": "Grande Surface",
         "requires_proxy": False,
