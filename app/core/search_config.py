@@ -78,6 +78,14 @@ SITE_CONFIGS = {
         "category": "Discount",
         "requires_proxy": False,
     },
+    "action.com": {
+        "name": "Action",
+        "search_url": "https://www.action.com/fr-fr/search/?q={query}",
+        "product_selector": "a.group[href^='/fr-fr/p/']",
+        "wait_selector": "a.group[href^='/fr-fr/p/']",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
     "bmstores.fr": {
         "name": "B&M",
         "wait_selector": ".product-card, .search-results",
@@ -95,8 +103,8 @@ SITE_CONFIGS = {
     "auchan.fr": {
         "name": "Auchan",
         "search_url": "https://www.auchan.fr/recherche?text={query}",
-        "product_selector": "a[href*='/p-']",
-        "wait_selector": "a[href*='/p-']",
+        "product_selector": "article a[href]",
+        "wait_selector": "article",
         "category": "Grande Surface",
         "requires_proxy": False,
     },

@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 async def verify_site(site_key):
     logger.info(f"Verifying {site_key}...")
     try:
-        # direct_search_service.search_site might need to be called differently if it's an instance method
-        # checking previous usage or assuming standard service pattern
         results = await direct_search_service.search_site(site_key, "chaise")
         if results:
             logger.info(f"✅ {site_key}: Found {len(results)} results")
@@ -32,11 +30,7 @@ async def verify_site(site_key):
         logger.error(f"❌ {site_key}: Error - {e}")
 
 async def main():
-    sites_to_test = ["gifi.fr", "stokomani.fr", "auchan.fr", "carrefour.fr", "amazon.fr", "action.com"]
-    
-    # Run sequentially to avoid overwhelming resources/logs
-    for site in sites_to_test:
-        await verify_site(site)
+    await verify_site("action.com")
 
 if __name__ == "__main__":
     asyncio.run(main())
