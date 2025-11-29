@@ -458,7 +458,7 @@ DEFAULT_SITE_CONFIGS = {
     # === MAGASINS DISCOUNT ===
     "gifi.fr": {
         "name": "Gifi",
-        "search_url": "https://www.gifi.fr/catalogsearch/result/?q={query}",
+        "search_url": "https://www.gifi.fr/resultat-recherche?q={query}",
         "product_selector": (
             ".product-tile a.link, .product-tile a[aria-label='Afficher les détails du produit']"
         ),
