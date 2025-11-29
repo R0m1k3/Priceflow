@@ -23,7 +23,7 @@ async def scheduled_scrape_job():
     
     db = SessionLocal()
     try:
-        logs = await scrape_all_ense ignes(db)
+        logs = await scrape_all_enseignes(db)
         
         total_new = sum(log.catalogues_nouveaux for log in logs)
         total_found = sum(log.catalogues_trouves for log in logs)
