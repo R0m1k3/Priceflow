@@ -50,11 +50,75 @@ USER_AGENT_POOL = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     # Firefox Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    # Edge Windows
-        "wait_selector": "a.product-card-click-wrapper[href^='/p/']",
-        "category": "Grande Surface",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
+
+def get_random_user_agent() -> str:
+    return random.choice(USER_AGENT_POOL)
+
+# === SITE CONFIGURATIONS ===
+SITE_CONFIGS = {
+    # === MAGASINS DISCOUNT ===
+    "gifi.fr": {
+        "name": "Gifi",
+        "search_url": "https://www.gifi.fr/resultat-recherche?q={query}",
+        "product_selector": "a.link, .product-item a.link, .product-tile a.link",
+        "wait_selector": ".product-item, .product-tile, .products-grid",
+        "category": "Discount",
         "requires_proxy": False,
     },
+    "stokomani.fr": {
+        "name": "Stokomani",
+        "search_url": "https://www.stokomani.fr/search?options%5Bprefix%5D=last&q={query}",
+        "product_selector": "a[href^='/products/']",
+        "wait_selector": "a[href^='/products/']",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "bmstores.fr": {
+        "name": "B&M",
+        "wait_selector": ".product-card, .search-results",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "lafoirfouille.fr": {
+        "name": "La Foir'Fouille",
+        "search_url": "https://www.lafoirfouille.fr/catalogsearch/result/?q={query}",
+        "product_selector": ".product-item a.product-item-link, .product-item-info a",
+        "wait_selector": ".products-grid, .product-items",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "centrakor.com": {
+        "name": "Centrakor",
+        "search_url": "https://www.centrakor.com/catalogsearch/result/?q={query}",
+        "product_selector": ".product-item a.product-item-link, .product-item-info a",
+        "wait_selector": ".products-grid, .product-items",
+        "category": "Déco & Maison",
+        "requires_proxy": False,
+        "pre_search_selector": "text=\"C'est parti !\"",
+    },
+    "lincroyable.fr": {
+        "name": "L'Incroyable",
+        "search_url": "https://www.lincroyable.fr/recherche-query={query}/?",
+        "product_selector": "a[href^='/p']",
+        "wait_selector": ".products, .product-miniature",
+        "category": "Déco & Maison",
+        "requires_proxy": False,
+    },
+    "action.com": {
+        "name": "Action",
+        "search_url": "https://www.action.com/fr-fr/search/?q={query}",
+        "product_selector": "a[href^='/fr-fr/p/']",
+        "wait_selector": "a[href^='/fr-fr/p/']",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    # === GRANDES SURFACES ===
+    "e.leclerc": {
+        "name": "E.Leclerc",
+        "search_url": "https://www.e.leclerc/recherche?q={query}",
+        "product_selector": "a[href*='/fp/'][href*='-']:not([href*='promo'])",
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
