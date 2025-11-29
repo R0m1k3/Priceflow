@@ -119,6 +119,10 @@ SITE_CONFIGS = {
         "name": "E.Leclerc",
         "search_url": "https://www.e.leclerc/recherche?q={query}",
         "product_selector": "a[href*='/fp/'][href*='-']:not([href*='promo'])",
+        "wait_selector": "[data-testid='product-grid'], .search-results-list",
+        "category": "Grande Surface",
+        "requires_proxy": False,
+    },
     # === E-COMMERCE GÉNÉRALISTE ===
     "amazon.fr": {
         "name": "Amazon France",
