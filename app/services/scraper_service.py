@@ -567,10 +567,10 @@ class ScraperService:
 
                 # Add proxy for Amazon if configured
                 if is_amazon:
-                    proxy_url = _get_amazon_proxy()
-                    if proxy_url:
-                        logger.info(f"Using proxy for Amazon: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
-                        context_options["proxy"] = {"server": proxy_url}
+                    proxy_config = _get_amazon_proxy()
+                    if proxy_config:
+                        # proxy_config is already a dict with {"server": "...", "username": "...", "password": "..."}
+                        context_options["proxy"] = proxy_config
 
                 context = await current_browser.new_context(**context_options)
 
