@@ -273,7 +273,6 @@ async def _scrape_with_browserless(
             scroll_pixels=350,
             text_length=3000,
             timeout=30000,
-            browser=browser,
         )
 
         if not screenshot_path:
