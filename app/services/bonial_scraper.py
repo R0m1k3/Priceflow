@@ -179,9 +179,15 @@ async def scrape_catalog_list(
             # Strategy 1: The card itself is a link
             catalogue_url = await card.get_attribute("href")
             
-            # Strategy 2: Look for link inside
+            # Strategy 2: Look for specific catalog link inside
             if not catalogue_url:
                 link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
+                if link_el:
+                    catalogue_url = await link_el.get_attribute("href")
+            
+            # Strategy 3: Look for ANY link inside
+            if not catalogue_url:
+                link_el = await card.query_selector("a")
                 if link_el:
                     catalogue_url = await link_el.get_attribute("href")
             
@@ -215,7 +221,13 @@ async def scrape_catalog_list(
                 })
                 logger.debug(f"Extracted catalog: {titre}")
             else:
-                logger.warning(f"Incomplete data for catalog {idx}: title={titre}, dates={has_dates}, image={has_image}, url={has_url}")
+                # DEBUG: Log HTML content if extraction failed to help diagnosis
+                try:
+                    html_content = await card.inner_html()
+                    logger.warning(f"Incomplete data for catalog {idx}: title={titre}, dates={has_dates}, image={has_image}, url={has_url}")
+                    logger.warning(f"Card HTML snippet: {html_content[:200]}...")
+                except Exception:
+                    pass
         
         except Exception as e:
             logger.error(f"Error extracting catalog {idx} for {enseigne.nom}: {e}")
