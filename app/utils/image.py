@@ -8,7 +8,8 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 # Image processing constants
-MAX_IMAGE_SIZE = 1024
+# Increased from 1024 to 2048 to preserve more detail for AI analysis
+MAX_IMAGE_SIZE = 2048
 JPEG_QUALITY = 85
 
 
