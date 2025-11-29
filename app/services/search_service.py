@@ -208,20 +208,51 @@ class NewSearchService:
         return results
 
     @staticmethod
+    async def search_site_generator(site_key: str, query: str) -> AsyncGenerator[SearchResult, None]:
+        """Search a single site and yield results as they are scraped"""
+        config = SITE_CONFIGS.get(site_key)
+        if not config:
+            logger.error(f"Unknown site: {site_key}")
+            return
+
+        search_url = config["search_url"].format(query=quote_plus(query))
+        logger.info(f"Searching {config['name']} at {search_url}")
+
+        # Use proxy if required by config
+        use_proxy = config.get("requires_proxy", False)
+        
+        html_content, _ = await browserless_service.get_page_content(
+            search_url, 
+            use_proxy=use_proxy,
+            wait_selector=config.get("wait_selector")
+        )
+
+        if not html_content:
+            logger.warning(f"No content returned for {site_key}")
+            return
+
+        # Phase 1: Parse results
+        initial_results = NewSearchService._parse_results(html_content, site_key, search_url)
+        
+        # Phase 2: Scrape details for each result (Sequential or Limited Parallel)
+        # We yield as soon as one is done
+        for res in initial_results:
+            enriched_res = await NewSearchService.scrape_item(res)
+            yield enriched_res
+
+    @staticmethod
     async def search_all(query: str) -> list[SearchResult]:
-        """Search all configured sites in parallel"""
+        """Legacy method for compatibility"""
+        results = []
+        # This is not optimized for streaming, but keeps old signature
         tasks = []
         for site_key in SITE_CONFIGS.keys():
             tasks.append(NewSearchService.search_site(site_key, query))
         
         results_list = await asyncio.gather(*tasks)
-        
-        # Flatten list
-        all_results = []
-        for site_results in results_list:
-            all_results.extend(site_results)
-            
-        return all_results
+        for r in results_list:
+            results.extend(r)
+        return results
 
 # Global instance
 new_search_service = NewSearchService()
@@ -298,7 +329,7 @@ async def search_products(
 ) -> AsyncGenerator[SearchProgress, None]:
     """
     Compatibility wrapper for search_products.
-    Yields SearchProgress events.
+    Yields SearchProgress events incrementally.
     """
     # 1. Get sites to search
     sites = get_all_sites(db)
@@ -307,56 +338,96 @@ async def search_products(
     
     active_sites = [s for s in sites if s.is_active]
     
+    # Initial event
     yield SearchProgress(
         status="searching",
         total=len(active_sites),
         completed=0,
-        message=f"Recherche sur {len(active_sites)} sites...",
+        message=f"Démarrage de la recherche sur {len(active_sites)} sites...",
         results=[],
     )
 
     # 2. Map DB sites to Config keys
-    # We need to match DB sites (domain) to SITE_CONFIGS keys
-    tasks = []
-    
+    site_keys = []
     for site in active_sites:
-        # Find matching config key
-        site_key = None
         for key in SITE_CONFIGS.keys():
             if key in site.domain or site.domain in key:
-                site_key = key
+                site_keys.append(key)
                 break
+    
+    # 3. Execute searches and stream results
+    # We create a task for each site generator
+    
+    generators = [NewSearchService.search_site_generator(key, query) for key in site_keys]
+    
+    # We need to iterate over multiple async generators concurrently
+    # This is a bit complex, so we'll use a queue or similar
+    # Simpler approach: Use aiostream if available, or just interleave manually
+    # For now, let's just run them and yield as we get them.
+    # Since we want to show results ASAP, we can use asyncio.as_completed on the *next* item of each generator?
+    # No, generators are stateful.
+    
+    # Simplest robust approach without extra libs:
+    # Create a wrapper task for each generator that puts items into a shared Queue
+    
+    queue = asyncio.Queue()
+    active_producers = len(generators)
+    
+    async def producer(gen):
+        async for item in gen:
+            await queue.put(item)
+        await queue.put(None) # Sentinel
+    
+    # Start producers
+    for gen in generators:
+        asyncio.create_task(producer(gen))
         
-        if site_key:
-            tasks.append(NewSearchService.search_site(site_key, query))
+    # Consumer loop
+    results_so_far = []
+    completed_sites = 0
+    
+    while active_producers > 0:
+        item = await queue.get()
+        
+        if item is None:
+            active_producers -= 1
+            completed_sites += 1
+            # Optional: yield progress update without new result
+            yield SearchProgress(
+                status="searching",
+                total=len(active_sites),
+                completed=completed_sites,
+                message=f"Recherche en cours... ({completed_sites}/{len(active_sites)} sites terminés)",
+                results=results_so_far,
+            )
         else:
-            logger.warning(f"No config found for site {site.domain}")
-
-    # 3. Execute searches
-    # To stream results, we should ideally use as_completed, but search_site returns a list
-    # Let's just wait for all for now to keep it simple, or implement a generator in NewSearchService
-    
-    # Simple implementation: Wait for all (streaming is harder with current architecture)
-    results_lists = await asyncio.gather(*tasks)
-    
-    all_results = []
-    for res_list in results_lists:
-        for r in res_list:
-            all_results.append(SearchResultItem(
-                url=r.url,
-                title=r.title,
-                price=r.price,
-                currency=r.currency,
-                in_stock=r.in_stock,
-                site_name=r.source,
-                site_domain=r.source, # approximate
-                image_url=r.image_url,
-            ))
-    
+            # Convert to SearchResultItem
+            api_item = SearchResultItem(
+                url=item.url,
+                title=item.title,
+                price=item.price,
+                currency=item.currency,
+                in_stock=item.in_stock,
+                site_name=item.source,
+                site_domain=item.source,
+                image_url=item.image_url,
+            )
+            results_so_far.append(api_item)
+            
+            # Yield update with new result
+            yield SearchProgress(
+                status="searching",
+                total=len(active_sites),
+                completed=completed_sites,
+                message=f"Trouvé: {item.title[:30]}...",
+                results=results_so_far,
+            )
+            
+    # Final event
     yield SearchProgress(
         status="completed",
         total=len(active_sites),
         completed=len(active_sites),
-        message=f"Terminé. {len(all_results)} résultats trouvés.",
-        results=all_results,
+        message=f"Terminé. {len(results_so_far)} résultats trouvés.",
+        results=results_so_far,
     )
