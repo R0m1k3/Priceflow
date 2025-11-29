@@ -113,3 +113,87 @@ class NotificationChannel(Base):
     created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
 
     items = relationship("Item", back_populates="notification_channel")
+
+
+# === CATALOG MODULE MODELS ===
+
+class Enseigne(Base):
+    """Stores/brands for promotional catalogs"""
+    __tablename__ = "enseignes"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    nom: str = Column(String, nullable=False)  # type: ignore  # "Gifi"
+    slug_bonial: str = Column(String, unique=True, nullable=False, index=True)  # type: ignore  # "Gifi"
+    logo_url: str | None = Column(String, nullable=True)  # type: ignore
+    couleur: str = Column(String, nullable=False)  # type: ignore  # "#E30613"
+    site_url: str | None = Column(String, nullable=True)  # type: ignore
+    description: str | None = Column(String, nullable=True)  # type: ignore
+    is_active: bool = Column(Boolean, default=True)  # type: ignore
+    ordre_affichage: int = Column(Integer, default=0)  # type: ignore
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+    updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore
+
+    # Relationships
+    catalogues = relationship("Catalogue", back_populates="enseigne", cascade="all, delete-orphan")
+    scraping_logs = relationship("ScrapingLog", back_populates="enseigne")
+
+
+class Catalogue(Base):
+    """Promotional catalogs from stores"""
+    __tablename__ = "catalogues"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    enseigne_id: int = Column(Integer, ForeignKey("enseignes.id"), nullable=False, index=True)  # type: ignore
+    titre: str = Column(String, nullable=False)  # type: ignore
+    description: str | None = Column(Text, nullable=True)  # type: ignore
+    date_debut: datetime = Column(DateTime, nullable=False, index=True)  # type: ignore
+    date_fin: datetime = Column(DateTime, nullable=False, index=True)  # type: ignore
+    image_couverture_url: str = Column(String, nullable=False)  # type: ignore
+    catalogue_url: str = Column(String, nullable=False)  # type: ignore  # URL Bonial viewer
+    nombre_pages: int = Column(Integer, default=0)  # type: ignore
+    statut: str = Column(String, default="actif", index=True)  # type: ignore  # actif, termine, erreur
+    content_hash: str = Column(String(64), unique=True, nullable=False, index=True)  # type: ignore  # SHA256
+    metadonnees: str | None = Column(Text, nullable=True)  # type: ignore  # JSON for additional data
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+    updated_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))  # type: ignore
+
+    # Relationships
+    enseigne = relationship("Enseigne", back_populates="catalogues")
+    pages = relationship("CataloguePage", back_populates="catalogue", cascade="all, delete-orphan")
+
+
+class CataloguePage(Base):
+    """Individual pages of a catalog"""
+    __tablename__ = "catalogue_pages"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    catalogue_id: int = Column(Integer, ForeignKey("catalogues.id"), nullable=False, index=True)  # type: ignore
+    numero_page: int = Column(Integer, nullable=False)  # type: ignore
+    image_url: str = Column(String, nullable=False)  # type: ignore
+    image_thumbnail_url: str | None = Column(String, nullable=True)  # type: ignore
+    largeur: int | None = Column(Integer, nullable=True)  # type: ignore
+    hauteur: int | None = Column(Integer, nullable=True)  # type: ignore
+    created_at: datetime = Column(DateTime, default=lambda: datetime.now(UTC))  # type: ignore
+
+    # Relationship
+    catalogue = relationship("Catalogue", back_populates="pages")
+
+
+class ScrapingLog(Base):
+    """Logs of scraping executions"""
+    __tablename__ = "scraping_logs"
+
+    id: int = Column(Integer, primary_key=True, index=True)  # type: ignore
+    date_execution: datetime = Column(DateTime, default=lambda: datetime.now(UTC), index=True)  # type: ignore
+    enseigne_id: int | None = Column(Integer, ForeignKey("enseignes.id"), nullable=True)  # type: ignore  # NULL = all stores
+    statut: str = Column(String, nullable=False)  # type: ignore  # success, error, partial
+    catalogues_trouves: int = Column(Integer, default=0)  # type: ignore
+    catalogues_nouveaux: int = Column(Integer, default=0)  # type: ignore
+    catalogues_mis_a_jour: int = Column(Integer, default=0)  # type: ignore
+    duree_secondes: float | None = Column(Float, nullable=True)  # type: ignore
+    message_erreur: str | None = Column(Text, nullable=True)  # type: ignore
+    details: str | None = Column(Text, nullable=True)  # type: ignore  # JSON
+
+    # Relationship
+    enseigne = relationship("Enseigne", back_populates="scraping_logs")
+

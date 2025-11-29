@@ -7,7 +7,7 @@ import {
     Settings as SettingsIcon, Cpu, Clock, Bell, Globe,
     ChevronDown, ChevronUp, RefreshCw, RotateCcw, Edit2,
     Sparkles, Eye, Code, Brain, DollarSign, Filter,
-    TrendingDown, CheckCircle2, Package, Bug, Download
+    TrendingDown, CheckCircle2, Package, Bug, Download, BookOpen
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
+import CatalogueAdmin from '@/components/dashboard/CatalogueAdmin';
 
 const API_URL = '/api';
 
@@ -495,6 +496,7 @@ export default function Admin() {
         { id: 'sites', label: 'Sites', icon: Globe },
         { id: 'jobs', label: 'Jobs', icon: Clock },
         { id: 'notifications', label: 'Notifications', icon: Bell },
+        { id: 'catalogues', label: 'Catalogues', icon: BookOpen },
         { id: 'debug', label: 'Debug', icon: Bug },
     ];
 
@@ -1120,6 +1122,9 @@ export default function Admin() {
                     </CardContent>
                 </Card>
             )}
-        </div >
+
+            {/* Catalogues Tab */}
+            {activeTab === 'catalogues' && <CatalogueAdmin />}
+        </div>
     );
 }
