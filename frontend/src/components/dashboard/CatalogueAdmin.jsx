@@ -159,7 +159,7 @@ export default function CatalogueAdmin() {
             </div>
 
             {/* Catalogues par Enseigne */}
-            {stats && (
+            {stats && stats.catalogues_par_enseigne && (
                 <div className="bg-card rounded-lg border p-6">
                     <h3 className="text-lg font-semibold mb-4">Catalogues par Enseigne</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
