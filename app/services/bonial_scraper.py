@@ -201,7 +201,7 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
             # Go up to find a section/div that contains both the link and the title/image
             parent = link
             for _ in range(5):  # Try going up max 5 levels
-                parent = await parent.evaluateHandle("el => el.parentElement")
+                parent = await parent.evaluate_handle("el => el.parentElement")
                 parent = parent.as_element()
                 if not parent:
                     break
