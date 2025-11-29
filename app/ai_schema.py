@@ -141,11 +141,21 @@ EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this
 - Extract as DECIMAL NUMBER (convert comma to dot): 12,99 -> 12.99
 - Ignore crossed-out/barré prices (old prices)
 - If multiple prices, take the current/main price (not the original)
+
+**CRITICAL - Read digits carefully:**
+- PAY CLOSE ATTENTION to first digit: "1,99 €" is NOT "9,99 €"
+- Double-check: Is it 1, 7, 8, or 9? These look similar
+- Small prices (< 5€) are common: 0,99 €, 1,49 €, 1,99 €, 2,99 €, 3,99 €, 4,99 €
+- VERIFY the price makes sense for the product type
+
 - Examples of valid prices:
+  * "1,99 €" -> 1.99 (NOT 9.99)
+  * "0,99 €" -> 0.99 (NOT 9.99)
   * "89,99 €" -> 89.99
   * "1 234,56 €" -> 1234.56
   * "PRIX DÉTECTÉ: 89,99 €" -> 89.99
 - If you find ANY price with € symbol, extract it with confidence >= 0.8
+- If digits are unclear or blurry, reduce confidence to 0.5-0.7
 - If unclear: set null and confidence < 0.5
 
 **STOCK:**
