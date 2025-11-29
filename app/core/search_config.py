@@ -70,8 +70,8 @@ SITE_CONFIGS = {
     "stokomani.fr": {
         "name": "Stokomani",
         "search_url": "https://www.stokomani.fr/search?options%5Bprefix%5D=last&q={query}",
-        "product_selector": "a[href^='/products/']",
-        "wait_selector": "a[href^='/products/']",
+        "product_selector": ".product-card__title a",
+        "wait_selector": ".product-card__title a",
         "category": "Discount",
         "requires_proxy": False,
     },
@@ -203,4 +203,11 @@ COOKIE_ACCEPT_SELECTORS = [
     ".mod-shops .close",
     "#shops-modal .close-button",
     ".ui-dialog-titlebar-close",
+    # Action
+    "#cc-accept",
+    ".cc-btn-accept",
+    "button[data-testid='uc-accept-all-button']",
+    "button:has-text('Accepter tout')",
+    "button:has-text('Accepter')",
+    "button:has-text('Refuser')",
 ]
