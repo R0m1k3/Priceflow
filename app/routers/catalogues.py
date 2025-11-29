@@ -9,9 +9,11 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_
+from playwright.async_api import async_playwright
 
 from app.database import get_db
-from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
+from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog, User
+from app.dependencies import get_current_user
 from app.schemas_catalogues import (
     EnseigneResponse,
     CatalogueListResponse,
@@ -167,6 +169,124 @@ async def get_catalogue_detail(
     if not catalogue:
         raise HTTPException(status_code=404, detail="Catalogue not found")
     
+    return CatalogueDetailResponse.model_validate(catalogue)
+
+
+@router.get("/{catalogue_id}/pages", response_model=list[CataloguePageResponse])
+async def get_catalogue_pages(
+    catalogue_id: int,
+    db: Session = Depends(get_db),
+):
+    """Get all pages for a specific catalogue"""
+    catalogue = db.query(Catalogue).filter(Catalogue.id == catalogue_id).first()
+    
+    if not catalogue:
+        raise HTTPException(status_code=404, detail="Catalogue not found")
+    
+    pages = (
+        db.query(CataloguePage)
+        .filter(CataloguePage.catalogue_id == catalogue_id)
+        .order_by(CataloguePage.numero_page)
+        .all()
+    )
+    
+    return [CataloguePageResponse.model_validate(page) for page in pages]
+
+
+# === Admin Endpoints ===
+
+@router.get("/admin/stats", response_model=ScrapingStatsResponse)
+async def get_scraping_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get scraping statistics"""
+    total_catalogues = db.query(func.count(Catalogue.id)).scalar()
+    
+    # Catalogues par enseigne
+    catalogues_par_enseigne = {}
+    enseignes = db.query(Enseigne).all()
+    for enseigne in enseignes:
+        count = (
+            db.query(func.count(Catalogue.id))
+            .filter(Catalogue.enseigne_id == enseigne.id)
+            .scalar()
+        )
+        catalogues_par_enseigne[enseigne.nom] = count
+    
+    # Last scraping
+    last_scraping = (
+        db.query(ScrapingLog)
+        .order_by(ScrapingLog.date_execution.desc())
+        .first()
+    )
+    
+    return ScrapingStatsResponse(
+        total_catalogues=total_catalogues,
+        catalogues_par_enseigne=catalogues_par_enseigne,
+        derniere_mise_a_jour=last_scraping.date_execution if last_scraping else None,
+        prochaine_execution="6h00 et 18h00",
+    )
+
+
+@router.get("/admin/scraping/logs", response_model=list[ScrapingLogResponse])
+async def get_scraping_logs(
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get scraping logs"""
+    logs = (
+        db.query(ScrapingLog)
+        .order_by(ScrapingLog.date_execution.desc())
+        .limit(limit)
+        .all()
+    )
+    
+    return [ScrapingLogResponse.model_validate(log) for log in logs]
+
+
+@router.post("/admin/scraping/trigger")
+async def trigger_scraping(
+    enseigne_id: int | None = Query(None, description="Optional: specific enseigne ID"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger manual scraping"""
+    if enseigne_id:
+        enseigne = db.query(Enseigne).filter(Enseigne.id == enseigne_id).first()
+        if not enseigne:
+            raise HTTPException(status_code=404, detail="Enseigne not found")
+        
+        async with async_playwright() as p:
+            import os
+            browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
+            browser = await p.chromium.connect_over_cdp(browserless_url)
+            log = await scrape_enseigne(enseigne, db, browser)
+            await browser.close()
+        
+        return {
+            "message": f"Scraping completed for {enseigne.nom}",
+            "catalogues_trouves": log.catalogues_trouves,
+            "catalogues_nouveaux": log.catalogues_nouveaux,
+        }
+    else:
+        logs = await scrape_all_enseignes(db)
+        total_nouveaux = sum(log.catalogues_nouveaux for log in logs)
+        
+        return {
+            "message": f"Scraping completed for all enseignes",
+            "catalogues_nouveaux": total_nouveaux,
+        }
+
+
+@router.post("/admin/cleanup")
+async def cleanup_catalogs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete invalid catalogs (0 pages or generic titles)"""
+    if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     deleted_count = 0
