@@ -352,9 +352,11 @@ class AIService:
                         logger.info("JSON repair successful")
                     except Exception as repair_error:
                         logger.error(f"JSON repair also failed: {repair_error}")
-                        raise
+                        # Return None instead of raising to prevent crash
+                        return None
                 else:
-                    raise
+                    logger.warning("JSON repair disabled, returning None")
+                    return None
 
             # Create metadata
             metadata = AIExtractionMetadata(
