@@ -22,10 +22,9 @@ logger = logging.getLogger(__name__)
 
 # Bonial CSS selectors (based on browser inspection - updated for new structure)
 BONIAL_SELECTORS = {
-    "catalog_card": "div:has(> a[href*='/contentViewer/'])",
-    "catalog_title": "a[href*='/contentViewer/'] h2",
-    "catalog_image": "a[href*='/contentViewer/'] img",
-    "catalog_link": "a[href*='/contentViewer/']",
+    "catalog_link": "a:has-text('Ouvrir le catalogue')",  # Playwright syntax for "has text"
+    "catalog_title": "h2",  # Will be searched within the parent container
+    "catalog_image": "img",  # Will be searched within the parent container
     "cookie_accept": "button:has-text('Accepter')",
 }
 
@@ -114,43 +113,77 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
     await page.goto(url, wait_until="networkidle")
     await accept_cookies(page)
     
+    # Wait a bit for dynamic content
+    await asyncio.sleep(3)
+    
+    # Find all "Ouvrir le catalogue" buttons/links
     try:
-        await page.wait_for_selector(BONIAL_SELECTORS["catalog_card"], timeout=10000)
+        catalog_links = await page.locator(BONIAL_SELECTORS["catalog_link"]).all()
+        logger.info(f"Found {len(catalog_links)} catalog links for {enseigne.nom}")
     except Exception as e:
-        logger.error(f"No catalog cards found for {enseigne.nom}: {e}")
+        logger.error(f"No catalog links found for {enseigne.nom}: {e}")
         return []
     
-    cards = await page.query_selector_all(BONIAL_SELECTORS["catalog_card"])
-    logger.info(f"Found {len(cards)} catalog cards for {enseigne.nom}")
+    if not catalog_links:
+        logger.warning(f"No catalogs found for {enseigne.nom}")
+        return []
     
     catalogues = []
     
-    for idx, card in enumerate(cards):
+    for idx, link in enumerate(catalog_links):
         try:
-            title_el = await card.query_selector(BONIAL_SELECTORS["catalog_title"])
-            titre = await title_el.inner_text() if title_el else "Catalogue"
-            
-            dates_text = await card.inner_text()
-            
-            image_el = await card.query_selector(BONIAL_SELECTORS["catalog_image"])
-            image_url = await image_el.get_attribute("src") if image_el else None
-            if image_url and image_url.startswith("//"):
-                image_url = "https:" + image_url
-            
-            link_el = await card.query_selector(BONIAL_SELECTORS["catalog_link"])
-            catalogue_url = await link_el.get_attribute("href") if link_el else None
-            
-            if catalogue_url and not catalogue_url.startswith("http"):
+            # Get the catalog URL
+            catalogue_url = await link.get_attribute("href")
+            if not catalogue_url:
+                logger.warning(f"Link {idx} has no href")
+                continue
+                
+            if not catalogue_url.startswith("http"):
                 catalogue_url = f"https://www.bonial.fr{catalogue_url}"
             
-            # Validate URL
-            if catalogue_url and ("adjust.com" in catalogue_url or "/Mobile" in catalogue_url):
-                logger.debug(f"Skipping app/mobile link: {catalogue_url}")
+            # Find the parent container that has the title and image
+            # Go up to find a section/div that contains both the link and the title/image
+            parent = link
+            for _ in range(5):  # Try going up max 5 levels
+                parent = await parent.evaluateHandle("el => el.parentElement")
+                parent = parent.as_element()
+                if not parent:
+                    break
+                
+                # Try to find title in this parent
+                try:
+                    title_el = await parent.query_selector("h2, h3, [class*='title']")
+                    if title_el:
+                        break
+                except:
+                    continue
+            
+            if not parent:
+                logger.warning(f"Could not find parent container for link {idx}")
                 continue
             
-            if catalogue_url and "/contentViewer/" not in catalogue_url:
-                logger.debug(f"Skipping non-catalog URL: {catalogue_url}")
-                continue
+            # Extract title from parent
+            titre = "Catalogue"
+            try:
+                title_el = await parent.query_selector("h2, h3, [class*='title']")
+                if title_el:
+                    titre = await title_el.inner_text()
+            except:
+                pass
+            
+            # Extract dates from parent text
+            dates_text = await parent.inner_text() if parent else ""
+            
+            # Extract image from parent
+            image_url = None
+            try:
+                image_el = await parent.query_selector("img")
+                if image_el:
+                    image_url = await image_el.get_attribute("src")
+                    if image_url and image_url.startswith("//"):
+                        image_url = "https:" + image_url
+            except:
+                pass
             
             # Filter generic titles
             if titre:
@@ -171,7 +204,8 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
                 date_debut, date_fin = parse_bonial_dates(dates_text)
             except ValueError:
                 if "semaine" in dates_text.lower() or "valable" in dates_text.lower():
-                    date_fin = datetime.now().replace(day=datetime.now().day + 7)
+                    from datetime import timedelta
+                    date_fin = datetime.now() + timedelta(days=7)
             
             if has_url and has_image:
                 catalogues.append({
@@ -184,9 +218,9 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
                 logger.debug(f"Extracted catalog: {titre}")
             else:
                 if not has_url:
-                    logger.warning(f"Skipping card {idx} (No URL): {titre}")
+                    logger.warning(f"Skipping {idx} (No URL): {titre}")
                 elif not has_image:
-                    logger.warning(f"Skipping card {idx} (No Image): {titre}")
+                    logger.warning(f"Skipping {idx} (No Image): {titre}")
         
         except Exception as e:
             logger.error(f"Error extracting catalog {idx} for {enseigne.nom}: {e}")
