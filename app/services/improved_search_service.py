@@ -326,23 +326,52 @@ class ImprovedSearchService:
                 if not all_words_found:
                     continue
 
-            # Extract Image URL
+            # Extract Image URL - Multiple strategies
             image_url = None
-            if "product_image_selector" in config:
+
+            # Strategy 1: Look for img directly in the link
+            img = link.find("img")
+            if img:
+                # Try multiple attributes (src, data-src, data-lazy-src, etc.)
+                image_url = (
+                    img.get("src") or
+                    img.get("data-src") or
+                    img.get("data-lazy-src") or
+                    img.get("data-original") or
+                    img.get("srcset", "").split(",")[0].split()[0] if img.get("srcset") else None
+                )
+
+            # Strategy 2: Look in parent container if configured
+            if not image_url and "product_image_selector" in config:
                 container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
                 if container:
                     img_el = container.select_one(config["product_image_selector"])
                     if img_el:
-                        image_url = img_el.get("src") or img_el.get("data-src")
+                        image_url = (
+                            img_el.get("src") or
+                            img_el.get("data-src") or
+                            img_el.get("data-lazy-src")
+                        )
 
-            # Fallback image extraction
+            # Strategy 3: Look for picture > source elements
             if not image_url:
-                img = link.find("img")
-                if img:
-                    image_url = img.get("src") or img.get("data-src")
+                picture = link.find("picture")
+                if picture:
+                    source = picture.find("source")
+                    if source:
+                        image_url = source.get("srcset", "").split(",")[0].split()[0] if source.get("srcset") else None
+                    if not image_url:
+                        img_in_picture = picture.find("img")
+                        if img_in_picture:
+                            image_url = img_in_picture.get("src") or img_in_picture.get("data-src")
 
-            if image_url and not image_url.startswith("http"):
-                image_url = urljoin(base_url, image_url)
+            # Clean up image URL
+            if image_url:
+                # Remove data URIs and 1x1 pixels
+                if image_url.startswith("data:") or "1x1" in image_url or "placeholder" in image_url.lower():
+                    image_url = None
+                elif not image_url.startswith("http"):
+                    image_url = urljoin(base_url, image_url)
 
             # Create result
             results.append(SearchResult(
@@ -387,15 +416,8 @@ class ImprovedSearchService:
                 in_stock = await cls._extract_stock_status(page)
                 result.in_stock = in_stock
 
-                # Take screenshot for image
-                screenshot_path = f"/home/user/Priceflow/screenshots/{result.title[:30].replace('/', '_')}_{id(result)}.png"
-                try:
-                    await page.screenshot(path=screenshot_path, full_page=False)
-                    import os
-                    filename = os.path.basename(screenshot_path)
-                    result.image_url = f"/screenshots/{filename}"
-                except Exception as e:
-                    logger.debug(f"Screenshot failed: {e}")
+                # Keep original image URL from search page - don't replace with screenshot
+                # (Screenshots would need to be served by FastAPI, and original images are already good)
 
                 logger.debug(f"  ✓ {result.title[:40]}... - {price}€ - Stock: {in_stock}")
                 return result
