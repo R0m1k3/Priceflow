@@ -229,14 +229,23 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
             if not pages:
                 continue
                 
+import hashlib
+
+# ... imports ...
+
             # Create catalog entry
+            # Generate content hash (URL + Title + Date)
+            hash_input = f"{cat_info['url']}{cat_info['title']}{datetime.now().date()}".encode('utf-8')
+            content_hash = hashlib.sha256(hash_input).hexdigest()
+            
             new_cat = Catalogue(
                 enseigne_id=enseigne.id,
                 titre=cat_info['title'],
                 catalogue_url=cat_info['url'],
                 date_debut=datetime.now(), # Todo: extract real dates
                 date_fin=datetime.now() + timedelta(days=14),
-                image_couverture_url=pages[0]['image_url']
+                image_couverture_url=pages[0]['image_url'],
+                content_hash=content_hash
             )
             db.add(new_cat)
             db.commit()
