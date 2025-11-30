@@ -13,31 +13,61 @@ class CarrefourParser(BaseParser):
         results = []
         
         # Carrefour products
-        # Config: a[href*='/p/']
+        # New container: div containing both image and title link
+        cards = soup.select("div.product-list-card-plp-grid-new, article") 
+        if not cards:
+            cards = soup.select("div[class*='product-list-card']") # Fallback
         
-        products = soup.select("article, div[class*='product-card']")
-        
-        for product in products:
+        # If still no cards, try finding by link
+        if not cards:
+            links = soup.select("a.c-link.product-card-click-wrapper")
+            cards = []
+            for link in links:
+                parent = link.find_parent("div", class_=lambda x: x and "product-list-card" in x)
+                if parent:
+                    cards.append(parent)
+                else:
+                    cards.append(link.parent.parent)
+
+        for card in cards:
             try:
-                link_el = product.select_one("a[href*='/p/'], a[href*='/produit']")
+                link_el = card.select_one("a.c-link.product-card-click-wrapper, a[href*='/p/'], a[href*='/produit']")
                 if not link_el:
                     continue
                     
                 href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title_el = product.select_one("[class*='title'], h2, h3")
+                title_el = card.select_one("h3, h2, [class*='title']")
                 title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
                 
                 if not title:
                     continue
 
-                img_url = self.extract_image_url(product)
+                img_url = None
+                img_el = card.select_one("img")
+                if img_el:
+                    img_url = self._get_image_src(img_el)
+                    if img_url:
+                        img_url = self.make_absolute_url(img_url)
                 
                 price = None
-                price_el = product.select_one("[class*='price']")
+                # Price is often text node near h3 or in a specific price element
+                price_el = card.select_one("[class*='price'], .product-card-price")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
+                
+                if not price and title_el:
+                    # Fallback: check siblings of title for text price
+                    price_text = ""
+                    for sibling in title_el.find_next_siblings():
+                        if sibling.name is None: # Text node
+                            price_text += sibling.strip() + " "
+                        elif sibling.name in ['div', 'span']:
+                            price_text += sibling.get_text(strip=True) + " "
+                        if "€" in price_text:
+                            break
+                    price = self.parse_price_text(price_text)
                 
                 results.append(ProductResult(
                     title=title,

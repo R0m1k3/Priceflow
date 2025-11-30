@@ -14,14 +14,19 @@ class CdiscountParser(BaseParser):
         
         # Cdiscount products
         # Config: a.prdtBILnk, a[href*='/f-'][href*='.html']
-        # We look for the card container
+        # We look for the card container or the link itself if it acts as a card
         
-        cards = soup.select("li.prdtBIL, div.prdtBIL, ul#lpBloc > li, div.js-prdt-bil")
+        # Try finding cards/links with new classes
+        cards = soup.select("a[class*='sc-'], li.prdtBIL, div.prdtBIL, ul#lpBloc > li, div.js-prdt-bil")
         
         for card in cards:
             try:
                 # Link
-                link_el = card.select_one("a.prdtBILnk, a")
+                if card.name == 'a':
+                    link_el = card
+                else:
+                    link_el = card.select_one("a.prdtBILnk, a")
+                
                 if not link_el:
                     continue
                     
@@ -33,7 +38,7 @@ class CdiscountParser(BaseParser):
                 
                 # Title
                 title = None
-                title_el = card.select_one(".prdtBTitle, .prdtBTit")
+                title_el = card.select_one("h2, .prdtBTitle, .prdtBTit")
                 if title_el:
                     title = title_el.get_text(strip=True)
                 else:
@@ -47,7 +52,7 @@ class CdiscountParser(BaseParser):
                 
                 # Price
                 price = None
-                price_el = card.select_one(".price, .prdtPrice, .prdtPInfo .price")
+                price_el = card.select_one(".price, .prdtPrice, .prdtPInfo .price, span[class*='price']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 

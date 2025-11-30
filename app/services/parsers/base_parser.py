@@ -81,6 +81,8 @@ class BaseParser(ABC):
         """Convert relative URL to absolute URL"""
         if not url:
             return ""
+        if url.startswith("//"):
+            return "https:" + url
         if url.startswith("http"):
             return url
         return urljoin(base_url or self.base_url, url)

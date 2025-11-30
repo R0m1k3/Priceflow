@@ -15,29 +15,56 @@ class LIncroyableParser(BaseParser):
         # L'Incroyable products
         # Config: a.product-link
         
-        products = soup.select(".product-card, .product-miniature")
+        # Try finding cards first
+        cards = soup.select("div.product-card, div.product-miniature, article")
         
-        for product in products:
+        # If no cards found, try finding by link and getting parent
+        if not cards:
+            links = soup.select("a[href*='/p/'], a[href*='/produit/']")
+            cards = []
+            for link in links:
+                # Try to find a container div
+                parent = link.find_parent("div", class_=lambda x: x and ("product" in x or "card" in x))
+                if parent:
+                    cards.append(parent)
+                else:
+                    cards.append(link.parent) # Fallback to immediate parent
+
+        for card in cards:
             try:
-                link_el = product.select_one("a.product-link, a[href*='/p/']")
+                link_el = card.select_one("a[href*='/p/'], a[href*='/produit/'], a.product-link")
                 if not link_el:
-                    continue
+                    # If card is the link itself
+                    if card.name == 'a' and card.get('href'):
+                        link_el = card
+                    else:
+                        continue
                     
                 href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title_el = product.select_one(".product-title, h3")
-                title = title_el.get_text(strip=True) if title_el else None
+                title_el = card.select_one(".product-title, h3, h2, [class*='title']")
+                title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
                 
                 if not title:
                     continue
 
-                img_url = self.extract_image_url(product)
+                img_url = None
+                img_el = card.select_one("img")
+                if img_el:
+                    img_url = self._get_image_src(img_el)
+                    if img_url:
+                        img_url = self.make_absolute_url(img_url)
                 
                 price = None
-                price_el = product.select_one(".price, .product-price")
+                price_el = card.select_one(".price, .product-price, [class*='price']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
+                
+                # Fallback price search in text
+                if not price:
+                    text = card.get_text(" ", strip=True)
+                    price = self.parse_price_text(text)
                 
                 results.append(ProductResult(
                     title=title,
