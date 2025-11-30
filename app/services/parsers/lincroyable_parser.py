@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from app.services.parsers.base_parser import BaseParser, ProductResult
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,38 @@ class LIncroyableParser(BaseParser):
                 if not title:
                     continue
 
-                # Image
+                # Image - Robust extraction
                 img_url = None
-                img_el = card.select_one("img.imgCoup2coeur, img")
-                if img_el:
-                    img_url = self._get_image_src(img_el)
-                    if img_url:
-                        img_url = self.make_absolute_url(img_url)
+                
+                # Exclude heart/wishlist icons explicitly
+                # Select all images and filter
+                images = card.select("img")
+                valid_images = []
+                for img in images:
+                    src = img.get('src', '') or img.get('data-src', '')
+                    classes = img.get('class', [])
+                    
+                    # Skip heart/wishlist icons
+                    if 'coup2coeur' in str(classes).lower() or 'wishlist' in str(classes).lower():
+                        continue
+                    if 'coeur' in src.lower() or 'heart' in src.lower():
+                        continue
+                        
+                    valid_images.append(img)
+                
+                # Prioritize product images
+                for img in valid_images:
+                    src = img.get('src', '') or img.get('data-src', '')
+                    if 'product' in src.lower() or 'p/' in src.lower():
+                        img_url = self._get_image_src(img)
+                        break
+                
+                # Fallback to first valid image if no specific product image found
+                if not img_url and valid_images:
+                    img_url = self._get_image_src(valid_images[0])
+
+                if img_url:
+                    img_url = self.make_absolute_url(img_url)
                 
                 # Price
                 price = None
@@ -52,7 +78,10 @@ class LIncroyableParser(BaseParser):
                 # Fallback price search in text
                 if not price:
                     text = card.get_text(" ", strip=True)
-                    price = self.parse_price_text(text)
+                    # Look for price pattern: number followed by €
+                    price_match = re.search(r'(\d+(?:[.,]\d+)?)\s*€', text)
+                    if price_match:
+                        price = self.parse_price_text(price_match.group(0))
                 
                 results.append(ProductResult(
                     title=title,

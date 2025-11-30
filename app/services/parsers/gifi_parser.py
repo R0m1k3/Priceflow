@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from app.services.parsers.base_parser import BaseParser, ProductResult
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +40,44 @@ class GifiParser(BaseParser):
                 if not title:
                     continue
 
-                img_url = self.extract_image_url(product)
+                # Image extraction
+                # Priority: picture img -> img with class -> any img
+                img_url = None
+                
+                # 1. Try picture source (often high res)
+                picture = product.select_one("picture")
+                if picture:
+                    source = picture.find("source")
+                    if source and source.get("srcset"):
+                        img_url = source.get("srcset").split(",")[0].split()[0]
+                    
+                    if not img_url:
+                        img = picture.find("img")
+                        if img:
+                            img_url = self._get_image_src(img)
+                
+                # 2. Try direct image selectors
+                if not img_url:
+                    img_url = self.extract_image_url(product, [
+                        "img.tile-image", 
+                        "img[class*='product']", 
+                        ".image-container img"
+                    ])
                 
                 price = None
-                price_el = product.select_one(".price, .value, [class*='price']")
+                # 1. Try specific price selectors
+                price_el = product.select_one(".price, .value, [class*='price'], .sales .value")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
+                
+                # 2. Fallback: Regex on the entire product text
+                if price is None:
+                    product_text = product.get_text(separator=" ", strip=True)
+                    # Look for price pattern: number followed by € or EUR
+                    # e.g. "7,99 €", "12 €", "12.50€"
+                    price_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(?:€|EUR)', product_text, re.IGNORECASE)
+                    if price_match:
+                        price = self.parse_price_text(price_match.group(0))
                 
                 results.append(ProductResult(
                     title=title,
