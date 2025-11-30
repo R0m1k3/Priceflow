@@ -200,89 +200,113 @@ class ImprovedSearchService:
         search_url = config["search_url"].format(query=quote_plus(query))
         logger.info(f"🔍 Searching {config['name']} at {search_url}")
 
-        # Ensure browser is connected
-        if not await cls._ensure_browser_connected():
-            logger.error("Failed to establish browser connection")
-            return []
-
-        results = []
-
-        try:
-            context = await cls._create_context(cls._browser)
-            page = await context.new_page()
-
+        # Retry logic
+        max_retries = 1
+        for attempt in range(max_retries + 1):
             try:
-                # Navigate to search page
-                logger.debug(f"Navigating to {search_url}")
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
-                logger.debug("Page loaded (domcontentloaded)")
-
-                # Wait for network idle
-                try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                    logger.debug("Network idle reached")
-                except PlaywrightTimeoutError:
-                    logger.debug("Network idle timed out (non-critical)")
-
-                # Handle popups
-                await cls._handle_popups(page)
-
-                # Wait for content to load
-                wait_selector = config.get("wait_selector")
-                if wait_selector:
-                    try:
-                        await page.wait_for_selector(wait_selector, timeout=5000)
-                        logger.debug(f"Wait selector found: {wait_selector}")
-                    except PlaywrightTimeoutError:
-                        logger.warning(f"Wait selector not found: {wait_selector}")
-
-                # Small delay for JS rendering
-                await page.wait_for_timeout(2000)
-
-                # Get HTML content
-                html_content = await page.content()
-                logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
-
-                if len(html_content) < 5000:
-                    logger.warning(f"⚠️ Page too small - possibly blocked")
+                # Ensure browser is connected (check before each attempt)
+                if not await cls._ensure_browser_connected():
+                    logger.error("Failed to establish browser connection")
+                    if attempt < max_retries:
+                        continue
                     return []
 
-                # Parse results using specialized parser
-                parser = ParserFactory.get_parser(site_key)
-                parsed_products = parser.parse_search_results(html_content, query, search_url)
+                context = await cls._create_context(cls._browser)
+                try:
+                    page = await context.new_page()
 
-                # Convert ProductResult to SearchResult
-                results = [cls._convert_to_search_result(p) for p in parsed_products]
+                    try:
+                        # Navigate to search page
+                        logger.debug(f"Navigating to {search_url}")
+                        await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                        logger.debug("Page loaded (domcontentloaded)")
 
-                # Scrape details for each result (in parallel)
-                if results:
-                    logger.info(f"📦 Found {len(results)} initial results, enriching with details...")
-                    
-                    # Enrich all results
-                    results_to_enrich = results
-                    logger.info(f"⚡ Enriching all {len(results_to_enrich)} products")
-                    
-                    semaphore = asyncio.Semaphore(4)  # Increased concurrency slightly
+                        # Wait for network idle
+                        try:
+                            await page.wait_for_load_state("networkidle", timeout=10000)
+                            logger.debug("Network idle reached")
+                        except PlaywrightTimeoutError:
+                            logger.debug("Network idle timed out (non-critical)")
 
-                    async def scrape_with_limit(res):
-                        async with semaphore:
-                            return await cls._scrape_item_details(res, context)
+                        # Handle popups
+                        await cls._handle_popups(page)
 
-                    tasks = [scrape_with_limit(r) for r in results_to_enrich]
-                    enriched_results = await asyncio.gather(*tasks)
-                    
-                    # Filter out failed enrichments if any (though scrape_item_details returns original on failure)
-                    results = [r for r in enriched_results if r]
+                        # Wait for content to load
+                        wait_selector = config.get("wait_selector")
+                        if wait_selector:
+                            try:
+                                await page.wait_for_selector(wait_selector, timeout=5000)
+                                logger.debug(f"Wait selector found: {wait_selector}")
+                            except PlaywrightTimeoutError:
+                                logger.warning(f"Wait selector not found: {wait_selector}")
 
-            finally:
-                await context.close()
+                        # Small delay for JS rendering
+                        await page.wait_for_timeout(2000)
 
-        except Exception as e:
-            logger.error(f"❌ Error during search: {e}", exc_info=True)
-            return []
+                        # Get HTML content
+                        html_content = await page.content()
+                        logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
 
-        logger.info(f"✅ Successfully found {len(results)} products from {config['name']}")
-        return results
+                        if len(html_content) < 5000:
+                            logger.warning(f"⚠️ Page too small - possibly blocked")
+                            return []
+
+                        # Parse results using specialized parser
+                        parser = ParserFactory.get_parser(site_key)
+                        parsed_products = parser.parse_search_results(html_content, query, search_url)
+
+                        # Convert ProductResult to SearchResult
+                        results = [cls._convert_to_search_result(p) for p in parsed_products]
+
+                        # Scrape details for each result (in parallel)
+                        if results:
+                            logger.info(f"📦 Found {len(results)} initial results, enriching with details...")
+                            
+                            # Enrich all results
+                            results_to_enrich = results
+                            logger.info(f"⚡ Enriching all {len(results_to_enrich)} products")
+                            
+                            semaphore = asyncio.Semaphore(4)  # Increased concurrency slightly
+
+                            async def scrape_with_limit(res):
+                                async with semaphore:
+                                    return await cls._scrape_item_details(res, context)
+
+                            tasks = [scrape_with_limit(r) for r in results_to_enrich]
+                            enriched_results = await asyncio.gather(*tasks)
+                            
+                            # Filter out failed enrichments if any (though scrape_item_details returns original on failure)
+                            results = [r for r in enriched_results if r]
+                        
+                        # If we got here, success!
+                        logger.info(f"✅ Successfully found {len(results)} products from {config['name']}")
+                        return results
+
+                    finally:
+                        await page.close()
+
+                finally:
+                    try:
+                        await context.close()
+                    except Exception as e:
+                        logger.debug(f"Error closing context (ignored): {e}")
+
+            except (PlaywrightTimeoutError, Exception) as e:
+                # Check if it's a connection error or target closed
+                error_msg = str(e).lower()
+                is_connection_error = "target closed" in error_msg or "connection" in error_msg or "browser has been closed" in error_msg
+                
+                if is_connection_error and attempt < max_retries:
+                    logger.warning(f"⚠️ Connection error during search for {site_key}: {e}. Retrying ({attempt+1}/{max_retries})...")
+                    # Force reconnect
+                    cls._browser = None
+                    await asyncio.sleep(1)
+                    continue
+                
+                logger.error(f"❌ Error during search: {e}", exc_info=True)
+                return []
+        
+        return []
 
     @staticmethod
     def _convert_to_search_result(product: ProductResult) -> SearchResult:
