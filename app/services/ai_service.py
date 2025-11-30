@@ -343,8 +343,22 @@ class AIService:
                 if len(cleaned_text) > MAX_TEXT_LENGTH:
                     cleaned_text = cleaned_text[:MAX_TEXT_LENGTH] + "...(truncated)"
                 logger.info(f"Added text context (original: {len(page_text)}, cleaned: {len(cleaned_text)})")
+                # Log first 500 chars of cleaned text to see what AI receives
+                logger.info(f"Cleaned text preview: {cleaned_text[:500]!r}")
+
+                # Extract all potential prices from text for debugging
+                import re
+                price_patterns = re.findall(r'\d+[,\.]\d{2}\s*€', cleaned_text)
+                if price_patterns:
+                    logger.info(f"Prices found in text: {price_patterns[:10]}")  # First 10 prices
+                else:
+                    logger.warning("No prices found in text with € symbol")
+            else:
+                logger.warning("No page_text provided - AI will only use screenshot")
 
             prompt = get_extraction_prompt(cleaned_text if cleaned_text else None)
+            # Log prompt preview
+            logger.info(f"Prompt preview (first 300 chars): {prompt[:300]!r}")
 
             # Call LLM
             response_text = await cls.call_llm(prompt, data_url, config)

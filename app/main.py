@@ -13,14 +13,16 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues
+from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues, amazon
 from app.services.scheduler_service import scheduled_refresh, scheduler
 from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
+from app.services.amazon_scraper_service import amazon_scraper_service
+from app.services.improved_search_service import improved_search_service
 
 # Configure logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    level=os.getenv("LOG_LEVEL", "DEBUG").upper(),  # Temporarily DEBUG for Amazon debugging
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -139,12 +141,22 @@ async def lifespan(app: FastAPI):
     # Start catalog scraping scheduler
     logger.info("Starting catalog scraping scheduler (6h and 18h daily)")
     start_catalog_scheduler()
-    
+
+    # Initialize Amazon scraper service
+    logger.info("Initializing Amazon scraper service...")
+    await amazon_scraper_service.initialize()
+
+    # Initialize Improved Search Service (persistent browser for Search/Comparatif)
+    logger.info("Initializing Improved Search Service...")
+    await improved_search_service.initialize()
+
     logger.info("Application started")
     yield
-    logger.info("Shutting down schedulers...")
+    logger.info("Shutting down schedulers and services...")
     scheduler.shutdown(wait=True)
     stop_catalog_scheduler()
+    await amazon_scraper_service.shutdown()
+    await improved_search_service.shutdown()
     logger.info("Application shutdown complete")
 
 
@@ -189,6 +201,9 @@ app.include_router(catalogues.router)
 
 # Auth router (already has /api prefix)
 app.include_router(auth.router)
+
+# Amazon router (already has /api prefix)
+app.include_router(amazon.router)
 
 
 @app.get("/api/")

@@ -69,6 +69,7 @@ def filter_relevant_text(text: str, max_length: int = 2000) -> str:
 
     # Keywords to search for (case-insensitive)
     price_keywords = [
+        # English patterns
         r"\$\d+\.?\d*",  # $XX.XX pattern
         r"\d+\.\d{2}\s*(usd|eur|gbp|cad)",  # XX.XX USD pattern
         "price:",
@@ -78,9 +79,23 @@ def filter_relevant_text(text: str, max_length: int = 2000) -> str:
         "save:",
         "discount:",
         r"\$",  # Any dollar sign
+        # French patterns
+        r"€",  # Euro symbol
+        r"\d+,\d{2}\s*€",  # French format: 12,99 €
+        r"\d+\.\d{3},\d{2}",  # French thousands: 1.234,56
+        r"\d+\s\d{3},\d{2}",  # French thousands with space: 1 234,56
+        "prix",  # French: price
+        "prix:",
+        "coût",
+        "coût:",
+        "promotion",
+        "réduction",
+        "économie",
+        "remise",
     ]
 
     stock_keywords = [
+        # English keywords
         "add to cart",
         "buy now",
         "purchase",
@@ -96,6 +111,20 @@ def filter_relevant_text(text: str, max_length: int = 2000) -> str:
         "ships",
         "delivery",
         "get it by",
+        # French keywords
+        "ajouter au panier",
+        "acheter",
+        "commander",
+        "en stock",
+        "rupture",
+        "rupture de stock",
+        "disponible",
+        "indisponible",
+        "épuisé",
+        "être averti",
+        "précommande",
+        "livraison",
+        "expédié",
     ]
 
     all_keywords = price_keywords + stock_keywords

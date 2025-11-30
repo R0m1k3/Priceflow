@@ -133,13 +133,31 @@ class AIExtractionMetadata(BaseModel):
 EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this French e-commerce page.
 
 **PRICE (IMPORTANT - French format):**
-- French prices use COMMA for decimals: "12,99 €" means 12.99
-- Thousands separator is SPACE or DOT: "1 234,56 €" or "1.234,56 €" means 1234.56
+- **FIRST**: Look for "PRIX DÉTECTÉ:" at the start of text - this is the extracted price
+- **The price has already been converted to English format for you**
+- French original: "3,99 €" → Already shown to you as: "3.99 €"
+- Just extract the number you see (e.g., "3.99" from "PRIX DÉTECTÉ: 3.99 €")
 - Currency symbol is usually € at the end
-- Look for: price tags, "Prix:", "€", numbers near "Ajouter au panier"
-- Extract as DECIMAL NUMBER (convert comma to dot): 12,99 -> 12.99
+- Look for: "PRIX DÉTECTÉ:", price tags, "Prix:", "€", numbers near "Ajouter au panier"
+- Extract as DECIMAL NUMBER: If you see "3.99", return 3.99
 - Ignore crossed-out/barré prices (old prices)
 - If multiple prices, take the current/main price (not the original)
+
+**CRITICAL - Common mistakes to avoid:**
+- "3.99 €" means 3.99 (NOT 399.00, NOT 3990.00)
+- "1.99 €" means 1.99 (NOT 199.00, NOT 1990.00)
+- "0.99 €" means 0.99 (NOT 99.00, NOT 990.00)
+- The decimal point separates euros from cents
+- Small prices (< 10€) are very common for everyday items
+
+- Examples of valid prices:
+  * "PRIX DÉTECTÉ: 1.99 €" -> 1.99 (NOT 199 or 1990)
+  * "PRIX DÉTECTÉ: 3.99 €" -> 3.99 (NOT 399 or 3990)
+  * "0.99 €" -> 0.99 (NOT 99)
+  * "89.99 €" -> 89.99 (NOT 8999)
+  * "1234.56 €" -> 1234.56
+- If you find ANY price with € symbol, extract it with confidence >= 0.8
+- If digits are unclear or blurry, reduce confidence to 0.5-0.7
 - If unclear: set null and confidence < 0.5
 
 **STOCK:**

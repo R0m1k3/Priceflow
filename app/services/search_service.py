@@ -96,18 +96,20 @@ class NewSearchService:
             use_proxy = config.get("requires_proxy", False) if config else False
 
             # Use browserless to get content and screenshot
-            html, screenshot_path = await browserless_service.get_page_content(
+            # extract_text=True to get visible text for AI analysis
+            page_text, screenshot_path = await browserless_service.get_page_content(
                 result.url,
                 use_proxy=use_proxy,
-                wait_selector=None 
+                wait_selector=None,
+                extract_text=True  # Get visible text for AI price extraction
             )
-            
+
             if not screenshot_path:
                 return result
 
             # Use AI to analyze
             from app.services.ai_service import AIService
-            ai_result = await AIService.analyze_image(screenshot_path, page_text=html)
+            ai_result = await AIService.analyze_image(screenshot_path, page_text=page_text)
             
             if ai_result:
                 extraction, _ = ai_result
@@ -300,7 +302,8 @@ class NewSearchService:
         
         # Phase 2: Scrape details for each result (Parallel)
         # We want to yield results as they complete, not wait for all
-        semaphore = asyncio.Semaphore(3) # Limit concurrency per site
+        # Reduced from 3 to 2 to avoid saturating Browserless
+        semaphore = asyncio.Semaphore(2) # Limit concurrency per site
 
         async def scrape_wrapper(res):
             async with semaphore:
@@ -453,32 +456,37 @@ async def search_products(
     
     # 3. Execute searches and stream results
     # We create a task for each site generator
-    
+
     generators = [NewSearchService.search_site_generator(key, query) for key in site_keys]
-    
+
     # We need to iterate over multiple async generators concurrently
     # This is a bit complex, so we'll use a queue or similar
     # Simpler approach: Use aiostream if available, or just interleave manually
     # For now, let's just run them and yield as we get them.
     # Since we want to show results ASAP, we can use asyncio.as_completed on the *next* item of each generator?
     # No, generators are stateful.
-    
+
     # Simplest robust approach without extra libs:
     # Create a wrapper task for each generator that puts items into a shared Queue
-    
+
     queue = asyncio.Queue()
     active_producers = len(generators)
-    
-    async def producer(gen):
-        try:
-            async for item in gen:
-                await queue.put(item)
-        except Exception as e:
-            logger.error(f"Error in search producer: {e}")
-        finally:
-            await queue.put(None) # Sentinel
 
-    # Start producers
+    # IMPORTANT: Limit concurrent sites to avoid saturating Browserless
+    # Max 2 sites can search in parallel, others wait
+    site_semaphore = asyncio.Semaphore(2)
+
+    async def producer(gen):
+        async with site_semaphore:  # Wait for slot before starting search
+            try:
+                async for item in gen:
+                    await queue.put(item)
+            except Exception as e:
+                logger.error(f"Error in search producer: {e}")
+            finally:
+                await queue.put(None) # Sentinel
+
+    # Start producers (limited by semaphore)
     for gen in generators:
         asyncio.create_task(producer(gen))
         
