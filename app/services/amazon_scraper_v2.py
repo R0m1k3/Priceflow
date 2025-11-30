@@ -127,9 +127,27 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
     products = []
 
     try:
-        # Use browserless service to get page content
-        # Try WITHOUT proxy first - some proxies may be banned by Amazon
-        logger.info("🚀 Fetching page with Browserless (NO PROXY for testing)...")
+        # STRATEGY: Load Amazon homepage FIRST to establish session/cookies
+        # Then do the search - appears more human-like
+        logger.info("🏠 Loading Amazon homepage first to establish session...")
+        home_html, _ = await browserless_service.get_page_content(
+            url="https://www.amazon.fr",
+            use_proxy=False,
+            wait_selector=None,
+            extract_text=False
+        )
+
+        if not home_html or len(home_html) < 10000:
+            logger.warning(f"⚠️ Homepage load failed ({len(home_html) if home_html else 0} bytes)")
+        else:
+            logger.info(f"✅ Homepage loaded ({len(home_html)} bytes) - cookies established")
+
+        # Small delay to appear more human
+        import asyncio
+        await asyncio.sleep(2)
+
+        # NOW do the search
+        logger.info("🚀 Fetching search page with Browserless (NO PROXY)...")
         html_content, _ = await browserless_service.get_page_content(
             url=search_url,
             use_proxy=False,  # Try without proxy first
