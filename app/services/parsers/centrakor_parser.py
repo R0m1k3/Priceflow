@@ -4,66 +4,55 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class BoulangerParser(BaseParser):
+class CentrakorParser(BaseParser):
     def __init__(self):
-        super().__init__("boulanger.com", "https://www.boulanger.com")
+        super().__init__("centrakor.com", "https://www.centrakor.com")
 
     def parse_search_results(self, html: str, query: str, search_url: str) -> list[ProductResult]:
         soup = BeautifulSoup(html, "html.parser")
         results = []
         
-        # Boulanger products
-        # Config: a[href*='/ref/'][href*='_']
+        # Centrakor products
+        # Config: a.link.link--block, a.product-item__link
         
-        cards = soup.select(".product-item, .product-list__item, article")
+        products = soup.select(".product-item, .product-card")
         
-        for card in cards:
+        for product in products:
             try:
-                # Link
-                link_el = card.select_one("a[href*='/ref/'], a[class*='link']")
+                link_el = product.select_one("a.product-item__link, a.link")
                 if not link_el:
                     continue
                     
                 href = link_el.get('href')
-                if not href:
-                    continue
-                    
                 url = self.make_absolute_url(href)
                 
-                # Title
-                title = None
-                title_el = card.select_one("h2, h3, .product-label, [class*='title']")
-                if title_el:
-                    title = title_el.get_text(strip=True)
-                else:
-                    title = link_el.get_text(strip=True)
+                title_el = product.select_one(".product-item__name, .product-card__title")
+                title = title_el.get_text(strip=True) if title_el else None
                 
                 if not title:
                     continue
 
-                # Image
-                img_url = self.extract_image_url(card)
+                img_url = self.extract_image_url(product)
                 
-                # Price
                 price = None
-                price_el = card.select_one(".price, .product-price, [class*='price']")
+                price_el = product.select_one(".price, .product-price")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 
                 results.append(ProductResult(
                     title=title,
                     url=url,
-                    source="Boulanger",
+                    source="Centrakor",
                     price=price,
                     currency="EUR",
                     in_stock=True,
                     image_url=img_url,
-                    snippet=f"Product from Boulanger"
+                    snippet=f"Product from Centrakor"
                 ))
                 
             except Exception as e:
-                logger.error(f"Error parsing Boulanger product: {e}")
+                logger.error(f"Error parsing Centrakor product: {e}")
                 continue
                 
-        logger.info(f"BoulangerParser found {len(results)} results")
+        logger.info(f"CentrakorParser found {len(results)} results")
         return results

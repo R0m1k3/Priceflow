@@ -10,6 +10,16 @@ from .cdiscount_parser import CdiscountParser
 from .fnac_parser import FnacParser
 from .darty_parser import DartyParser
 from .boulanger_parser import BoulangerParser
+from .stokomani_parser import StokomaniParser
+from .auchan_parser import AuchanParser
+from .eleclerc_parser import ELeclercParser
+from .gifi_parser import GifiParser
+from .action_parser import ActionParser
+from .lafoirfouille_parser import LaFoirFouilleParser
+from .bmstores_parser import BMStoresParser
+from .centrakor_parser import CentrakorParser
+from .lincroyable_parser import LIncroyableParser
+from .carrefour_parser import CarrefourParser
 from .generic_parser import GenericParser
 
 logger = logging.getLogger(__name__)
@@ -30,6 +40,16 @@ class ParserFactory:
         "fnac.com": FnacParser,
         "darty.com": DartyParser,
         "boulanger.com": BoulangerParser,
+        "stokomani.fr": StokomaniParser,
+        "auchan.fr": AuchanParser,
+        "e-leclerc.com": ELeclercParser,
+        "gifi.fr": GifiParser,
+        "action.com": ActionParser,
+        "lafoirfouille.fr": LaFoirFouilleParser,
+        "bmstores.fr": BMStoresParser,
+        "centrakor.com": CentrakorParser,
+        "lincroyable.fr": LIncroyableParser,
+        "carrefour.fr": CarrefourParser,
     }
 
     # Cache for parser instances (singleton pattern)

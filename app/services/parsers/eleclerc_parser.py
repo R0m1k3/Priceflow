@@ -4,27 +4,28 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class DartyParser(BaseParser):
+class ELeclercParser(BaseParser):
     def __init__(self):
-        super().__init__("darty.com", "https://www.darty.com")
+        super().__init__("e-leclerc.com", "https://www.e.leclerc")
 
     def parse_search_results(self, html: str, query: str, search_url: str) -> list[ProductResult]:
         soup = BeautifulSoup(html, "html.parser")
         results = []
         
-        # Darty products
-        # Config: a[href*='/nav/achat/'][href*='.html']
+        # E.Leclerc products
+        # Based on config: a.product-card-link
+        # We look for the card container
+        cards = soup.select("div[class*='product-card'], div[class*='product-item']")
         
-        cards = soup.select(".product-card, .product_item, div[class*='product-card']")
-        
+        # If no cards found with div, try looking for the links directly and finding parents
+        if not cards:
+            links = soup.select("a.product-card-link")
+            cards = [link.parent for link in links]
+
         for card in cards:
             try:
                 # Link
-                link_el = card.select_one("a[href*='/nav/achat/'], a.product-link")
-                if not link_el:
-                    # Try finding any link if specific selector fails
-                    link_el = card.find("a")
-                    
+                link_el = card.select_one("a.product-card-link") or card if card.name == 'a' else card.find('a')
                 if not link_el:
                     continue
                     
@@ -36,7 +37,8 @@ class DartyParser(BaseParser):
                 
                 # Title
                 title = None
-                title_el = card.select_one(".product_name, .product-title, h2, h3")
+                # Try specific title classes
+                title_el = card.select_one("[class*='product-title'], [class*='product-label']")
                 if title_el:
                     title = title_el.get_text(strip=True)
                 else:
@@ -50,24 +52,24 @@ class DartyParser(BaseParser):
                 
                 # Price
                 price = None
-                price_el = card.select_one(".product_price, .price, [class*='price']")
+                price_el = card.select_one("[class*='price'], [class*='amount']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 
                 results.append(ProductResult(
                     title=title,
                     url=url,
-                    source="Darty",
+                    source="E.Leclerc",
                     price=price,
                     currency="EUR",
                     in_stock=True,
                     image_url=img_url,
-                    snippet=f"Product from Darty"
+                    snippet=f"Product from E.Leclerc"
                 ))
                 
             except Exception as e:
-                logger.error(f"Error parsing Darty product: {e}")
+                logger.error(f"Error parsing E.Leclerc product: {e}")
                 continue
                 
-        logger.info(f"DartyParser found {len(results)} results")
+        logger.info(f"ELeclercParser found {len(results)} results")
         return results
