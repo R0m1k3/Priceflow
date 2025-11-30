@@ -59,6 +59,8 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     links = soup.find_all('a', href=True)
     seen_urls = set()
     
+    logger.info(f"Found {len(links)} links on page {url}")
+    
     for link in links:
         href = link['href']
         text = link.get_text(strip=True)
@@ -66,6 +68,10 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
         # Normalize href
         if href.startswith(BASE_URL):
             href = href.replace(BASE_URL, "")
+            
+        # Debug log for potential candidates
+        if slug in href:
+            logger.debug(f"Checking link: {href}")
             
         # Filter: 
         # 1. Must contain the slug (or be a catalog link for this enseigne)
@@ -75,6 +81,7 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
         
         if f"/{slug}/" in href:
             if any(x in href for x in ["/offres/", "/magasins/", "/rechercher/", "page="]):
+                logger.debug(f"  -> Rejected (invalid pattern): {href}")
                 continue
                 
             full_url = f"{BASE_URL}{href}"
@@ -91,7 +98,10 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
                 })
                 seen_urls.add(full_url)
                 logger.info(f"Found catalog: {full_url}")
+            else:
+                logger.debug(f"  -> Rejected (no ID/catalogue keyword): {href}")
 
+    logger.info(f"Total catalogs found: {len(catalogs)}")
     return catalogs
 
 async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> list[dict[str, Any]]:
