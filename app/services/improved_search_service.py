@@ -1,14 +1,15 @@
 """
 Improved Search Service - Using Persistent Browser Connection
 Based on ScraperService pattern for better session management and reliability
+
+UPDATED: Now uses modular, site-specific parsers for robust product extraction
 """
 
 import asyncio
 import logging
 from typing import AsyncGenerator
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import quote_plus
 
-from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
 from app.models import SearchSite
 from app.schemas import SearchProgress, SearchResultItem
+from app.services.parsers import ParserFactory, ProductResult
 
 logger = logging.getLogger(__name__)
 
@@ -245,8 +247,12 @@ class ImprovedSearchService:
                     logger.warning(f"⚠️ Page too small - possibly blocked")
                     return []
 
-                # Parse results
-                results = cls._parse_results(html_content, site_key, search_url, query)
+                # Parse results using specialized parser
+                parser = ParserFactory.get_parser(site_key)
+                parsed_products = parser.parse_search_results(html_content, query, search_url)
+
+                # Convert ProductResult to SearchResult
+                results = [cls._convert_to_search_result(p) for p in parsed_products]
 
                 # Scrape details for each result (in parallel)
                 if results:
@@ -272,8 +278,25 @@ class ImprovedSearchService:
         return results
 
     @staticmethod
+    def _convert_to_search_result(product: ProductResult) -> SearchResult:
+        """Convert ProductResult to SearchResult"""
+        return SearchResult(
+            url=product.url,
+            title=product.title,
+            snippet=product.snippet,
+            source=product.source,
+            price=product.price,
+            currency=product.currency,
+            in_stock=product.in_stock,
+            image_url=product.image_url,
+        )
+
+    @staticmethod
     def _parse_results(html: str, site_key: str, base_url: str, query: str) -> list[SearchResult]:
-        """Parse HTML content to extract search results"""
+        """
+        DEPRECATED: Legacy parsing method - now using specialized parsers
+        This method is kept for backward compatibility but should not be used
+        """
         config = SITE_CONFIGS[site_key]
         soup = BeautifulSoup(html, "html.parser")
         results = []
