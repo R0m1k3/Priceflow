@@ -23,8 +23,9 @@ BASE_URL = "https://www.cataloguemate.fr"
 
 async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> list[dict[str, Any]]:
     """
-    Scrape the list of catalogs for an enseigne from its main page.
-    URL format: https://www.cataloguemate.fr/{enseigne_slug}/
+    Scrape the list of catalogs for an enseigne.
+    We use a default city (Paris) because the main page often doesn't list catalogs directly.
+    URL format: https://www.cataloguemate.fr/offres/paris/{enseigne_slug}/
     """
     slug = enseigne.slug_bonial.lower()
     # Handle specific slug mapping
@@ -33,7 +34,8 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     elif enseigne.nom.lower() == "la foir'fouille":
         slug = "la-foirfouille"
     
-    url = f"{BASE_URL}/{slug}/"
+    # Use Paris as default city to find national catalogs
+    url = f"{BASE_URL}/offres/paris/{slug}/"
     logger.info(f"Scraping catalog list from: {url}")
 
     config = CrawlerRunConfig(
@@ -49,8 +51,10 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     soup = BeautifulSoup(result.html, 'html.parser')
     catalogs = []
     
-    # Find all links that might be catalogs for THIS enseigne
-    # We look for links starting with /{slug}/ and containing date patterns or 'catalogue'
+    # Find all links that might be catalogs
+    # On city pages, catalogs are often under "Ces produits sont actuellement dans les catalogues" 
+    # or "Catalogues populaires" or just listed.
+    # We look for links that look like /enseigne/titre-id/
     
     links = soup.find_all('a', href=True)
     seen_urls = set()
@@ -63,20 +67,24 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
         if href.startswith(BASE_URL):
             href = href.replace(BASE_URL, "")
             
-        # Filter: must start with /{slug}/ to ensure it's for this enseigne
-        # Must NOT be the main page itself or a city search page
-        if href.startswith(f"/{slug}/") and href != f"/{slug}/":
-            if any(x in href for x in ["offres", "magasins", "rechercher"]):
+        # Filter: 
+        # 1. Must contain the slug (or be a catalog link for this enseigne)
+        # 2. Must NOT be a city search page (/offres/)
+        # 3. Must NOT be a product search (/rechercher/)
+        # 4. Should usually have a numeric ID at the end
+        
+        if f"/{slug}/" in href:
+            if any(x in href for x in ["/offres/", "/magasins/", "/rechercher/", "page="]):
                 continue
                 
             full_url = f"{BASE_URL}{href}"
             
             if full_url in seen_urls:
                 continue
-                
-            # Check if it looks like a catalog (usually has an ID or date)
-            # e.g. /action/black-friday-du-mercredi-26-11-2025-61136/
-            if re.search(r'\d+', href):
+            
+            # Check for numeric ID pattern which is typical for catalogs
+            # e.g. -61130/
+            if re.search(r'-\d+/?$', href) or "catalogue" in href.lower():
                 catalogs.append({
                     'url': full_url,
                     'title': text or "Catalogue",
@@ -144,13 +152,27 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> li
             # Check src for keywords
             is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images'])
             
+            # Calculate area
+            area = 0
+            if width and height:
+                try:
+                    area = int(width) * int(height)
+                except:
+                    pass
+            
+            # Logic:
+            # 1. If keyword match AND decent size -> Strong candidate
+            # 2. If no keyword match but HUGE size -> Candidate
+            
             if is_likely_catalog:
-                # If we have dimensions, prioritize large ones
                 if area > max_area:
                     max_area = area
                     main_image_url = src
                 elif area == 0 and not main_image_url:
-                    # If no dimensions but looks like a catalog image, take it if we haven't found one
+                    main_image_url = src
+            elif area > 100000: # Arbitrary large size (e.g. 300x333)
+                if area > max_area:
+                    max_area = area
                     main_image_url = src
         
         if main_image_url:
