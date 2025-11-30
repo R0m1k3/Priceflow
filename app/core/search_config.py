@@ -56,6 +56,9 @@ SITE_CONFIGS = {
     "gifi.fr": {
         "name": "Gifi",
         "search_url": "https://www.gifi.fr/resultat-recherche?q={query}",
+        "product_selector": "article.product-miniature, div.product-item, div[class*='product']",
+        "product_image_selector": "img.product-thumbnail, img[class*='product'], img",
+        "wait_selector": "article.product-miniature, div.product-item",
         "category": "Discount",
         "requires_proxy": False,
     },

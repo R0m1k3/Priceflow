@@ -395,35 +395,79 @@ class ImprovedSearchService:
     @staticmethod
     async def _extract_price(page: Page) -> float | None:
         """Extract price from product page using multiple selectors"""
+        import re
+        
+        # PRIORITY 1: Selectors for sale/promotional prices (highest priority)
+        sale_price_selectors = [
+            '.price-current',
+            '.prix-actuel',
+            '.sale-price',
+            '.promo-price',
+            '[class*="promo"]',
+            '[class*="sale"]',
+            '[class*="discount"]',
+        ]
+        
+        # PRIORITY 2: Standard price selectors
         price_selectors = [
             '.price',
             '[data-testid="price"]',
-            '.prix-actuel',
-            '.price-current',
             '[itemprop="price"]',
             '.product-price',
             '.a-price .a-offscreen',
             '.a-price-whole',
             'span[class*="price"]',
         ]
-
-        for selector in price_selectors:
+        
+        # Try sale prices first
+        for selector in sale_price_selectors:
             try:
                 elements = await page.query_selector_all(selector)
                 for elem in elements:
+                    # Skip if element is strikethrough (old price)
+                    parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
+                    if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
+                        continue
+                    
                     price_text = await elem.inner_text()
                     if price_text:
-                        # Parse price
-                        import re
                         cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
-                        cleaned = cleaned.replace(' ', '').replace('\xa0', '')
-                        cleaned = cleaned.replace(',', '.')
-
+                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
+                        
                         match = re.search(r'(\d+\.?\d*)', cleaned)
                         if match:
                             try:
                                 price_val = float(match.group(1))
-                                # Validate price
+                                if 0.01 < price_val < 100000:
+                                    logger.debug(f"Found sale price: {price_val}€ from {selector}")
+                                    return price_val
+                            except ValueError:
+                                continue
+            except Exception:
+                continue
+        
+        # Fallback to standard price selectors
+        for selector in price_selectors:
+            try:
+                elements = await page.query_selector_all(selector)
+                for elem in elements:
+                    # Skip if element is strikethrough (old price)
+                    try:
+                        parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
+                        if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
+                            continue
+                    except:
+                        pass
+                    
+                    price_text = await elem.inner_text()
+                    if price_text:
+                        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
+                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
+                        
+                        match = re.search(r'(\d+\.?\d*)', cleaned)
+                        if match:
+                            try:
+                                price_val = float(match.group(1))
                                 if 0.01 < price_val < 100000:
                                     logger.debug(f"Found price: {price_val}€ from {selector}")
                                     return price_val
@@ -517,6 +561,14 @@ class ImprovedSearchService:
                 
                 if not initial_results:
                     logger.warning(f"No results found for {site_key}")
+                    # Dump HTML for debugging
+                    import os
+                    dump_dir = "/app/debug_dumps"
+                    os.makedirs(dump_dir, exist_ok=True)
+                    dump_path = f"{dump_dir}/{site_key.replace('.', '_')}_no_results.html"
+                    with open(dump_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    logger.warning(f"HTML dumped to {dump_path} for inspection")
                     return
 
                 # Phase 2: Scrape details (Streaming)
