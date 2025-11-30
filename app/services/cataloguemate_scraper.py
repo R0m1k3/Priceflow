@@ -278,7 +278,8 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
                 date_debut=datetime.now(), # Todo: extract real dates
                 date_fin=datetime.now() + timedelta(days=14),
                 image_couverture_url=pages[0]['image_url'],
-                content_hash=content_hash
+                content_hash=content_hash,
+                nombre_pages=len(pages)  # Set actual page count
             )
             db.add(new_cat)
             db.commit()
