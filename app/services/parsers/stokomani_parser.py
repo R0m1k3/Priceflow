@@ -38,7 +38,13 @@ class StokomaniParser(BaseParser):
                 img_url = None
                 prev_a = link.find_previous_sibling("a", attrs={"aria-label": True})
                 if prev_a and prev_a.get('href') == href:
-                    img_url = self.extract_image_url(prev_a)
+                    # Try specific selector first
+                    img_el = prev_a.select_one("motion-element img, img")
+                    if img_el:
+                        img_url = self._get_image_src(img_el)
+                    
+                    if not img_url:
+                        img_url = self.extract_image_url(prev_a)
                 
                 # Price: Look for text node after the link
                 price = None
