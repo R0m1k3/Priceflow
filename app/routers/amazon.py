@@ -1,6 +1,7 @@
 """
 API Router pour la recherche Amazon France
 Utilise Server-Sent Events (SSE) pour le streaming des résultats
+Uses Browserless service for reliable scraping
 """
 
 import json
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.amazon_scraper import scrape_amazon_search, AmazonProduct
+from app.services.amazon_scraper_v2 import scrape_amazon_search, AmazonProduct
 
 logger = logging.getLogger(__name__)
 
