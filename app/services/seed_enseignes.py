@@ -9,81 +9,9 @@ from app.models import Enseigne
 
 logger = logging.getLogger(__name__)
 
-# Data for the 9 enseignes
-ENSEIGNES_DATA = [
-    {
-        "nom": "Gifi",
-        "slug_bonial": "Gifi",
-        "couleur": "#E30613",
-        "site_url": "https://www.gifi.fr",
-        "description": "Décoration, maison, bazar",
-        "ordre_affichage": 1,
-    },
-    {
-        "nom": "Action",
-        "slug_bonial": "Action",
-        "couleur": "#0066B3",
-        "site_url": "https://www.action.com/fr-fr/",
-        "description": "Discount non-alimentaire",
-        "ordre_affichage": 2,
-    },
-    {
-        "nom": "Centrakor",
-        "slug_bonial": "Centrakor",
-        "couleur": "#E94E1B",
-        "site_url": "https://www.centrakor.com",
-        "description": "Décoration, maison",
-        "ordre_affichage": 3,
-    },
-    {
-        "nom": "La Foir'Fouille",
-        "slug_bonial": "La-Foir-Fouille",
-        "couleur": "#009639",
-        "site_url": "https://www.lafoirfouille.fr",
-        "description": "Bazar, décoration",
-        "ordre_affichage": 4,
-    },
-    {
-        "nom": "Stokomani",
-        "slug_bonial": "Stokomani",
-        "couleur": "#FF6600",
-        "site_url": "https://www.stokomani.fr",
-        "description": "Déstockage textile et maison",
-        "ordre_affichage": 5,
-    },
-    {
-        "nom": "B&M",
-        "slug_bonial": "BM",
-        "couleur": "#D4145A",
-        "site_url": "https://bmstores.fr",
-        "description": "Discount britannique",
-        "ordre_affichage": 6,
-    },
-    {
-        "nom": "L'Incroyable",
-        "slug_bonial": "L-incroyable",
-        "couleur": "#8B0000",
-        "site_url": "https://www.lincroyable.fr",
-        "description": "Décoration et mobilier discount (Groupe Althys, siège à Denain)",
-        "ordre_affichage": 7,
-    },
-    {
-        "nom": "Bazarland",
-        "slug_bonial": "Bazarland",
-        "couleur": "#FFCC00",
-        "site_url": None,
-        "description": "Bazar discount",
-        "ordre_affichage": 8,
-    },
-    {
-        "nom": "Noz",
-        "slug_bonial": "Noz",
-        "couleur": "#003366",
-        "site_url": "https://www.noz.fr",
-        "description": "Déstockage généraliste",
-        "ordre_affichage": 9,
-    },
-]
+# Liste des enseignes vidée - migration vers Amazon France uniquement
+# Les magasins discount ne sont plus gérés via le système de catalogues
+ENSEIGNES_DATA = []
 
 
 def seed_enseignes(db: Session) -> int:

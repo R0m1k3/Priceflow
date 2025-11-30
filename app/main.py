@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues
+from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues, amazon
 from app.services.scheduler_service import scheduled_refresh, scheduler
 from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
@@ -189,6 +189,9 @@ app.include_router(catalogues.router)
 
 # Auth router (already has /api prefix)
 app.include_router(auth.router)
+
+# Amazon router (already has /api prefix)
+app.include_router(amazon.router)
 
 
 @app.get("/api/")
