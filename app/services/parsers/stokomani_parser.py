@@ -46,6 +46,9 @@ class StokomaniParser(BaseParser):
                     if not img_url:
                         img_url = self.extract_image_url(prev_a)
                 
+                if img_url:
+                    img_url = self.make_absolute_url(img_url)
+                
                 # Price: Look for text node after the link
                 price = None
                 next_sibling = link.next_sibling
