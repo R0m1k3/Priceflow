@@ -319,14 +319,36 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalogue_url: str) -> 
     """Scrape all pages of a catalog from the Tiendeo viewer using Crawl4AI."""
     logger.info(f"Scraping catalog pages from {catalogue_url}")
     
-    # Configure crawler to wait for images
+    # JavaScript to trigger loading of all pages in the viewer
+    load_all_pages_js = """
+    // Scroll down to trigger lazy loading of catalog pages
+    window.scrollTo(0, document.body.scrollHeight);
+    
+    // Wait a bit for images to start loading
+    await new Promise(r => setTimeout(r, 2000));
+    
+    // Try to find and click "next page" buttons to load more pages
+    const nextButtons = document.querySelectorAll('[class*="next"], [class*="Next"], button[aria-label*="next" i]');
+    for (let btn of nextButtons) {
+        if (btn && btn.offsetParent !== null) {  // visible
+            btn.click();
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+    
+    // Scroll again after clicking
+    window.scrollTo(0, document.body.scrollHeight);
+    """
+    
+    # Configure crawler to wait for images and execute JS
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         wait_for_images=True,
         process_iframes=True,
         remove_overlay_elements=True,
         wait_until="networkidle",
-        delay_before_return_html=3.0,  # Wait for viewer to fully load
+        delay_before_return_html=5.0,  # Wait longer for viewer to fully load
+        js_code=load_all_pages_js,  # Execute JS to load all pages
     )
     
     result = await crawler.arun(url=catalogue_url, config=config)
