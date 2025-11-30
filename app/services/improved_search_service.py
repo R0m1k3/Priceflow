@@ -251,15 +251,23 @@ class ImprovedSearchService:
                 # Scrape details for each result (in parallel)
                 if results:
                     logger.info(f"📦 Found {len(results)} initial results, enriching with details...")
+                    
+                    # LIMIT: Only enrich first 10 products to avoid frontend timeouts
+                    # Full enrichment (visiting each product page) takes too long
+                    results_to_enrich = results[:10]
+                    logger.info(f"⚡ Limiting enrichment to {len(results_to_enrich)} products")
+                    
                     semaphore = asyncio.Semaphore(2)  # Limit concurrency
 
                     async def scrape_with_limit(res):
                         async with semaphore:
                             return await cls._scrape_item_details(res, context)
 
-                    tasks = [scrape_with_limit(r) for r in results]
+                    tasks = [scrape_with_limit(r) for r in results_to_enrich]
                     enriched_results = await asyncio.gather(*tasks)
-                    results = [r for r in enriched_results if r]  # Filter None
+                    
+                    # Return enriched results + remaining non-enriched (with None price)
+                    results = [r for r in enriched_results if r] + results[10:]
 
             finally:
                 await context.close()
@@ -314,19 +322,20 @@ class ImprovedSearchService:
             if not title or len(title) < 3:
                 continue
 
-            # RELAXED FILTERING: Check if at least ONE query word is in the title
-            # (instead of ALL words, which was too strict)
-            title_lower = title.lower()
-            if query_words:
-                at_least_one_word_found = False
-                for word in query_words:
-                    if word in title_lower:
-                        at_least_one_word_found = True
-                        break
-                
-                # Only keep results with at least one matching word
-                if not at_least_one_word_found:
-                    continue
+            # TEMPORARY: Disable keyword filtering to diagnose issues
+            # The strict filtering was rejecting too many valid results
+            # TODO: Re-enable with better logic after testing
+            
+            # title_lower = title.lower()
+            # if query_words:
+            #     at_least_one_word_found = False
+            #     for word in query_words:
+            #         if word in title_lower:
+            #             at_least_one_word_found = True
+            #             break
+            #     
+            #     if not at_least_one_word_found:
+            #         continue
 
             # Extract Image URL - PRIORITIZE CONFIGURED SELECTOR
             image_url = None
@@ -597,13 +606,39 @@ async def search_products(
         results=[],
     )
 
-    # 2. Map DB sites to Config keys
+    # 2. Map DB sites to Config keys with improved matching
     site_keys = []
     for site in active_sites:
-        for key in SITE_CONFIGS.keys():
-            if key in site.domain or site.domain in key:
-                site_keys.append(key)
-                break
+        matched_key = None
+        site_domain_normalized = site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
+        
+        # Try exact match first
+        if site_domain_normalized in SITE_CONFIGS:
+            matched_key = site_domain_normalized
+        else:
+            # Try partial match
+            for key in SITE_CONFIGS.keys():
+                key_normalized = key.lower().replace("www.", "")
+                
+                # Match if either contains the other
+                if key_normalized in site_domain_normalized or site_domain_normalized in key_normalized:
+                    matched_key = key
+                    break
+                
+                # Also try matching just the main domain part (before first dot after main name)
+                # e.g. "e-leclerc" matches both "e-leclerc.com" and "leclerc.fr"
+                site_parts = site_domain_normalized.split(".")
+                key_parts = key_normalized.split(".")
+                if len(site_parts) > 0 and len(key_parts) > 0:
+                    if site_parts[0] in key_parts[0] or key_parts[0] in site_parts[0]:
+                        matched_key = key
+                        break
+        
+        if matched_key:
+            site_keys.append(matched_key)
+            logger.info(f"✅ Mapped {site.name} ({site.domain}) → {matched_key}")
+        else:
+            logger.warning(f"❌ No config found for {site.name} (domain: {site.domain}, normalized: {site_domain_normalized})")
 
     # 3. Execute searches and stream results
     generators = [ImprovedSearchService.search_site_generator(key, query) for key in site_keys]
