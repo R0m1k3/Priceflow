@@ -610,33 +610,46 @@ async def search_products(
     site_keys = []
     for site in active_sites:
         matched_key = None
-        site_domain_normalized = site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
         
-        # Try exact match first
-        if site_domain_normalized in SITE_CONFIGS:
-            matched_key = site_domain_normalized
-        else:
-            # Try partial match
-            for key in SITE_CONFIGS.keys():
-                key_normalized = key.lower().replace("www.", "")
-                
-                # Match if either contains the other
-                if key_normalized in site_domain_normalized or site_domain_normalized in key_normalized:
+        # Normalize domain for comparison (remove www., lowercase, etc.)
+        site_domain_normalized = site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
+
+        # Try multiple matching strategies:
+        for key in SITE_CONFIGS.keys():
+            key_normalized = key.lower().replace("www.", "")
+
+            # 1. Exact match
+            if site_domain_normalized == key_normalized:
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (exact match)")
+                break
+
+            # 2. Contains match (one in the other)
+            if key_normalized in site_domain_normalized or site_domain_normalized in key_normalized:
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (contains)")
+                break
+
+            # 3. Normalize punctuation (. vs - vs nothing) and compare
+            # e.leclerc → eleclerc, e-leclerc.com → eleclecrcom
+            domain_no_punct = site_domain_normalized.replace("-", "").replace(".", "")
+            key_no_punct = key_normalized.replace("-", "").replace(".", "")
+
+            # Exact match without punctuation
+            if domain_no_punct == key_no_punct:
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (normalized punctuation)")
+                break
+
+            # Contains match without punctuation (handles .com, .fr suffixes)
+            if len(domain_no_punct) > 3 and len(key_no_punct) > 3:
+                if domain_no_punct in key_no_punct or key_no_punct in domain_no_punct:
                     matched_key = key
+                    logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (normalized contains)")
                     break
-                
-                # Also try matching just the main domain part (before first dot after main name)
-                # e.g. "e-leclerc" matches both "e-leclerc.com" and "leclerc.fr"
-                site_parts = site_domain_normalized.split(".")
-                key_parts = key_normalized.split(".")
-                if len(site_parts) > 0 and len(key_parts) > 0:
-                    if site_parts[0] in key_parts[0] or key_parts[0] in site_parts[0]:
-                        matched_key = key
-                        break
         
         if matched_key:
             site_keys.append(matched_key)
-            logger.info(f"✅ Mapped {site.name} ({site.domain}) → {matched_key}")
         else:
             logger.warning(f"❌ No config found for {site.name} (domain: {site.domain}, normalized: {site_domain_normalized})")
 
