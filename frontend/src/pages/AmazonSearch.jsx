@@ -102,11 +102,10 @@ export default function AmazonSearch() {
                     {[...Array(5)].map((_, i) => (
                         <Star
                             key={i}
-                            className={`h-4 w-4 ${
-                                i < Math.floor(rating)
+                            className={`h-4 w-4 ${i < Math.floor(rating)
                                     ? 'fill-yellow-400 text-yellow-400'
                                     : 'text-gray-300'
-                            }`}
+                                }`}
                         />
                     ))}
                 </div>
@@ -265,22 +264,39 @@ export default function AmazonSearch() {
 
                                         {/* Actions */}
                                         <div className="pt-2 flex gap-2">
-                                            <Button
-                                                variant="default"
-                                                size="sm"
+                                            <a
+                                                href={product.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="flex-1"
-                                                onClick={() => window.open(product.url, '_blank')}
                                             >
-                                                <ShoppingCart className="h-4 w-4 mr-1" />
-                                                Voir
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => window.open(product.url, '_blank')}
+                                                <Button
+                                                    variant="default"
+                                                    size="sm"
+                                                    className="w-full"
+                                                    asChild
+                                                >
+                                                    <span>
+                                                        <ShoppingCart className="h-4 w-4 mr-1" />
+                                                        Voir
+                                                    </span>
+                                                </Button>
+                                            </a>
+                                            <a
+                                                href={product.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                             >
-                                                <ExternalLink className="h-4 w-4" />
-                                            </Button>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    asChild
+                                                >
+                                                    <span>
+                                                        <ExternalLink className="h-4 w-4" />
+                                                    </span>
+                                                </Button>
+                                            </a>
                                         </div>
                                     </div>
                                 </CardContent>
