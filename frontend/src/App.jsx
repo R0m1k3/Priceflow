@@ -5,6 +5,7 @@ import Layout from '@/components/layout/Layout'
 import Dashboard from '@/pages/Dashboard'
 import Search from '@/pages/Search'
 import MultiSearch from '@/pages/MultiSearch'
+import AmazonSearch from '@/pages/AmazonSearch'
 import Catalogues from '@/pages/Catalogues'
 import Login from '@/pages/Login'
 import Admin from '@/pages/Admin'
@@ -78,6 +79,7 @@ function AppRoutes() {
                                     <Route path="/" element={<Dashboard />} />
                                     <Route path="/search" element={<Search />} />
                                     <Route path="/compare" element={<MultiSearch />} />
+                                    <Route path="/amazon" element={<AmazonSearch />} />
                                     <Route path="/catalogues" element={<Catalogues />} />
                                     <Route
                                         path="/admin"

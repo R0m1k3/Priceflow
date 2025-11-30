@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard, Search, TrendingUp, BookOpen, Moon, Sun, Menu, LogOut, Shield } from 'lucide-react';
+import { LayoutDashboard, Search, TrendingUp, BookOpen, Moon, Sun, Menu, LogOut, Shield, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,7 @@ const Layout = ({ children, theme, toggleTheme }) => {
     const navItems = [
         { icon: LayoutDashboard, label: t('nav.dashboard'), path: '/' },
         { icon: Search, label: t('nav.search') || 'Recherche', path: '/search' },
+        { icon: ShoppingBag, label: 'Amazon France', path: '/amazon' },
         { icon: TrendingUp, label: 'Comparateur', path: '/compare' },
         { icon: BookOpen, label: 'Catalogues', path: '/catalogues' },
     ];
