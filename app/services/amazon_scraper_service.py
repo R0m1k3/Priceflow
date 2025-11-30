@@ -353,14 +353,29 @@ class AmazonScraperService:
             logger.debug(f"  ⏭️ Card {idx}: No title")
             return None
 
-        # URL
+       # URL
         link_elem = card.select_one('h2 a') or card.select_one('a.s-link-style')
         if not link_elem:
-            logger.debug(f"  ⏭️ Card {idx}: No link")
+            logger.debug(f"  ⏭️ Card {idx}: No link element")
             return None
 
         href = link_elem.get('href', '')
-        product_url = f"{AMAZON_FR_BASE_URL}{href}" if href.startswith('/') else href
+        
+        # CRITICAL: Validate href is not empty or just '#'
+        if not href or href == '#' or href.strip() == '':
+            logger.warning(f"  ⏭️ Card {idx}: Invalid href '{href}' for {title[:30] if title else 'unknown'}")
+            return None
+        
+        # Build absolute URL
+        if href.startswith('/'):
+            product_url = f"{AMAZON_FR_BASE_URL}{href}"
+        elif href.startswith('http'):
+            product_url = href
+        else:
+            logger.warning(f"  ⏭️ Card {idx}: Unexpected href format '{href[:50]}' for {title[:30] if title else 'unknown'}")
+            return None
+        
+        logger.debug(f"  ✓ Card {idx}: URL = {product_url[:80]}...")
 
         # Price
         price = None
