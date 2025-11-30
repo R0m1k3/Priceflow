@@ -1,9 +1,5 @@
 """
-Search Configuration
-Centralizes all configuration for the search system:
-- Site definitions (selectors, URLs)
-- Proxy configurations
-- User Agents
+Search Configuration - COMPLETE FIXED VERSION
 """
 
 import os
@@ -14,7 +10,6 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 DEBUG_DUMPS_DIR = "/app/debug_dumps"
 
 # === PROXY CONFIGURATION ===
-# Format from user: ip:port:username:password
 AMAZON_PROXY_LIST_RAW = [
     "142.111.48.253:7030:jasuwwjr:elbsx170nmnl",
     "31.59.20.176:6754:jasuwwjr:elbsx170nmnl",
@@ -43,15 +38,11 @@ def get_amazon_proxies() -> list[dict]:
 
 # === USER AGENTS ===
 USER_AGENT_POOL = [
-    # Chrome Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    # Chrome Mac
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    # Firefox Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-    # Recent Chrome
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
 ]
@@ -86,6 +77,15 @@ SITE_CONFIGS = {
         "product_selector": "a.group[href^='/fr-fr/p/']",
         "product_image_selector": "img[loading='lazy'], img[src*='product'], picture img",
         "wait_selector": "a.group[href^='/fr-fr/p/']",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
+    "lafoirfouille.fr": {
+        "name": "La Foir'Fouille",
+        "search_url": "https://www.lafoirfouille.fr/recherche?controller=search&s={query}",
+        "product_selector": "article.product-miniature a.product-thumbnail, a.product_img_link",
+        "product_image_selector": "img[src], img[loading='lazy'], picture img",
+        "wait_selector": "article.product-miniature, .products",
         "category": "Discount",
         "requires_proxy": False,
     },
@@ -186,41 +186,37 @@ SITE_CONFIGS = {
 
 # === COOKIE BANNERS ===
 COOKIE_ACCEPT_SELECTORS = [
-    "#sp-cc-accept", # Amazon
-    "#onetrust-accept-btn-handler", # Many sites
+    "#sp-cc-accept",
+    "#onetrust-accept-btn-handler",
     ".onetrust-accept-btn-handler",
-    "#popin_tc_privacy_button_2", # Auchan/Cdiscount
+    "#popin_tc_privacy_button_2",
     ".popin_tc_privacy_button",
-    "#didomi-notice-agree-button", # Many French sites
+    "#didomi-notice-agree-button",
     ".didomi-continue-without-agreeing",
-    "[data-testid='accept-cookies-button']", # Carrefour
-    ".bcom-consent-accept-all", # Boulanger
+    "[data-testid='accept-cookies-button']",
+    ".bcom-consent-accept-all",
     "#cookieBanner-accept",
-    ".action-primary.action-accept", # Magento
+    ".action-primary.action-accept",
     "#btn-cookie-allow",
     "button:has-text('Tout accepter')",
     "button:has-text('Accepter tout')",
     "button:has-text('Accepter')",
     "button:has-text('J\\'accepte')",
-    # Promotional Popups / Modals
     ".modal-close",
     ".close-modal",
     ".popup-close",
-    "button[aria-label='Close']",
+   "button[aria-label='Close']",
     "button[aria-label='Fermer']",
     ".js-modal-close",
     "div[class*='popup'] button[class*='close']",
     "div[class*='modal'] button[class*='close']",
-    # Specific Gifi/Discount popups
     ".popin-close",
     "#popin-close",
     "a.close-popin",
-    # Centrakor Store Overlay
     "div.mod-shops button.close",
     ".mod-shops .close",
     "#shops-modal .close-button",
     ".ui-dialog-titlebar-close",
-    # Action
     "#cc-accept",
     ".cc-btn-accept",
     "button[data-testid='uc-accept-all-button']",
