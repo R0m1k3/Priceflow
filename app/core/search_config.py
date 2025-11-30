@@ -127,6 +127,15 @@ SITE_CONFIGS = {
         "requires_proxy": False,
     },
     # === NOUVEAUX SITES ===
+    "lincroyable.fr": {
+        "name": "L'Incroyable",
+        "search_url": "https://www.lincroyable.fr/recherche-query={query}/",
+        "product_selector": "div.product-card, div.product-miniature, article",
+        "product_image_selector": "img.product-image, img[class*='product'], picture img",
+        "wait_selector": "div.product-card, div.product-miniature, article",
+        "category": "Discount",
+        "requires_proxy": False,
+    },
     "bmstores.fr": {
         "name": "B&M",
         "search_url": "https://bmstores.fr/module/ambjolisearch/jolisearch?s={query}",

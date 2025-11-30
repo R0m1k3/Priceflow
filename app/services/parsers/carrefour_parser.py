@@ -14,16 +14,14 @@ class CarrefourParser(BaseParser):
         
         # Carrefour products
         # New container: div containing both image and title link
-        cards = soup.select("div.product-list-card-plp-grid-new, article") 
-        if not cards:
-            cards = soup.select("div[class*='product-list-card']") # Fallback
+        cards = soup.select("div.product-list-card-plp-grid-new, article, div[class*='product-card']") 
         
-        # If still no cards, try finding by link
+        # If no cards, try finding by link
         if not cards:
-            links = soup.select("a.c-link.product-card-click-wrapper")
+            links = soup.select("a.c-link.product-card-click-wrapper, a[href*='/p/'], a[href*='/produit']")
             cards = []
             for link in links:
-                parent = link.find_parent("div", class_=lambda x: x and "product-list-card" in x)
+                parent = link.find_parent("div", class_=lambda x: x and "product" in x)
                 if parent:
                     cards.append(parent)
                 else:
@@ -53,21 +51,18 @@ class CarrefourParser(BaseParser):
                 
                 price = None
                 # Price is often text node near h3 or in a specific price element
-                price_el = card.select_one("[class*='price'], .product-card-price")
+                price_el = card.select_one("[class*='price'], .product-card-price, span[class*='amount']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 
-                if not price and title_el:
-                    # Fallback: check siblings of title for text price
-                    price_text = ""
-                    for sibling in title_el.find_next_siblings():
-                        if sibling.name is None: # Text node
-                            price_text += sibling.strip() + " "
-                        elif sibling.name in ['div', 'span']:
-                            price_text += sibling.get_text(strip=True) + " "
-                        if "€" in price_text:
-                            break
-                    price = self.parse_price_text(price_text)
+                if not price:
+                    # Fallback: check all text in the card for a price pattern
+                    text = card.get_text(" ", strip=True)
+                    # Simple regex for price like 12,99 € or 12.99€
+                    import re
+                    match = re.search(r'(\d+[.,]\d{2})\s*€?', text)
+                    if match:
+                        price = self.parse_price_text(match.group(0))
                 
                 results.append(ProductResult(
                     title=title,

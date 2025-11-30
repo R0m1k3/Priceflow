@@ -27,12 +27,14 @@ class GifiParser(BaseParser):
                 href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title = link_el.get_text(strip=True)
+                # Title: Try specific classes first to avoid getting rating text etc.
+                title = None
+                title_el = product.select_one(".pdp-link > a, .link, [class*='name'], [class*='title']")
+                if title_el:
+                    title = title_el.get_text(strip=True)
+                
                 if not title:
-                    # Try finding title in nested elements
-                    title_el = product.select_one("[class*='name'], [class*='title']")
-                    if title_el:
-                        title = title_el.get_text(strip=True)
+                    title = link_el.get_text(strip=True)
                 
                 if not title:
                     continue
