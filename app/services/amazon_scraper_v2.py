@@ -128,11 +128,11 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
 
     try:
         # Use browserless service to get page content
-        # use_proxy=True for Amazon to avoid rate limiting
-        logger.info("🚀 Fetching page with Browserless...")
+        # Try WITHOUT proxy first - some proxies may be banned by Amazon
+        logger.info("🚀 Fetching page with Browserless (NO PROXY for testing)...")
         html_content, _ = await browserless_service.get_page_content(
             url=search_url,
-            use_proxy=True,  # Use proxy rotation for Amazon
+            use_proxy=False,  # Try without proxy first
             wait_selector=None,  # Let it load naturally
             extract_text=False  # We want HTML for parsing
         )
