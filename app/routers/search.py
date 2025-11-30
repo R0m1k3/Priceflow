@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.services import search_service
+from app.services import improved_search_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def search_products(
 
     async def generate():
         try:
-            async for progress in search_service.search_products(
+            async for progress in improved_search_service.search_products(
                 query=q,
                 db=db,
                 site_ids=site_ids,
