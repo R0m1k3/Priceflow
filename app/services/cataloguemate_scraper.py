@@ -9,6 +9,7 @@ Refactored to use BrowserlessService for robust containerized scraping.
 import asyncio
 import logging
 import re
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -208,7 +209,7 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
 
     try:
         # 0. Test connection (Implicit in get_page_content, but good to log)
-        logger.info(f"Starting scraping for {enseigne.nom} using Browserless...")
+        logger.info(f"Starting scraping for {enseigne.nom} using Browserless v2...")
 
         # 1. Get list of catalogs
         catalogs_list = await scrape_catalog_list(enseigne)
@@ -229,10 +230,6 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
             if not pages:
                 continue
                 
-import hashlib
-
-# ... imports ...
-
             # Create catalog entry
             # Generate content hash (URL + Title + Date)
             hash_input = f"{cat_info['url']}{cat_info['title']}{datetime.now().date()}".encode('utf-8')
