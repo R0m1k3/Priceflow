@@ -41,7 +41,7 @@ async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
     logger.info(f"Scraping catalog list from: {url}")
 
     # Use browserless service to get content
-    html_content, _ = await browserless_service.get_page_content(url)
+    _, html_content = await browserless_service.get_page_content(url)
     
     if not html_content:
         logger.error(f"Failed to fetch list {url}")
@@ -111,7 +111,7 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
     # IMPORTANT: Pagination links only appear on page 2+, not on page 1
     # So we fetch page 2 first to detect the max pages
     page_2_url = f"{catalog_url}?page=2"
-    page_2_html, _ = await browserless_service.get_page_content(page_2_url)
+    _, page_2_html = await browserless_service.get_page_content(page_2_url)
     
     if page_2_html:
         soup = BeautifulSoup(page_2_html, 'html.parser')
@@ -162,7 +162,7 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
         if page_num == 2 and page_2_html:
             html_content = page_2_html
         else:
-            html_content, _ = await browserless_service.get_page_content(current_url)
+            _, html_content = await browserless_service.get_page_content(current_url)
         
         if not html_content:
             logger.warning(f"Failed to fetch page {page_num}")
