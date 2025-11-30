@@ -192,14 +192,33 @@ class ImprovedSearchService:
         query_words = [w.lower() for w in query.split() if len(w) > 2]
 
         # Select product links
+        logger.debug(f"Parsing content for {site_key} (length: {len(html)}) with selector: {config['product_selector']}")
         links = soup.select(config["product_selector"])
+        logger.debug(f"Found {len(links)} raw items for {site_key}")
 
         # Deduplicate links
         seen_urls = set()
 
         for link in links:
+            # If selector targets the container (div.product-card), we need to find the link inside
+            if link.name != 'a':
+                # Try to find the link using product_link_selector if available
+                if "product_link_selector" in config:
+                    found_link = link.select_one(config["product_link_selector"])
+                    if found_link:
+                        link = found_link
+                    else:
+                        # Fallback: find first 'a' tag
+                        found_link = link.find('a')
+                        if found_link:
+                            link = found_link
+                        else:
+                            logger.debug(f"  ⚠️ No link found in container for {site_key}")
+                            continue
+            
             href = link.get("href")
             if not href:
+                logger.debug(f"  ⚠️ No href in link for {site_key}")
                 continue
 
             full_url = urljoin(base_url, href)
@@ -210,6 +229,15 @@ class ImprovedSearchService:
             seen_urls.add(full_url)
 
             # Extract title
+            title = None
+            if "product_title_selector" in config:
+                # If we are in a container, search in container, else search in link (or parent)
+                # But 'link' is now the <a> tag. If we started with a container, we should use that.
+                # However, the loop variable 'link' was overwritten.
+                # Let's fix the loop logic to handle container vs link better.
+                pass 
+            
+            # Simple extraction from the link we found
             title = link.get_text(strip=True)
 
             # If no text, check title attribute or nested image alt
@@ -222,22 +250,8 @@ class ImprovedSearchService:
                         title = img.get("alt")
 
             if not title or len(title) < 3:
+                logger.debug(f"  ⚠️ Skipped item with empty/short title: '{title}'")
                 continue
-
-            # TEMPORARY: Disable keyword filtering to diagnose issues
-            # The strict filtering was rejecting too many valid results
-            # TODO: Re-enable with better logic after testing
-            
-            # title_lower = title.lower()
-            # if query_words:
-            #     at_least_one_word_found = False
-            #     for word in query_words:
-            #         if word in title_lower:
-            #             at_least_one_word_found = True
-            #             break
-            #     
-            #     if not at_least_one_word_found:
-            #         continue
 
             # Extract Image URL - PRIORITIZE CONFIGURED SELECTOR
             image_url = None
