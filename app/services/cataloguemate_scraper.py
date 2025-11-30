@@ -234,6 +234,19 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
     try:
         browser_config = BrowserConfig(headless=True)
         async with AsyncWebCrawler(config=browser_config) as crawler:
+            # 0. Test connection
+            logger.info("Testing browser connection...")
+            try:
+                test_result = await crawler.arun(url="https://www.cataloguemate.fr/", config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS))
+                if test_result.success:
+                    logger.info(f"Connection test successful (status: {len(test_result.html)} chars)")
+                else:
+                    logger.error(f"Connection test failed: {test_result.error_message}")
+                    raise Exception(f"Connection failed: {test_result.error_message}")
+            except Exception as e:
+                logger.error(f"Browser/Network error: {e}")
+                raise e
+
             # 1. Get list of catalogs
             catalogs_list = await scrape_catalog_list(crawler, enseigne)
             log.catalogues_trouves = len(catalogs_list)
