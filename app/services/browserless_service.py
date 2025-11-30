@@ -211,41 +211,103 @@ class BrowserlessService:
 
     @staticmethod
     async def _extract_amazon_price(page: Page) -> str:
-        """Extract price from Amazon product page with strict validation."""
-        price_selectors = [
-            ".a-price .a-offscreen",  # Most reliable
-            "#corePrice_desktop .a-price .a-offscreen",
-            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
-            ".a-price[data-a-color='price'] .a-offscreen",
-            "#priceblock_ourprice",
-            "#priceblock_dealprice",
-            "span.a-price-whole",
+        """
+        Extract price from Amazon product page with strict validation.
+        Prioritize main price block to avoid false positives from recommendations.
+        """
+        # STRATEGY: Target main price block FIRST to avoid picking up
+        # prices from "Other sellers", "Recommendations", etc.
+        
+        # Priority 1: Main price display area (most specific)
+        main_price_selectors = [
+            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",  # Desktop main price
+            "#corePrice_desktop .a-price .a-offscreen",  # Desktop main price (variant)
+            "#corePrice_feature_div .a-price .a-offscreen",  # Mobile main price
+            "#priceblock_ourprice",  # Legacy our price
+            "#priceblock_dealprice",  # Legacy deal price
+            "#priceblock_saleprice",  # Legacy sale price
         ]
-
-        for selector in price_selectors:
+        
+        for selector in main_price_selectors:
             try:
-                element = page.locator(selector).first
-                price_text = await element.inner_text(timeout=2000)
-                if price_text and price_text.strip():
-                    # Validate format (Amazon uses "XX,YY €" or "XX,YY")
-                    if re.search(r'\d+[.,]\d{2}', price_text):
-                        logger.info(f"💰 Amazon price via {selector}: {price_text}")
-                        return price_text.strip()
-            except Exception:
+                elements = page.locator(selector)
+                count = await elements.count()
+                
+                for i in range(count):
+                    element = elements.nth(i)
+                    
+                    # Check if element is visible
+                    if not await element.is_visible(timeout=1000):
+                        continue
+                    
+                    # Check if strikethrough (old price)
+                    try:
+                        text_decoration = await element.evaluate("el => window.getComputedStyle(el).textDecoration")
+                        if "line-through" in text_decoration:
+                            continue
+                    except Exception:
+                        pass
+                    
+                    price_text = await element.inner_text(timeout=1000)
+                    if price_text and price_text.strip():
+                        # Validate format (Amazon uses "XX,YY €" or "XX,YY")
+                        if re.search(r'\d+[.,]\d{2}', price_text):
+                            # Extract numeric value for validation
+                            numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+                            if numeric_match:
+                                price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
+                                # Reasonable range: 0.01€ to 10,000€ (avoid crazy values)
+                                if 0.01 <= price_val <= 10000:
+                                    logger.info(f"💰 Amazon main price via {selector}: {price_text} ({price_val}€)")
+                                    return price_text.strip()
+            except Exception as e:
+                logger.debug(f"Selector {selector} failed: {e}")
                 continue
-
-        # Try combination: whole + fraction
+        
+        # Priority 2: Generic .a-price but ONLY in buybox area
         try:
-            whole = await page.locator("span.a-price-whole").first.inner_text()
-            fraction = await page.locator("span.a-price-fraction").first.inner_text()
-            if whole and fraction:
-                price_text = f"{whole}{fraction}"
-                logger.info(f"💰 Amazon price from whole+fraction: {price_text}")
-                return price_text
+            # Try to find buybox first
+            buybox = page.locator("#buybox, #buybox_feature_div, #desktop_buybox")
+            if await buybox.count() > 0:
+                price_elem = buybox.locator(".a-price .a-offscreen").first
+                if await price_elem.is_visible(timeout=1000):
+                    price_text = await price_elem.inner_text()
+                    if price_text and re.search(r'\d+[.,]\d{2}', price_text):
+                        numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+                        if numeric_match:
+                            price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
+                            if 0.01 <= price_val <= 10000:
+                                logger.info(f"💰 Amazon buybox price: {price_text} ({price_val}€)")
+                                return price_text.strip()
         except Exception:
             pass
-
-        logger.warning("⚠️ Could not extract Amazon price")
+        
+        # Priority 3: Whole + Fraction (common pattern)
+        try:
+            # Look specifically in price display area
+            price_container = page.locator("#corePriceDisplay_desktop_feature_div, #corePrice_desktop, #price")
+            whole_elem = price_container.locator("span.a-price-whole").first
+            fraction_elem = price_container.locator("span.a-price-fraction").first
+            
+            whole = await whole_elem.inner_text(timeout=1000)
+            fraction = await fraction_elem.inner_text(timeout=1000)
+            
+            if whole and fraction:
+                # Clean up (remove trailing comma/period from whole)
+                whole = whole.rstrip('.,')
+                price_text = f"{whole},{fraction}"
+                
+                # Validate
+                numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+                if numeric_match:
+                    price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
+                    if 0.01 <= price_val <= 10000:
+                        logger.info(f"💰 Amazon whole+fraction: {price_text} ({price_val}€)")
+                        return price_text
+        except Exception:
+            pass
+        
+        logger.warning("⚠️ Could not extract Amazon price with any method")
         return ""
 
     @staticmethod
