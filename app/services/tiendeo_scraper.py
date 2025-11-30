@@ -1,19 +1,19 @@
 """
-Tiendeo.fr Scraper Service
+Tiendeo.fr Scraper Service - Powered by Crawl4AI
 
 Scrapes promotional catalogs from Tiendeo.fr for configured enseignes.
-Much simpler structure than Bonial - catalog cards are clearly defined with direct links.
+Uses Crawl4AI for intelligent content extraction instead of fragile CSS selectors.
 """
 
 import asyncio
 import hashlib
 import logging
 import re
-import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from playwright.async_api import async_playwright, Page, Browser
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
@@ -26,6 +26,30 @@ TIENDEO_BASE_URL = "https://www.tiendeo.fr"
 # Date pattern for Tiendeo: "Expire le 31/12" or "mar. 25/11 - lun. 08/12"
 DATE_PATTERN = r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
 
+
+# ============================================================================
+# PYDANTIC SCHEMAS FOR EXTRACTION
+# ============================================================================
+
+class CatalogueCard(BaseModel):
+    """Schema for catalog card extraction"""
+    title: str = Field(description="Catalogue title")
+    url: str = Field(description="Full URL to the catalogue viewer")
+    image_url: str | None = Field(default=None, description="Cover image URL")
+    date_text: str | None = Field(default=None, description="Date validity text")
+
+
+class CataloguePageSchema(BaseModel):
+    """Schema for catalog page image extraction"""
+    page_number: int = Field(description="Page number in sequence")
+    image_url: str = Field(description="Full resolution image URL")
+    width: int | None = Field(default=None, description="Image width in pixels")
+    height: int | None = Field(default=None, description="Image height in pixels")
+
+
+# ============================================================================
+# DATE PARSING
+# ============================================================================
 
 def parse_tiendeo_dates(date_str: str) -> tuple[datetime, datetime]:
     """
@@ -86,18 +110,34 @@ def compute_catalog_hash(enseigne_id: int, titre: str, date_debut: datetime) -> 
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, Any]]:
-    """Scrape the list of catalogs for an enseigne from Tiendeo."""
+# ============================================================================
+# SCRAPING FUNCTIONS
+# ============================================================================
+
+async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> list[dict[str, Any]]:
+    """Scrape the list of catalogs for an enseigne from Tiendeo using Crawl4AI."""
     # Tiendeo uses store URLs like: /Magasins/{city}/{enseigne-slug}
-    # We'll use Nancy as default city for now
     url = f"{TIENDEO_BASE_URL}/Magasins/nancy/{enseigne.slug_bonial.lower()}"
     logger.info(f"Scraping catalog list for {enseigne.nom} from {url}")
     
-    await page.goto(url, wait_until="networkidle")
-    await asyncio.sleep(2)  # Wait for dynamic content
+    # Configure crawler for this page
+    config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        wait_for_images=True,
+        process_iframes=False,
+        remove_overlay_elements=True,
+        wait_until="networkidle",
+    )
     
-    # Extract catalog data using JavaScript
-    catalogs_data = await page.evaluate("""
+    result = await crawler.arun(url=url, config=config)
+    
+    if not result.success:
+        logger.error(f"Failed to crawl {url}: {result.error_message}")
+        return []
+    
+    # Extract catalog cards using JavaScript
+    catalog_data = await crawler.crawler_strategy.execute_js(
+        """
         () => {
             const results = [];
             
@@ -141,20 +181,20 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
                         url: href,
                         image: imgSrc,
                         containerText: containerText.substring(0, 300),  // For date parsing
-                        catalogId: catalogId
                     });
                 }
             });
             
             return results;
         }
-    """)
+        """
+    )
     
-    logger.info(f"Found {len(catalogs_data)} catalog links for {enseigne.nom}")
+    logger.info(f"Found {len(catalog_data)} catalog links for {enseigne.nom}")
     
     catalogues = []
     
-    for idx, cat_data in enumerate(catalogs_data):
+    for idx, cat_data in enumerate(catalog_data):
         try:
             titre = cat_data.get('title', 'Catalogue')
             image_url = cat_data.get('image')
@@ -165,7 +205,7 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
                 logger.warning(f"Skipping catalog {idx}: missing URL")
                 continue
             
-            # Clean title - remove extra info like distances, "Gifi", etc.
+            # Clean title - remove extra info
             titre = titre.replace('Gifi', '').replace('Action', '').replace('Centrakor', '')
             titre = re.sub(r'\d+\.\d+\s*km', '', titre)  # Remove "3.2 km"
             titre = re.sub(r'Nancy', '', titre, flags=re.IGNORECASE)
@@ -206,53 +246,92 @@ async def scrape_catalog_list(page: Page, enseigne: Enseigne) -> list[dict[str, 
     return catalogues
 
 
-async def scrape_catalog_pages(page: Page, catalogue_url: str) -> list[dict[str, Any]]:
-    """Scrape all pages of a catalog from the Tiendeo viewer."""
+async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalogue_url: str) -> list[dict[str, Any]]:
+    """Scrape all pages of a catalog from the Tiendeo viewer using Crawl4AI."""
     logger.info(f"Scraping catalog pages from {catalogue_url}")
     
-    await page.goto(catalogue_url, wait_until="networkidle")
-    await asyncio.sleep(3)  # Wait for viewer to load
+    # Configure crawler to wait for images
+    config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        wait_for_images=True,
+        process_iframes=True,
+        remove_overlay_elements=True,
+        wait_until="networkidle",
+        delay_before_return_html=3.0,  # Wait for viewer to fully load
+    )
     
-    # Find all catalog page images
-    images = await page.query_selector_all("img[src*='tiendeo'], img[src*='cdn']")
+    result = await crawler.arun(url=catalogue_url, config=config)
     
-    if not images:
-        logger.warning(f"No images found in catalog viewer: {catalogue_url}")
+    if not result.success:
+        logger.error(f"Failed to crawl {catalogue_url}: {result.error_message}")
         return []
     
-    seen_urls = set()
-    pages = []
-    
-    for idx, img in enumerate(images):
-        try:
-            src = await img.get_attribute("src")
+    # Extract catalog page images using JavaScript with intelligent filtering
+    pages_data = await crawler.crawler_strategy.execute_js(
+        """
+        () => {
+            const results = [];
+            const seenUrls = new Set();
             
-            if src and src not in seen_urls:
-                width = await img.evaluate("el => el.naturalWidth")
-                height = await img.evaluate("el => el.naturalHeight")
+            // Find all images - prioritize those in viewer containers
+            const allImages = document.querySelectorAll('img');
+            
+            allImages.forEach((img) => {
+                // Get image source (try multiple attributes)
+                let src = img.src || img.getAttribute('data-src');
                 
-                # Skip small images (thumbnails)
-                if width < 200 or height < 200:
-                    continue
+                // Try srcset as fallback
+                if (!src && img.srcset) {
+                    const srcsetParts = img.srcset.split(',')[0].trim().split(' ');
+                    src = srcsetParts[0];
+                }
                 
-                seen_urls.add(src)
-                pages.append({
-                    "numero_page": len(pages) + 1,
-                    "image_url": src,
-                    "largeur": width,
-                    "hauteur": height,
-                })
-        
-        except Exception as e:
-            logger.debug(f"Error processing image {idx}: {e}")
-            continue
+                if (!src || seenUrls.has(src)) return;
+                
+                // Skip obvious non-catalog images
+                if (src.includes('logo') || src.includes('icon') || src.includes('avatar')) {
+                    return;
+                }
+                
+                // Get dimensions
+                const width = img.naturalWidth || img.width;
+                const height = img.naturalHeight || img.height;
+                
+                // Filter by dimensions - catalog pages are typically portrait and high-res
+                // Minimum 400px width, aspect ratio close to 3:4 or similar
+                if (width < 400 || height < 400) return;
+                
+                const aspectRatio = width / height;
+                
+                // Portrait images (0.5 to 0.9 ratio) - catalog pages are usually portrait
+                if (aspectRatio > 0.5 && aspectRatio < 0.9) {
+                    seenUrls.add(src);
+                    results.push({
+                        image_url: src,
+                        width: width,
+                        height: height,
+                    });
+                }
+            });
+            
+            // Sort by area (largest first) to prioritize full resolution images
+            results.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+            
+            // Assign page numbers
+            return results.map((item, index) => ({
+                ...item,
+                numero_page: index + 1,
+            }));
+        }
+        """
+    )
     
-    logger.info(f"Found {len(pages)} pages in catalog")
-    return pages
+    logger.info(f"Found {len(pages_data)} pages in catalog")
+    return pages_data
 
 
-async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | None = None) -> ScrapingLog:
-    """Scrape all catalogs for a specific enseigne from Tiendeo."""
+async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
+    """Scrape all catalogs for a specific enseigne from Tiendeo using Crawl4AI."""
     start_time = datetime.now()
     log = ScrapingLog(
         enseigne_id=enseigne.id,
@@ -262,90 +341,83 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session, browser: Browser | No
         catalogues_mis_a_jour=0,
     )
     
-    own_browser = browser is None
-    
     try:
-        if own_browser:
-            browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
-            async with async_playwright() as p:
-                browser = await p.chromium.connect_over_cdp(browserless_url)
+        # Configure browser for Crawl4AI
+        browser_config = BrowserConfig(
+            headless=True,
+            verbose=False,
+            extra_args=["--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage"],
+        )
         
-        page = await browser.new_page()
-        
-        await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        
-        catalogues_data = await scrape_catalog_list(page, enseigne)
-        log.catalogues_trouves = len(catalogues_data)
-        
-        if not catalogues_data:
-            log.statut = "success"
-            log.message_erreur = "No catalogs found (may be normal)"
-            await page.close()
-            return log
-        
-        for cat_data in catalogues_data:
-            try:
-                content_hash = compute_catalog_hash(
-                    enseigne.id,
-                    cat_data["titre"],
-                    cat_data["date_debut"]
-                )
-                
-                existing = db.query(Catalogue).filter_by(content_hash=content_hash).first()
-                
-                if existing:
-                    logger.debug(f"Catalog already exists: {cat_data['titre']}")
-                    continue
-                
-                await asyncio.sleep(2)  # Respectful delay
-                pages_data = await scrape_catalog_pages(page, cat_data["catalogue_url"])
-                
-                catalogue = Catalogue(
-                    enseigne_id=enseigne.id,
-                    titre=cat_data["titre"],
-                    date_debut=cat_data["date_debut"],
-                    date_fin=cat_data["date_fin"],
-                    image_couverture_url=cat_data["image_couverture_url"],
-                    catalogue_url=cat_data["catalogue_url"],
-                    statut="actif",
-                    nombre_pages=len(pages_data),
-                    content_hash=content_hash,
-                )
-                db.add(catalogue)
-                db.flush()
-                
-                for page_data in pages_data:
-                    catalogue_page = CataloguePage(
-                        catalogue_id=catalogue.id,
-                        numero_page=page_data["numero_page"],
-                        image_url=page_data["image_url"],
-                        largeur=page_data["largeur"],
-                        hauteur=page_data["hauteur"],
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            catalogues_data = await scrape_catalog_list(crawler, enseigne)
+            log.catalogues_trouves = len(catalogues_data)
+            
+            if not catalogues_data:
+                log.statut = "success"
+                log.message_erreur = "No catalogs found (may be normal)"
+                return log
+            
+            for cat_data in catalogues_data:
+                try:
+                    content_hash = compute_catalog_hash(
+                        enseigne.id,
+                        cat_data["titre"],
+                        cat_data["date_debut"]
                     )
-                    db.add(catalogue_page)
-                
-                log.catalogues_nouveaux += 1
-                logger.info(f"Added new catalog: {cat_data['titre']}")
-                
-            except Exception as e:
-                logger.error(f"Error processing catalog: {e}")
-                continue
-        
-        db.commit()
-        log.statut = "success"
-        await page.close()
+                    
+                    existing = db.query(Catalogue).filter_by(content_hash=content_hash).first()
+                    
+                    if existing:
+                        logger.debug(f"Catalog already exists: {cat_data['titre']}")
+                        continue
+                    
+                    await asyncio.sleep(2)  # Respectful delay
+                    pages_data = await scrape_catalog_pages(crawler, cat_data["catalogue_url"])
+                    
+                    if not pages_data:
+                        logger.warning(f"No pages found for catalog: {cat_data['titre']}")
+                        continue
+                    
+                    catalogue = Catalogue(
+                        enseigne_id=enseigne.id,
+                        titre=cat_data["titre"],
+                        date_debut=cat_data["date_debut"],
+                        date_fin=cat_data["date_fin"],
+                        image_couverture_url=cat_data["image_couverture_url"],
+                        catalogue_url=cat_data["catalogue_url"],
+                        statut="actif",
+                        nombre_pages=len(pages_data),
+                        content_hash=content_hash,
+                    )
+                    db.add(catalogue)
+                    db.flush()
+                    
+                    for page_data in pages_data:
+                        catalogue_page = CataloguePage(
+                            catalogue_id=catalogue.id,
+                            numero_page=page_data["numero_page"],
+                            image_url=page_data["image_url"],
+                            largeur=page_data.get("width"),
+                            hauteur=page_data.get("height"),
+                        )
+                        db.add(catalogue_page)
+                    
+                    log.catalogues_nouveaux += 1
+                    logger.info(f"Added new catalog: {cat_data['titre']} with {len(pages_data)} pages")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing catalog: {e}")
+                    continue
+            
+            db.commit()
+            log.statut = "success"
         
     except Exception as e:
         logger.error(f"Error scraping {enseigne.nom}: {e}")
         log.statut = "error"
         log.message_erreur = str(e)
         db.rollback()
-    
-    finally:
-        if own_browser and browser:
-            await browser.close()
     
     log.duree_secondes = (datetime.now() - start_time).total_seconds()
     db.add(log)
@@ -361,21 +433,13 @@ async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
     
     logs = []
     
-    browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
-    logger.info(f"Connecting to Browserless at {browserless_url}")
-    
-    async with async_playwright() as p:
-        browser = await p.chromium.connect_over_cdp(browserless_url)
-        
-        for enseigne in enseignes:
-            try:
-                await asyncio.sleep(2)
-                log = await scrape_enseigne(enseigne, db, browser)
-                logs.append(log)
-            except Exception as e:
-                logger.error(f"Failed to scrape {enseigne.nom}: {e}")
-        
-        await browser.close()
+    for enseigne in enseignes:
+        try:
+            await asyncio.sleep(2)
+            log = await scrape_enseigne(enseigne, db)
+            logs.append(log)
+        except Exception as e:
+            logger.error(f"Failed to scrape {enseigne.nom}: {e}")
     
     logger.info(f"Tiendeo scraping complete: {len(logs)} enseignes processed")
     return logs
