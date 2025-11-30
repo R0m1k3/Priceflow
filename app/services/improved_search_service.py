@@ -314,16 +314,18 @@ class ImprovedSearchService:
             if not title or len(title) < 3:
                 continue
 
-            # STRICT FILTERING: Check if all query words are in the title
+            # RELAXED FILTERING: Check if at least ONE query word is in the title
+            # (instead of ALL words, which was too strict)
             title_lower = title.lower()
             if query_words:
-                all_words_found = True
+                at_least_one_word_found = False
                 for word in query_words:
-                    if word not in title_lower:
-                        all_words_found = False
+                    if word in title_lower:
+                        at_least_one_word_found = True
                         break
-
-                if not all_words_found:
+                
+                # Only keep results with at least one matching word
+                if not at_least_one_word_found:
                     continue
 
             # Extract Image URL - PRIORITIZE CONFIGURED SELECTOR
