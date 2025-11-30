@@ -17,6 +17,7 @@ from app.routers import auth, items, jobs, notifications, openrouter, search, se
 from app.services.scheduler_service import scheduled_refresh, scheduler
 from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
+from app.services.amazon_scraper_service import amazon_scraper_service
 
 # Configure logging
 logging.basicConfig(
@@ -139,12 +140,17 @@ async def lifespan(app: FastAPI):
     # Start catalog scraping scheduler
     logger.info("Starting catalog scraping scheduler (6h and 18h daily)")
     start_catalog_scheduler()
-    
+
+    # Initialize Amazon scraper service
+    logger.info("Initializing Amazon scraper service...")
+    await amazon_scraper_service.initialize()
+
     logger.info("Application started")
     yield
-    logger.info("Shutting down schedulers...")
+    logger.info("Shutting down schedulers and services...")
     scheduler.shutdown(wait=True)
     stop_catalog_scheduler()
+    await amazon_scraper_service.shutdown()
     logger.info("Application shutdown complete")
 
 
