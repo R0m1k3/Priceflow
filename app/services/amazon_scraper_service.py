@@ -247,8 +247,19 @@ class AmazonScraperService:
             page = await context.new_page()
 
             try:
-                # Navigate
-                logger.info(f"Navigating to {search_url}")
+                # CRITICAL: Load Amazon homepage FIRST in same context to establish session
+                logger.info("🏠 Loading Amazon homepage to establish session/cookies...")
+                await page.goto("https://www.amazon.fr", wait_until="domcontentloaded", timeout=30000)
+                logger.info("✅ Homepage loaded")
+
+                # Handle homepage popups
+                await cls._handle_popups(page)
+
+                # Small delay
+                await page.wait_for_timeout(2000)
+
+                # NOW navigate to search in SAME context (cookies preserved)
+                logger.info(f"🔍 Navigating to search: {search_url}")
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
                 logger.info("Page loaded (domcontentloaded)")
 
