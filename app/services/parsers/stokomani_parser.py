@@ -41,7 +41,11 @@ class StokomaniParser(BaseParser):
                     # Try specific selector first
                     img_el = prev_a.select_one("motion-element img, img")
                     if img_el:
-                        img_url = self._get_image_src(img_el)
+                        # Check for lazy loading attributes explicitly
+                        img_url = img_el.get('data-src') or img_el.get('data-srcset') or img_el.get('srcset') or img_el.get('src')
+                        if img_url and " " in img_url:
+                            # Handle srcset: take the first URL
+                            img_url = img_url.split(" ")[0]
                     
                     if not img_url:
                         img_url = self.extract_image_url(prev_a)
