@@ -202,6 +202,8 @@ class ImprovedSearchService:
         for item in links:
             # Keep reference to original container for image search
             container = item
+            if site_key == "centrakor.com":
+                logger.debug(f"  Processing Centrakor item: {item.name}, classes: {item.get('class')}")
             
             # If selector targets the container (div.product-card), we need to find the link inside
             if item.name != 'a':
@@ -263,12 +265,13 @@ class ImprovedSearchService:
 
             # PRIORITY 1: Use product_image_selector if configured (site-specific)
             if "product_image_selector" in config:
-                # Search in the original container first
-                img_el = container.select_one(config["product_image_selector"])
+                # Search in the original container first - get ALL matches
+                img_els = container.select(config["product_image_selector"])
                 
-                if img_el:
+                # Filter and find first valid image  
+                for img_el in img_els:
                     # Try multiple attributes in order of priority
-                    image_url= (
+                    candidate_url = (
                         img_el.get("src") or
                         img_el.get("data-src") or
                         img_el.get("data-lazy-src") or
@@ -276,13 +279,46 @@ class ImprovedSearchService:
                     )
                     
                     # Handle srcset (use first URL)
-                    if not image_url and img_el.get("srcset"):
+                    if not candidate_url and img_el.get("srcset"):
                         srcset = img_el.get("srcset")
-                        # srcset format: "url1 size1, url2 size2"
-                        image_url = srcset.split(",")[0].split()[0]
+                        candidate_url = srcset.split(",")[0].split()[0]
                     
-                    if image_url:
+                    # Skip invalid images (pictos, icons, etc.)
+                    if candidate_url:
+                        # SPECIAL: No filtering for Centrakor (debugging)
+                        if site_key == "centrakor.com":
+                            # Skip placeholders
+                            if "placeholder" in candidate_url.lower():
+                                logger.debug(f"  ⏭️ Skipping placeholder: {candidate_url[:50]}")
+                                continue
+                            # Filter only tiny pictos
+                            if 'picto' in candidate_url.lower() and ('width=60' in candidate_url or 'height=80' in candidate_url):
+                                logger.debug(f"  ⏭️ Skipping tiny picto: {candidate_url[:50]}")
+                                continue
+                            image_url = candidate_url
+                            logger.debug(f"  🖼️ Centrakor image: {image_url[:70]}")
+                            break
+                        
+                        # Normal filtering for other sites
+                        # Filter out obvious pictos and small icons
+                        if any(keyword in candidate_url.lower() for keyword in ['picto', 'icon', 'logo', 'badge']):
+                            logger.debug(f"  ⏭️ Skipping picto/icon: {candidate_url[:50]}")
+                            continue
+                        # Filter out VERY small images (less than 100px)
+                        import re
+                        width_match = re.search(r'width=(\d+)', candidate_url)
+                        height_match = re.search(r'height=(\d+)', candidate_url)
+                        if width_match and height_match:
+                            width = int(width_match.group(1))
+                            height = int(height_match.group(1))
+                            if width < 100 and height < 100:
+                                logger.debug(f"  ⏭️ Skipping small image ({width}x{height}): {candidate_url[:50]}")
+                                continue
+                        
+                        # This is a valid product image
+                        image_url = candidate_url
                         logger.debug(f"  🖼️ Image found via product_image_selector: {image_url[:50]}...")
+                        break
 
             # PRIORITY 2: Fallback - Look for any img directly in the link
             if not image_url:
@@ -336,12 +372,26 @@ class ImprovedSearchService:
             if not image_url:
                 logger.warning(f"  ⚠️ No image found for: {title[:50]}")
 
+            # Extract price from search results for sites where product pages are unavailable
+            product_price = None
+            if site_key == "gifi.fr":
+                # Gifi: Extract price from product tile HTML
+                import re
+                container_html = str(container)
+                price_match = re.search(r'(\d+)[,.](\d+)\s*€', container_html)
+                if price_match:
+                    euros = int(price_match.group(1))
+                    cents = int(price_match.group(2))
+                    product_price = float(f"{euros}.{cents}")
+                    logger.debug(f"  💰 Extracted price from search: {product_price}€")
+
             # Create result
             results.append(SearchResult(
                 url=full_url,
                 title=title,
                 snippet=f"Product from {config['name']}",
                 source=config["name"],
+                price=product_price,  # Set price if extracted from search
                 image_url=image_url
             ))
 
@@ -352,6 +402,28 @@ class ImprovedSearchService:
     async def _scrape_item_details(cls, result: SearchResult, context: BrowserContext) -> SearchResult | None:
         """Scrape price and details for a single item using same context"""
         try:
+            # SPECIAL CASE: L'Incroyable - Price is in the title
+            if "lincroyable.fr" in result.url:
+                import re
+                # Extract price from title (e.g., "34€99" or "59€99")
+                price_match = re.search(r'(\d+)€(\d+)', result.title)
+                if price_match:
+                    # Convert to float (e.g., "34€99" -> 34.99)
+                    price_euros = int(price_match.group(1))
+                    price_cents = int(price_match.group(2))
+                    result.price = float(f"{price_euros}.{price_cents}")
+                    
+                    # Clean title by removing price
+                    result.title = re.sub(r'\d+€\d+', '', result.title).strip()
+                    logger.debug(f"L'Incroyable - Extracted price {result.price}€ from title")
+                    
+                    return result
+            
+            # SPECIAL CASE: Gifi - Price extracted from search, no need to visit page
+            if "gifi.fr" in result.url and result.price is not None:
+                logger.debug(f"Gifi - Price already extracted from search: {result.price}€")
+                return result
+            
             page = await context.new_page()
             try:
                 logger.debug(f"Scraping details for: {result.title[:50]}...")
