@@ -19,6 +19,33 @@ WORKDIR /app
 # Enable unbuffered logging
 ENV PYTHONUNBUFFERED=1
 
+# Install system dependencies for crawl4ai and playwright
+RUN apt-get update && apt-get install -y \
+  wget \
+  gnupg \
+  # Playwright dependencies for Chromium
+  libnss3 \
+  libnspr4 \
+  libatk1.0-0 \
+  libatk-bridge2.0-0 \
+  libcups2 \
+  libdrm2 \
+  libdbus-1-3 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxrandr2 \
+  libgbm1 \
+  libasound2 \
+  libpango-1.0-0 \
+  libcairo2 \
+  libatspi2.0-0 \
+  fonts-liberation \
+  libappindicator3-1 \
+  xdg-utils \
+  && rm -rf /var/lib/apt/lists/*
+
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -28,6 +55,9 @@ COPY README.md .
 
 # Use uv for faster installation (fixed syntax)
 RUN uv pip install --system --no-cache .
+
+# Install Playwright browsers for crawl4ai
+RUN playwright install chromium --with-deps
 
 # Copy backend code
 COPY app/ ./app
