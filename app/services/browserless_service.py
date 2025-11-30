@@ -1,14 +1,14 @@
 """
-Browserless Service - Enhanced Persistent Browser Version
-Inspired by AmazonScraperService architecture for better performance and reliability
+Browserless Service - Unified Persistent Browser Service
+Consolidates ScraperService pattern with Amazon price extraction improvements
 
 Features:
 - Persistent browser connection (singleton pattern)
 - Auto-reconnection on disconnection
 - Thread-safe operations (asyncio.Lock)
-- Improved price extraction accuracy
-- Optimized timeouts and screenshots
-- Amazon & Generic price extraction
+- Improved Amazon price extraction (main price block targeting)
+- Generic price extraction with strict validation
+- Screenshot and text extraction
 """
 
 import asyncio
@@ -59,13 +59,13 @@ class ScrapeConfig:
     smart_scroll: bool = False
     scroll_pixels: int = 350
     text_length: int = 0
-    timeout: int = 30000  # Reduced from 90s to 30s
+    timeout: int = 30000  # 30s default
 
 
 class BrowserlessService:
     """
-    Enhanced persistent browserless service with auto-reconnection.
-    Architecture inspired by AmazonScraperService for optimal performance.
+    Unified persistent browserless service with auto-reconnection.
+    Combines ScraperService pattern with enhanced price extraction.
     """
 
     _playwright = None
@@ -82,7 +82,7 @@ class BrowserlessService:
     async def _initialize(cls):
         """Internal initialization logic (Assumes lock is held)."""
         if cls._browser is None:
-            logger.info("🚀 Initializing BrowserlessService persistent browser...")
+            logger.info("🚀 Initializing BrowserlessService shared browser...")
             cls._playwright = await async_playwright().start()
             cls._browser = await cls._connect_browser(cls._playwright)
             logger.info("✅ BrowserlessService browser ready (persistent)")
@@ -121,7 +121,7 @@ class BrowserlessService:
                     return True
                 except Exception as e:
                     logger.error(f"❌ Browser connection test failed: {e}")
-                    logger.info("🔄 Attempting to reconnect browser...")
+                    logger.info("🔄 Attempting to reconnect...")
                     
                     # Clear the old browser
                     cls._browser = None
@@ -181,7 +181,7 @@ class BrowserlessService:
             logger.info(f"✅ Page loaded (domcontentloaded): {url}")
 
             try:
-                await page.wait_for_load_state("networkidle", timeout=2000)  # Reduced from 5s
+                await page.wait_for_load_state("networkidle", timeout=2000)
                 logger.info("✅ Network idle reached")
             except PlaywrightTimeoutError:
                 logger.debug("⚠️ Network idle timed out (non-critical), proceeding...")
@@ -189,7 +189,7 @@ class BrowserlessService:
         except Exception as e:
             logger.warning(f"Navigation warning for {url}: {e}")
 
-        await page.wait_for_timeout(1500)  # Reduced from 2s
+        await page.wait_for_timeout(1500)
 
     @staticmethod
     async def _handle_popups(page: Page):
@@ -213,19 +213,16 @@ class BrowserlessService:
     async def _extract_amazon_price(page: Page) -> str:
         """
         Extract price from Amazon product page with strict validation.
-        Prioritize main price block to avoid false positives from recommendations.
+        Prioritize main price block to avoid false positives.
         """
-        # STRATEGY: Target main price block FIRST to avoid picking up
-        # prices from "Other sellers", "Recommendations", etc.
-        
         # Priority 1: Main price display area (most specific)
         main_price_selectors = [
-            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",  # Desktop main price
-            "#corePrice_desktop .a-price .a-offscreen",  # Desktop main price (variant)
-            "#corePrice_feature_div .a-price .a-offscreen",  # Mobile main price
-            "#priceblock_ourprice",  # Legacy our price
-            "#priceblock_dealprice",  # Legacy deal price
-            "#priceblock_saleprice",  # Legacy sale price
+            "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
+            "#corePrice_desktop .a-price .a-offscreen",
+            "#corePrice_feature_div .a-price .a-offscreen",
+            "#priceblock_ourprice",
+            "#priceblock_dealprice",
+            "#priceblock_saleprice",
         ]
         
         for selector in main_price_selectors:
@@ -236,7 +233,6 @@ class BrowserlessService:
                 for i in range(count):
                     element = elements.nth(i)
                     
-                    # Check if element is visible
                     if not await element.is_visible(timeout=1000):
                         continue
                     
@@ -250,13 +246,10 @@ class BrowserlessService:
                     
                     price_text = await element.inner_text(timeout=1000)
                     if price_text and price_text.strip():
-                        # Validate format (Amazon uses "XX,YY €" or "XX,YY")
                         if re.search(r'\d+[.,]\d{2}', price_text):
-                            # Extract numeric value for validation
                             numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
                             if numeric_match:
                                 price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
-                                # Reasonable range: 0.01€ to 10,000€ (avoid crazy values)
                                 if 0.01 <= price_val <= 10000:
                                     logger.info(f"💰 Amazon main price via {selector}: {price_text} ({price_val}€)")
                                     return price_text.strip()
@@ -264,9 +257,8 @@ class BrowserlessService:
                 logger.debug(f"Selector {selector} failed: {e}")
                 continue
         
-        # Priority 2: Generic .a-price but ONLY in buybox area
+        # Priority 2: Buybox area
         try:
-            # Try to find buybox first
             buybox = page.locator("#buybox, #buybox_feature_div, #desktop_buybox")
             if await buybox.count() > 0:
                 price_elem = buybox.locator(".a-price .a-offscreen").first
@@ -282,9 +274,8 @@ class BrowserlessService:
         except Exception:
             pass
         
-        # Priority 3: Whole + Fraction (common pattern)
+        # Priority 3: Whole + Fraction
         try:
-            # Look specifically in price display area
             price_container = page.locator("#corePriceDisplay_desktop_feature_div, #corePrice_desktop, #price")
             whole_elem = price_container.locator("span.a-price-whole").first
             fraction_elem = price_container.locator("span.a-price-fraction").first
@@ -293,11 +284,9 @@ class BrowserlessService:
             fraction = await fraction_elem.inner_text(timeout=1000)
             
             if whole and fraction:
-                # Clean up (remove trailing comma/period from whole)
                 whole = whole.rstrip('.,')
                 price_text = f"{whole},{fraction}"
                 
-                # Validate
                 numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
                 if numeric_match:
                     price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
@@ -312,13 +301,7 @@ class BrowserlessService:
 
     @staticmethod
     async def _extract_generic_price(page: Page) -> str:
-        """
-        Extract price from generic e-commerce pages with STRICT validation.
-        Improvements:
-        - Strict French price regex: digits,digits €
-        - Context validation (avoid random numbers)
-        - Exclude strikethrough prices
-        """
+        """Extract price from generic e-commerce pages with strict validation."""
         # High-priority semantic selectors
         high_priority_selectors = [
             "[itemprop='price']",
@@ -351,8 +334,7 @@ class BrowserlessService:
         all_selectors = high_priority_selectors + medium_priority_selectors + low_priority_selectors
         found_prices = []
 
-        # STRICT French price regex: 1-4 digits, comma, 2 digits, optional € symbol
-        # Examples: "12,99 €", "1 234,99€", "3,50 EUR"
+        # Strict French price regex
         strict_price_regex = re.compile(r'(\d{1,4}(?:\s?\d{3})*[.,]\d{2})\s*€?')
 
         for selector in all_selectors:
@@ -360,15 +342,14 @@ class BrowserlessService:
                 elements = page.locator(selector)
                 count = await elements.count()
 
-                for i in range(min(count, 3)):  # Max 3 elements per selector
+                for i in range(min(count, 3)):
                     try:
                         element = elements.nth(i)
                         
-                        # Check visibility
                         if not await element.is_visible(timeout=1000):
                             continue
 
-                        # Check if strikethrough (old price)
+                        # Check if strikethrough
                         try:
                             text_decoration = await element.evaluate("el => window.getComputedStyle(el).textDecoration")
                             if "line-through" in text_decoration:
@@ -381,22 +362,18 @@ class BrowserlessService:
                         if not price_text:
                             continue
 
-                        # STRICT validation with regex
                         price_match = strict_price_regex.search(price_text)
                         if price_match:
                             matched_price = price_match.group(0)
                             
-                            # Extract numeric value for range validation
                             numeric_text = matched_price.replace('€', '').replace(' ', '').replace(',', '.')
                             try:
                                 price_val = float(numeric_text)
                                 
-                                # Reasonable price range: 0.01€ to 100,000€
                                 if 0.01 <= price_val <= 100000:
                                     found_prices.append((selector, matched_price))
                                     logger.info(f"💰 Valid price via {selector}: {matched_price} ({price_val}€)")
 
-                                    # Return immediately if high-priority selector
                                     if selector in high_priority_selectors:
                                         return matched_price
                                 else:
@@ -412,8 +389,6 @@ class BrowserlessService:
                 logger.debug(f"Error with selector {selector}: {e}")
                 continue
 
-        # If multiple prices found, prefer the FIRST valid one (usually current price)
-        # Changed from LAST to FIRST - more reliable for current price detection
         if found_prices:
             best_price = found_prices[0][1]  # Take first (highest priority)
             if len(found_prices) > 1:
@@ -421,12 +396,11 @@ class BrowserlessService:
                 logger.info(f"💰 Multiple prices found: {prices_list}, selecting first: {best_price}")
             return best_price
 
-        # Fallback: Strict regex search in body text (last resort)
+        # Fallback: Strict regex in body text
         try:
             all_text = await page.inner_text('body')
             price_matches = strict_price_regex.findall(all_text)
             if price_matches:
-                # Take first match
                 first_match = price_matches[0]
                 logger.info(f"💰 Found price via regex fallback: {first_match}")
                 return first_match
@@ -445,18 +419,11 @@ class BrowserlessService:
         extract_text: bool = False
     ) -> tuple[str, str]:
         """
-        Fetch page content with persistent browser and optimized performance.
+        Fetch page content with persistent browser.
         
-        Args:
-            url: URL to fetch
-            use_proxy: Whether to use proxy
-            wait_selector: CSS selector to wait for
-            extract_text: If True, returns visible text; if False, returns HTML
-            
         Returns:
             tuple[content, screenshot_path]: Content (HTML or text) and screenshot path
         """
-        # Ensure browser connected (with auto-reconnection)
         if not await cls._ensure_browser_connected():
             logger.error("❌ Failed to establish browser connection")
             return "", ""
@@ -466,7 +433,6 @@ class BrowserlessService:
             page = await context.new_page()
 
             try:
-                # Navigate with optimized timeout (30s instead of 90s)
                 await cls._navigate_and_wait(page, url, 30000)
                 await cls._handle_popups(page)
 
@@ -486,22 +452,20 @@ class BrowserlessService:
                     content = await page.inner_text('body')
                     logger.info(f"📄 Extracted {len(content)} chars of visible text")
 
-                    # Normalize French prices to English format for AI
+                    # Normalize French prices
                     content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
                     content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
                     content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
 
-                    # Extract price with improved accuracy
+                    # Extract price
                     extracted_price = ""
                     if "amazon" in url.lower() and "/dp/" in url:
                         extracted_price = await cls._extract_amazon_price(page)
                     else:
                         extracted_price = await cls._extract_generic_price(page)
 
-                    # Prepend normalized price
                     if extracted_price:
-                        normalized_price = re.sub(r'(\d+)€(\d{2})', r'\1.\2 €', extracted_price)
-                        normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', normalized_price)
+                        normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', extracted_price)
                         normalized_price = normalized_price.replace(' ', '')
                         content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
                         logger.info(f"💰 Prepended price: {normalized_price}")
@@ -511,7 +475,7 @@ class BrowserlessService:
                     content = await page.content()
                     logger.debug(f"📄 Extracted {len(content)} chars of HTML")
 
-                # Take screenshot (optimized - viewport only by default)
+                # Take screenshot
                 screenshot_path = ""
                 try:
                     os.makedirs("/app/screenshots", exist_ok=True)
@@ -535,7 +499,6 @@ class BrowserlessService:
                         else:
                             await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
                     else:
-                        # Viewport screenshot (faster than full_page)
                         await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
                         logger.info(f"📸 Viewport screenshot saved to {screenshot_path}")
 
@@ -550,6 +513,29 @@ class BrowserlessService:
         except Exception as e:
             logger.error(f"❌ Error scraping {url}: {e}", exc_info=True)
             return "", ""
+
+    @classmethod
+    async def scrape_item(
+        cls,
+        url: str,
+        selector: str | None = None,
+        item_id: int | None = None,
+        config: ScrapeConfig | None = None,
+    ) -> tuple[str | None, str]:
+        """
+        Legacy method for compatibility with ScraperService pattern.
+        Returns: (screenshot_path, page_text)
+        """
+        if config is None:
+            config = ScrapeConfig()
+
+        # Call get_page_content with extract_text=True
+        page_text, screenshot_path = await cls.get_page_content(
+            url,
+            extract_text=True
+        )
+
+        return screenshot_path, page_text
 
 
 # Global instance (backward compatibility)
