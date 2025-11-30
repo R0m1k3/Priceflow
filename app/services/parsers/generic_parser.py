@@ -94,11 +94,30 @@ class GenericParser(BaseParser):
                         title = img.get("alt", "")
 
                 if not title or len(title) < 3:
+                    self.logger.debug(f"Skipped: empty or too short title")
                     continue
 
-                # Filter by query (relaxed: at least one word match)
-                if not self.filter_by_query(title, query, strict=False):
-                    continue
+                self.logger.debug(f"Extracted title: '{title[:60]}'...")
+
+                # RELAXED FILTERING: Only filter out if title is completely unrelated
+                # Accept product if:
+                # 1. Query is empty/short
+                # 2. At least one query word is in title (case-insensitive)
+                # 3. Title length is reasonable (not just numbers/symbols)
+                if query and len(query) > 2:
+                    # Very permissive: keep if ANY query word matches OR title is substantial
+                    query_words = [w.lower() for w in query.split() if len(w) > 2]
+                    title_lower = title.lower()
+
+                    if query_words:
+                        # Check if at least one word matches
+                        has_match = any(word in title_lower for word in query_words)
+
+                        # If no match and title is very short, skip
+                        # But if title is substantial (>15 chars), keep it anyway (might be relevant)
+                        if not has_match and len(title) < 15:
+                            self.logger.debug(f"Filtered: '{title[:40]}' - no query match and too short")
+                            continue
 
                 # Extract image using configured selector
                 image_url = None
