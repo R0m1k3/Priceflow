@@ -1,77 +1,139 @@
 """
-Browserless Service
-Manages connections to Browserless.io with advanced stealth capabilities.
-Handles:
-- Connection lifecycle
-- Stealth injection
-- Proxy rotation
-- Human behavior simulation
+Browserless Service - Enhanced Version
+Manages connections to Browserless.io with advanced robustness features:
+- Auto-reconnection on browser disconnection
+- Advanced popup handling
+- Flexible configuration
+- Thread-safe operations
 """
 
 import asyncio
 import logging
-import random
-import time
-from typing import Optional, Any
+import os
+from dataclasses import dataclass
+from datetime import datetime
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from app.core.search_config import (
-    BROWSERLESS_URL, 
-    get_amazon_proxies, 
+    BROWSERLESS_URL,
     get_random_user_agent,
-    COOKIE_ACCEPT_SELECTORS
 )
 
 logger = logging.getLogger(__name__)
 
-# Stealth JS to inject
-STEALTH_JS = """
-// Advanced Stealth Mode
-Object.defineProperty(navigator, 'webdriver', { get: () => false });
-delete Object.getPrototypeOf(navigator).webdriver;
-window.chrome = { runtime: {} };
-Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
-"""
+# Comprehensive popup selectors
+POPUP_SELECTORS = [
+    "button[aria-label='Close']",
+    "button[aria-label='close']",
+    "button[aria-label='Fermer']",
+    ".close-button",
+    ".modal-close",
+    "svg[data-name='Close']",
+    "[class*='popup'] button",
+    "[class*='modal'] button",
+    "button:has-text('No, thanks')",
+    "button:has-text('No thanks')",
+    "a:has-text('No, thanks')",
+    "div[role='dialog'] button[aria-label='Close']",
+    # Cookie banners (kept for compatibility)
+    "#sp-cc-accept",
+    "#onetrust-accept-btn-handler",
+    "button:has-text('Tout accepter')",
+    "button:has-text('Accepter')",
+]
+
+
+@dataclass
+class ScrapeConfig:
+    """Configuration for scraping parameters."""
+
+    smart_scroll: bool = False
+    scroll_pixels: int = 350
+    text_length: int = 0
+    timeout: int = 90000
+
 
 class BrowserlessService:
-    def __init__(self):
-        self._playwright = None
-        self._browser: Optional[Browser] = None
-        self._proxies = get_amazon_proxies()
+    """Enhanced browserless service with auto-reconnection and robust error handling."""
 
-    async def start(self):
-        """Initialize the browser connection"""
-        if not self._playwright:
-            self._playwright = await async_playwright().start()
-        
-        if not self._browser or not self._browser.is_connected():
+    _playwright = None
+    _browser: Browser | None = None
+    _lock = asyncio.Lock()
+
+    @classmethod
+    async def initialize(cls):
+        """Initialize the shared browser instance (Public, Thread-Safe)."""
+        async with cls._lock:
+            await cls._initialize()
+
+    @classmethod
+    async def _initialize(cls):
+        """Internal initialization logic (Assumes lock is held)."""
+        if cls._browser is None:
+            logger.info("Initializing BrowserlessService shared browser...")
+            cls._playwright = await async_playwright().start()
+            cls._browser = await cls._connect_browser(cls._playwright)
+            logger.info("BrowserlessService initialized.")
+
+    @classmethod
+    async def shutdown(cls):
+        """Shutdown the shared browser instance."""
+        async with cls._lock:
+            if cls._browser:
+                logger.info("Shutting down BrowserlessService shared browser...")
+                await cls._browser.close()
+                cls._browser = None
+            if cls._playwright:
+                await cls._playwright.stop()
+                cls._playwright = None
+            logger.info("BrowserlessService shutdown complete.")
+
+    @classmethod
+    async def _ensure_browser_connected(cls) -> bool:
+        """Ensure browser is connected, reconnect if needed."""
+        async with cls._lock:
             try:
-                logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-                # Use the stealth endpoint if possible, otherwise standard
-                # Note: /chromium/stealth might need specific token or config, 
-                # falling back to standard connect_over_cdp which is safer for generic browserless
-                self._browser = await self._playwright.chromium.connect_over_cdp(
-                    BROWSERLESS_URL,
-                    timeout=60000
-                )
+                if cls._browser is None:
+                    logger.warning("Browser not initialized, initializing...")
+                    await cls._initialize()
+                    return cls._browser is not None
+
+                # Test if browser is still alive by trying to create a context
+                try:
+                    test_context = await cls._browser.new_context()
+                    await test_context.close()
+                    return True
+                except Exception as e:
+                    logger.error(f"Browser connection test failed: {e}")
+                    logger.info("Attempting to reconnect browser...")
+                    # Clear the old browser
+                    cls._browser = None
+                    if cls._playwright:
+                        try:
+                            await cls._playwright.stop()
+                        except Exception:
+                            pass
+                        cls._playwright = None
+                    # Reconnect
+                    await cls._initialize()
+                    return cls._browser is not None
             except Exception as e:
-                logger.error(f"Failed to connect to Browserless: {e}")
-                raise
+                logger.error(f"Failed to ensure browser connection: {e}")
+                return False
 
-    async def stop(self):
-        """Close resources"""
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
+    @staticmethod
+    async def _connect_browser(p) -> Browser:
+        """Connect to Browserless."""
+        logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
+        return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=60000)
 
-    async def get_context(self, use_proxy: bool = False) -> BrowserContext:
-        """Create a new context with stealth settings"""
-        await self.start()
-        
+    @staticmethod
+    async def _create_context(browser: Browser, use_proxy: bool = False) -> BrowserContext:
+        """Create a new browser context with stealth settings."""
         user_agent = get_random_user_agent()
-        
+
         options = {
             "viewport": {"width": 1920, "height": 1080},
             "user_agent": user_agent,
@@ -83,174 +145,192 @@ class BrowserlessService:
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Sec-Ch-Ua-Platform": '"Windows"',
                 "Upgrade-Insecure-Requests": "1",
-            }
+            },
         }
 
-        if use_proxy and self._proxies:
-            proxy = random.choice(self._proxies)
-            options["proxy"] = proxy
-            logger.info(f"Using proxy: {proxy['server'].split('//')[1]}")
+        # Proxy support (can be enhanced with proxy pool in future)
+        if use_proxy:
+            logger.info("Proxy support requested (not implemented in this version)")
 
-        context = await self._browser.new_context(**options)
-        
-        # Block aggressive tracking but keep images for visual verification if needed
-        # (Optimized for speed vs detection)
+        context = await browser.new_context(**options)
+
+        # Block aggressive tracking but keep images
         await context.route("**/*", lambda route: route.continue_())
-        
+
         return context
 
-    async def simulate_human_behavior(self, page: Page):
-        """Simulate random mouse movements and scrolling"""
+    @staticmethod
+    async def _navigate_and_wait(page: Page, url: str, timeout: int):
+        """Navigate to URL and wait for page load."""
+        logger.info(f"Navigating to {url} (Timeout: {timeout}ms)")
         try:
-            # Mouse movements
-            for _ in range(random.randint(2, 5)):
-                await page.mouse.move(
-                    random.randint(100, 1800),
-                    random.randint(100, 900)
-                )
-                await asyncio.sleep(random.uniform(0.1, 0.3))
-            
-            # Scrolling
-            await page.evaluate("window.scrollBy(0, 300)")
-            await asyncio.sleep(random.uniform(0.5, 1.0))
-            await page.evaluate("window.scrollBy(0, -100)")
-        except Exception:
-            pass
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            logger.info(f"Page loaded (domcontentloaded): {url}")
 
-    async def handle_popups(self, page: Page):
-        """Attempt to close cookie banners and popups"""
-        try:
-            # Check for multiple popups (cookies + promo)
-            # We iterate through all selectors and click any that are visible
-            # We do this in a loop to handle sequential popups
-            for _ in range(3): # Try up to 3 times for sequential popups
-                clicked_something = False
-                for selector in COOKIE_ACCEPT_SELECTORS:
-                    try:
-                        # Use a short timeout for check
-                        element = page.locator(selector).first
-                        if await element.is_visible(timeout=100):
-                            await element.click()
-                            logger.info(f"Closed popup/banner with {selector}")
-                            await asyncio.sleep(0.5) # Wait for animation
-                            clicked_something = True
-                    except Exception:
-                        continue
-                
-                if not clicked_something:
-                    break
-        except Exception:
-            pass
-
-    async def get_page_content(self, url: str, use_proxy: bool = False, wait_selector: str = None) -> tuple[str, str]:
-        """
-        Fetch page content with full stealth lifecycle.
-        Returns (html_content, screenshot_path)
-        """
-        context = await self.get_context(use_proxy=use_proxy)
-        page = await context.new_page()
-        
-        try:
-            logger.info(f"Navigating to {url}")
-            # Random delay before start
-            await asyncio.sleep(random.uniform(0.5, 1.5))
-            
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
-            if response.status == 503:
-                logger.warning(f"503 Detected on {url}")
-                # Retry logic could be handled here or by caller, 
-                # for now we return what we have, caller decides
-            
-            # Handle pre-search interaction
-            from app.core.search_config import SITE_CONFIGS
-            for config in SITE_CONFIGS.values():
-                if config["search_url"].split("/")[2] in url:
-                    # Handle complex interaction list
-                    if config.get("pre_search_interaction"):
-                        try:
-                            logger.info(f"Executing pre-search interaction sequence for {config['name']}")
-                            for step in config["pre_search_interaction"]:
-                                step_type = step.get("type")
-                                selector = step.get("selector")
-                                
-                                if step_type == "input":
-                                    logger.info(f"Inputting text into {selector}")
-                                    await page.fill(selector, step["value"])
-                                    
-                                elif step_type == "click":
-                                    logger.info(f"Clicking {selector}")
-                                    # Use force=True to bypass potential overlays
-                                    await page.click(selector, timeout=5000)
-                                    
-                                elif step_type == "wait":
-                                    seconds = step.get("seconds", 1)
-                                    logger.info(f"Waiting {seconds}s")
-                                    await asyncio.sleep(seconds)
-                                    
-                            logger.info("Pre-search sequence completed")
-                            await asyncio.sleep(2) # Final stabilization wait
-                        except Exception as e:
-                            logger.warning(f"Pre-search sequence failed: {e}")
-
-                    # Handle simple selector (legacy support)
-                    elif config.get("pre_search_selector"):
-                        try:
-                            selector = config["pre_search_selector"]
-                            logger.info(f"Attempting pre-search interaction: {selector}")
-                            if await page.locator(selector).is_visible(timeout=5000):
-                                await page.click(selector)
-                                logger.info("Clicked pre-search selector")
-                                await asyncio.sleep(2) # Wait for transition
-                        except Exception as e:
-                            logger.warning(f"Pre-search interaction failed: {e}")
-                    break
-
-            await self.handle_popups(page)
-            await self.simulate_human_behavior(page)
-            
-            if wait_selector:
-                try:
-                    await page.wait_for_selector(wait_selector, timeout=10000)
-                except Exception:
-                    logger.warning(f"Wait selector {wait_selector} timed out")
-
-            # Wait for network idle to ensure dynamic content loads
             try:
                 await page.wait_for_load_state("networkidle", timeout=5000)
+                logger.info("Network idle reached")
+            except PlaywrightTimeoutError:
+                logger.info("Network idle timed out (non-critical), proceeding...")
+
+        except Exception as e:
+            logger.warning(f"Navigation warning for {url}: {e}")
+
+        # Wait a bit for dynamic content
+        await page.wait_for_timeout(2000)
+
+    @staticmethod
+    async def _handle_popups(page: Page):
+        """Attempt to close popups and cookie banners."""
+        logger.info("Attempting to close popups...")
+        for popup_selector in POPUP_SELECTORS:
+            try:
+                if await page.locator(popup_selector).count() > 0:
+                    logger.info(f"Found popup close button: {popup_selector}")
+                    await page.locator(popup_selector).first.click(timeout=2000)
+                    await page.wait_for_timeout(1000)
             except Exception:
                 pass
 
-            content = await page.content()
-            
-            # Take screenshot if needed for AI analysis
-            screenshot_path = ""
-            try:
-                import os
-                from datetime import datetime
-                
-                # Ensure directory exists
-                screenshots_dir = "/app/screenshots"
-                if not os.path.exists(screenshots_dir):
-                    os.makedirs(screenshots_dir, exist_ok=True)
-                
-                timestamp = int(time.time() * 1000)
-                safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
-                filename = f"{safe_name}_{timestamp}.jpg"
-                screenshot_path = f"{screenshots_dir}/{filename}"
-                
-                await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
-                logger.info(f"Screenshot saved to {screenshot_path}")
-            except Exception as e:
-                logger.warning(f"Failed to take screenshot: {e}")
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
 
-            return content, screenshot_path
+    @staticmethod
+    async def _wait_for_selector(page: Page, selector: str):
+        """Wait for selector and scroll into view."""
+        try:
+            logger.info(f"Waiting for selector: {selector}")
+            await page.wait_for_selector(selector, timeout=5000)
+            element = page.locator(selector).first
+            await element.scroll_into_view_if_needed()
+            logger.info(f"Scrolled to selector: {selector}")
+        except Exception as e:
+            logger.warning(f"Selector {selector} not found or timed out: {e}")
+
+    @staticmethod
+    async def _auto_detect_price(page: Page):
+        """Attempt to auto-detect and scroll to price element."""
+        logger.info("No selector provided. Attempting to find price element...")
+        try:
+            price_locator = page.locator("text=/$[0-9,]+(\\.[0-9]{2})?/")
+            if await price_locator.count() > 0:
+                await price_locator.first.scroll_into_view_if_needed()
+                logger.info("Scrolled to potential price element")
+        except Exception as e:
+            logger.warning(f"Auto-price detection failed: {e}")
+
+    @staticmethod
+    async def _smart_scroll(page: Page, scroll_pixels: int):
+        """Perform smart scrolling."""
+        logger.info(f"Performing smart scroll ({scroll_pixels}px)...")
+        try:
+            await page.evaluate(f"window.scrollBy(0, {scroll_pixels})")
+            await page.wait_for_timeout(1000)
+        except Exception as e:
+            logger.warning(f"Smart scroll failed: {e}")
+
+    @staticmethod
+    async def _extract_text(page: Page, text_length: int) -> str:
+        """Extract text from page body."""
+        if text_length <= 0:
+            return ""
+
+        try:
+            logger.info(f"Extracting text (limit: {text_length} chars)...")
+            raw_text = await page.inner_text("body")
+            page_text = raw_text[:text_length]
+            logger.info(f"Extracted {len(page_text)} characters")
+            return page_text
+        except Exception as e:
+            logger.error(f"Text extraction failed: {e}")
+            return ""
+
+    @staticmethod
+    async def _take_screenshot(page: Page, url: str, item_id: int | None = None) -> str:
+        """Take screenshot and save to disk."""
+        screenshot_dir = "/app/screenshots"
+        os.makedirs(screenshot_dir, exist_ok=True)
+
+        if item_id:
+            filename = f"{screenshot_dir}/item_{item_id}.png"
+        else:
+            url_part = url.split("//")[-1].replace("/", "_")
+            timestamp = datetime.now().timestamp()
+            filename = f"{screenshot_dir}/{url_part}_{timestamp}.png"
+
+        await page.screenshot(path=filename, full_page=False)
+        logger.info(f"Screenshot saved to {filename}")
+        return filename
+
+    @classmethod
+    async def get_page_content(
+        cls,
+        url: str,
+        use_proxy: bool = False,
+        wait_selector: str | None = None,
+        config: ScrapeConfig | None = None,
+    ) -> tuple[str, str]:
+        """
+        Fetch page content with full stealth lifecycle.
+        
+        Args:
+            url: URL to scrape
+            use_proxy: Whether to use proxy (reserved for future use)
+            wait_selector: Optional CSS selector to wait for
+            config: Optional scraping configuration
+            
+        Returns:
+            tuple[screenshot_path, page_text]: Screenshot path and extracted text
+        """
+        if config is None:
+            config = ScrapeConfig()
+
+        # Input validation & defaults
+        scroll_pixels = max(350, config.scroll_pixels if config.scroll_pixels > 0 else 350)
+        timeout = max(30000, config.timeout if config.timeout > 0 else 90000)
+
+        # Ensure browser is connected and healthy
+        if not await cls._ensure_browser_connected():
+            logger.error("Failed to establish browser connection")
+            return "", ""
+
+        try:
+            context = await cls._create_context(cls._browser, use_proxy=use_proxy)
+            page = await context.new_page()
+
+            try:
+                await cls._navigate_and_wait(page, url, timeout)
+                await cls._handle_popups(page)
+
+                if wait_selector:
+                    await cls._wait_for_selector(page, wait_selector)
+                else:
+                    await cls._auto_detect_price(page)
+
+                if config.smart_scroll:
+                    await cls._smart_scroll(page, scroll_pixels)
+
+                page_text = await cls._extract_text(page, config.text_length)
+                
+                # Extract item_id from URL if it matches pattern
+                item_id = None
+                if "item_" in url:
+                    # This is a simplified extraction, adjust based on your URL patterns
+                    pass
+                    
+                screenshot_path = await cls._take_screenshot(page, url, item_id)
+
+                return screenshot_path, page_text
+
+            finally:
+                await context.close()
 
         except Exception as e:
-            logger.error(f"Error fetching {url}: {e}")
+            logger.error(f"Error scraping {url}: {e}")
             return "", ""
-        finally:
-            await context.close()
 
-# Global instance
+
+# Global instance for backward compatibility
 browserless_service = BrowserlessService()

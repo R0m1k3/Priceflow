@@ -68,7 +68,7 @@ class NewSearchService:
         # Use proxy if required by config
         use_proxy = config.get("requires_proxy", False)
         
-        html_content, _ = await browserless_service.get_page_content(
+        _, html_content = await browserless_service.get_page_content(
             search_url, 
             use_proxy=use_proxy,
             wait_selector=config.get("wait_selector")
@@ -96,7 +96,7 @@ class NewSearchService:
             use_proxy = config.get("requires_proxy", False) if config else False
 
             # Use browserless to get content and screenshot
-            html, screenshot_path = await browserless_service.get_page_content(
+            screenshot_path, html = await browserless_service.get_page_content(
                 result.url,
                 use_proxy=use_proxy,
                 wait_selector=None 
@@ -140,7 +140,7 @@ class NewSearchService:
         # Use proxy if required by config
         use_proxy = config.get("requires_proxy", False)
         
-        html_content, _ = await browserless_service.get_page_content(
+        _, html_content = await browserless_service.get_page_content(
             search_url, 
             use_proxy=use_proxy,
             wait_selector=config.get("wait_selector")
@@ -285,7 +285,7 @@ class NewSearchService:
         # Use proxy if required by config
         use_proxy = config.get("requires_proxy", False)
         
-        html_content, _ = await browserless_service.get_page_content(
+        _, html_content = await browserless_service.get_page_content(
             search_url, 
             use_proxy=use_proxy,
             wait_selector=config.get("wait_selector")
