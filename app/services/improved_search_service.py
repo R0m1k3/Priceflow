@@ -1,23 +1,5 @@
 """
 Improved Search Service - Using Persistent Browser Connection
-Based on ScraperService pattern for better session management and reliability
-
-UPDATED: Now uses modular, site-specific parsers for robust product extraction
-"""
-
-import asyncio
-import logging
-from typing import AsyncGenerator
-from urllib.parse import quote_plus, urljoin
-
-from bs4 import BeautifulSoup
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from sqlalchemy.orm import Session
-
-from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
-from app.models import SearchSite
-from app.schemas import SearchProgress, SearchResultItem
 from app.services.parsers import ParserFactory, ProductResult
 
 logger = logging.getLogger(__name__)
@@ -466,8 +448,37 @@ class ImprovedSearchService:
 
     @staticmethod
     async def _extract_price(page: Page) -> float | None:
-        """Extract price from product page using multiple selectors"""
+        """Extract price using Hybrid Strategy: JSON-LD -> CSS -> AI"""
         import re
+        
+        # STRATEGY 1: JSON-LD (Most reliable)
+        try:
+            json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
+            for script in json_ld_scripts:
+                try:
+                    content = await script.inner_text()
+                    data = json.loads(content)
+                    
+                    # Handle list of objects
+                    if isinstance(data, list):
+                        data = data[0] if data else {}
+                        
+                    # Check for Product type
+                    if data.get('@type') == 'Product':
+                        offers = data.get('offers')
+                        if isinstance(offers, list):
+                            offers = offers[0]
+                        
+                        if offers and 'price' in offers:
+                            price = float(offers['price'])
+                            logger.debug(f"  ✅ Found price via JSON-LD: {price}€")
+                            return price
+                except:
+                    continue
+        except Exception as e:
+            logger.debug(f"  JSON-LD extraction failed: {e}")
+
+        # STRATEGY 2: CSS Selectors (Standard)
         
         # PRIORITY 1: Selectors for sale/promotional prices (highest priority)
         sale_price_selectors = [
@@ -518,7 +529,11 @@ class ImprovedSearchService:
             except Exception:
                 continue
         
+        
         # Fallback to standard price selectors
+        # Collect ALL valid prices and return the lowest (usually the promotional price)
+        all_prices = []
+        
         for selector in price_selectors:
             try:
                 elements = await page.query_selector_all(selector)
@@ -526,7 +541,14 @@ class ImprovedSearchService:
                     # Skip if element is strikethrough (old price)
                     try:
                         parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
+                        # Check for strikethrough in parent
                         if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
+                            logger.debug(f"  Skipping strikethrough price from {selector}")
+                            continue
+                        # Also check the element itself
+                        elem_style = await elem.evaluate('el => window.getComputedStyle(el).textDecoration')
+                        if 'line-through' in elem_style:
+                            logger.debug(f"  Skipping element with line-through style")
                             continue
                     except:
                         pass
@@ -541,12 +563,32 @@ class ImprovedSearchService:
                             try:
                                 price_val = float(match.group(1))
                                 if 0.01 < price_val < 100000:
-                                    logger.debug(f"Found price: {price_val}€ from {selector}")
-                                    return price_val
+                                    logger.debug(f"  Found candidate price: {price_val}€ from {selector}")
+                                    all_prices.append(price_val)
                             except ValueError:
                                 continue
-            except Exception:
+            except Exception as e:
+                logger.debug(f"  Error with selector {selector}: {e}")
                 continue
+        
+        # Return the LOWEST price found (promotional price is usually lower)
+        if all_prices:
+            lowest_price = min(all_prices)
+            logger.debug(f"Selected lowest price from {len(all_prices)} candidates: {lowest_price}€")
+            return lowest_price
+
+        # STRATEGY 3: AI Fallback (Gemma 2 / OpenRouter)
+        try:
+            logger.info("  🤖 CSS extraction failed, attempting AI extraction...")
+            html_content = await page.content()
+            title = await page.title()
+            
+            ai_price = await AIPriceExtractor.extract_price(html_content, title)
+            if ai_price:
+                logger.info(f"  🤖 AI found price: {ai_price}€")
+                return ai_price
+        except Exception as e:
+            logger.error(f"  AI fallback failed: {e}")
 
         logger.debug("No price found")
         return None
