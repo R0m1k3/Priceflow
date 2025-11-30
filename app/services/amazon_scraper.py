@@ -207,22 +207,15 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
     user_agent = random.choice(AMAZON_USER_AGENTS)
     logger.debug(f"🎭 User-Agent: {user_agent[:50]}...")
 
-    # Select random proxy
-    proxy = get_random_proxy()
-    if proxy:
-        # Extract just the IP for logging (hide credentials)
-        proxy_parts = proxy.split('@')
-        proxy_server = proxy_parts[1] if len(proxy_parts) > 1 else proxy
-        logger.debug(f"🌐 Using proxy: {proxy_server}")
-    else:
-        logger.warning("⚠️ No proxy available - may face rate limiting")
+    # NOTE: Not using proxies here - Browserless service has its own proxy system
+    # We can integrate with browserless_service later if needed
 
     # Configure Crawl4AI browser with anti-detection
     browser_config = BrowserConfig(
         headless=True,
         verbose=False,
         user_agent=user_agent,
-        proxy_config=proxy,  # Use proxy_config instead of deprecated proxy
+        # proxy_config removed - let Crawl4AI use default or integrate with Browserless later
         extra_args=[
             "--disable-blink-features=AutomationControlled",  # Disable automation detection
             "--disable-dev-shm-usage",
@@ -277,6 +270,15 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
             # Parse HTML with BeautifulSoup
             soup = BeautifulSoup(result.html, 'html.parser')
 
+            # Debug: Save HTML to file for inspection
+            debug_file = f"/tmp/amazon_debug_{query[:20]}.html"
+            try:
+                with open(debug_file, 'w', encoding='utf-8') as f:
+                    f.write(result.html)
+                logger.debug(f"📝 HTML saved to {debug_file} for debugging")
+            except Exception as e:
+                logger.debug(f"Could not save debug HTML: {e}")
+
             # Amazon uses data-component-type="s-search-result" for product cards
             product_cards = soup.find_all('div', {'data-component-type': 's-search-result'})
 
@@ -301,7 +303,10 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
                     # Extract ASIN (Amazon Standard Identification Number)
                     asin = card.get('data-asin', '')
                     if not asin:
+                        logger.debug(f"  ⏭️ Card {idx}: No ASIN found, skipping")
                         continue
+
+                    logger.debug(f"  🔍 Card {idx}: Processing ASIN {asin}")
 
                     # Check if sponsored
                     sponsored = bool(card.select_one('[data-component-type="sp-sponsored-result"]'))
@@ -309,12 +314,14 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
                     # Extract title
                     title_elem = card.select_one('h2 a span, h2 span')
                     if not title_elem:
+                        logger.debug(f"  ⏭️ Card {idx} ({asin}): No title found, skipping")
                         continue
                     title = title_elem.get_text(strip=True)
 
                     # Extract URL
                     link_elem = card.select_one('h2 a')
                     if not link_elem:
+                        logger.debug(f"  ⏭️ Card {idx} ({asin}): No link found, skipping")
                         continue
                     href = link_elem.get('href', '')
                     product_url = f"{AMAZON_FR_BASE_URL}{href}" if href.startswith('/') else href

@@ -20,7 +20,7 @@ from app.services.scheduler import start_scheduler as start_catalog_scheduler, s
 
 # Configure logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    level=os.getenv("LOG_LEVEL", "DEBUG").upper(),  # Temporarily DEBUG for Amazon debugging
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
