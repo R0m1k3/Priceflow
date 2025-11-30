@@ -625,7 +625,7 @@ async def search_products(
     for site in active_sites:
         matched = False
 
-        # Normalize domain for comparison (remove www., e-, etc.)
+        # Normalize domain for comparison (remove www., lowercase, etc.)
         normalized_domain = site.domain.lower().replace("www.", "").strip()
 
         for key in SITE_CONFIGS.keys():
@@ -639,21 +639,71 @@ async def search_products(
                 logger.debug(f"✓ Matched {site.domain} → {key} (exact)")
                 break
 
-            # 2. Key contains domain or domain contains key
+            # 2. Normalize punctuation (. vs - vs nothing) and compare
+            # e.leclerc → eleclerc, e-leclerc.com → eleclecrcom
+            domain_no_punct = normalized_domain.replace("-", "").replace(".", "")
+            key_no_punct = normalized_key.replace("-", "").replace(".", "")
+
+            # Exact match without punctuation
+            if domain_no_punct == key_no_punct:
+                site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (normalized punctuation - exact)")
+                break
+
+            # Contains match without punctuation (handles .com, .fr suffixes)
+            # eleclerc in eleclecrcom → True
+            if domain_no_punct in key_no_punct or key_no_punct in domain_no_punct:
+                site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (normalized punctuation - contains)")
+                break
+
+            # 3. Key contains domain or domain contains key
             if normalized_key in normalized_domain or normalized_domain in normalized_key:
                 site_keys.append(key)
                 matched = True
                 logger.debug(f"✓ Matched {site.domain} → {key} (contains)")
                 break
 
-            # 3. Remove prefixes like "e-" and try again
-            domain_without_prefix = normalized_domain.replace("e-", "").replace("la-", "")
-            key_without_prefix = normalized_key.replace("e-", "").replace("la-", "")
+            # 4. Remove prefixes like "e-", "e.", "la-", "la." and try again
+            domain_without_prefix = (
+                normalized_domain
+                .replace("e-", "")
+                .replace("e.", "")
+                .replace("la-", "")
+                .replace("la.", "")
+            )
+            key_without_prefix = (
+                normalized_key
+                .replace("e-", "")
+                .replace("e.", "")
+                .replace("la-", "")
+                .replace("la.", "")
+            )
 
             if domain_without_prefix == key_without_prefix:
                 site_keys.append(key)
                 matched = True
                 logger.debug(f"✓ Matched {site.domain} → {key} (without prefix)")
+                break
+
+            # 5. Last resort: fuzzy match on core name (remove all punct + common prefixes)
+            domain_core = (
+                domain_no_punct
+                .replace("e", "", 1)  # Remove first 'e' if present
+                .replace("la", "", 1)  # Remove first 'la' if present
+            )
+            key_core = (
+                key_no_punct
+                .replace("e", "", 1)
+                .replace("la", "", 1)
+            )
+
+            if len(domain_core) > 5 and domain_core in key_core:
+                site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (fuzzy core)")
                 break
 
         if not matched:

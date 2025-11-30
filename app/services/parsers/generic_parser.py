@@ -50,6 +50,8 @@ class GenericParser(BaseParser):
         Uses:
         - product_selector: CSS selector for product links
         - product_image_selector: CSS selector for images (optional)
+
+        If configured selector fails, tries common fallback selectors.
         """
         soup = BeautifulSoup(html, 'html.parser')
         products = []
@@ -62,8 +64,44 @@ class GenericParser(BaseParser):
 
         links = soup.select(product_selector)
 
+        # If configured selector fails, try common fallback selectors
         if not links:
-            self.logger.warning(f"No products found for {self.site_key} with selector: {product_selector}")
+            self.logger.warning(f"No products with configured selector: {product_selector}")
+            self.logger.info("Trying fallback selectors...")
+
+            # Common e-commerce selectors (ordered by specificity)
+            fallback_selectors = [
+                # Product-specific URLs
+                "a[href*='/produit']",
+                "a[href*='/products/']",  # Shopify
+                "a[href*='/product']",
+                "a[href*='/p/']",
+                "a[href*='/item']",
+                # Common class patterns
+                "article a[href]",
+                ".product a[href]",
+                ".product-card a[href]",
+                ".product-item a[href]",
+                "[class*='product'] a[href]",
+                # Shopify specific
+                "a.product-card__link",
+                "a[href*='/collections/']",
+                # Generic structure
+                "article[class*='product'] a",
+                "div[class*='product'] a",
+                "li[class*='product'] a",
+                # Very generic (last resort)
+                "a[class*='product']",
+            ]
+
+            for fallback in fallback_selectors:
+                links = soup.select(fallback)
+                if links and len(links) >= 3:  # At least 3 links to be credible
+                    self.logger.info(f"✓ Found {len(links)} links with fallback: {fallback}")
+                    break
+
+        if not links:
+            self.logger.warning(f"No products found for {self.site_key} even with fallbacks")
             return []
 
         self.logger.info(f"Found {len(links)} product links for {self.site_name}")

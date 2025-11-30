@@ -80,11 +80,30 @@ class FnacParser(BaseParser):
                 if not self.filter_by_query(title, query):
                     continue
 
-                # Extract image
+                # Extract image - try in link first, then parent
                 image_url = None
                 parent = link.find_parent(["article", "li", "div"])
-                if parent:
-                    # Try picture > source first
+
+                # PRIORITY 1: Try in the link itself
+                picture = link.find("picture")
+                if picture:
+                    source = picture.find("source")
+                    if source and source.get("srcset"):
+                        image_url = source.get("srcset").split(",")[0].split()[0]
+                    if not image_url:
+                        img = picture.find("img")
+                        if img:
+                            image_url = self._get_image_src(img)
+
+                # Try img directly in link
+                if not image_url:
+                    img = link.find("img")
+                    if img:
+                        image_url = self._get_image_src(img)
+
+                # PRIORITY 2: Try in parent container
+                if not image_url and parent:
+                    # Try picture > source
                     picture = parent.find("picture")
                     if picture:
                         source = picture.find("source")
@@ -101,8 +120,10 @@ class FnacParser(BaseParser):
                         if img:
                             image_url = self._get_image_src(img)
 
-                    if image_url:
-                        image_url = self.make_absolute_url(image_url)
+                if image_url:
+                    image_url = self.make_absolute_url(image_url)
+                else:
+                    self.logger.warning(f"No image found for Fnac product: {title[:40]}...")
 
                 # Extract price
                 price = None
