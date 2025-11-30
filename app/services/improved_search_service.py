@@ -257,15 +257,23 @@ class ImprovedSearchService:
                 # Scrape details for each result (in parallel)
                 if results:
                     logger.info(f"📦 Found {len(results)} initial results, enriching with details...")
+                    
+                    # LIMIT: Only enrich first 10 products to avoid frontend timeouts
+                    # Full enrichment (visiting each product page) takes too long
+                    results_to_enrich = results[:10]
+                    logger.info(f"⚡ Limiting enrichment to {len(results_to_enrich)} products")
+                    
                     semaphore = asyncio.Semaphore(2)  # Limit concurrency
 
                     async def scrape_with_limit(res):
                         async with semaphore:
                             return await cls._scrape_item_details(res, context)
 
-                    tasks = [scrape_with_limit(r) for r in results]
+                    tasks = [scrape_with_limit(r) for r in results_to_enrich]
                     enriched_results = await asyncio.gather(*tasks)
-                    results = [r for r in enriched_results if r]  # Filter None
+                    
+                    # Return enriched results + remaining non-enriched (with None price)
+                    results = [r for r in enriched_results if r] + results[10:]
 
             finally:
                 await context.close()
@@ -337,19 +345,20 @@ class ImprovedSearchService:
             if not title or len(title) < 3:
                 continue
 
-            # RELAXED FILTERING: Check if at least ONE query word is in the title
-            # (instead of ALL words, which was too strict)
-            title_lower = title.lower()
-            if query_words:
-                at_least_one_word_found = False
-                for word in query_words:
-                    if word in title_lower:
-                        at_least_one_word_found = True
-                        break
-                
-                # Only keep results with at least one matching word
-                if not at_least_one_word_found:
-                    continue
+            # TEMPORARY: Disable keyword filtering to diagnose issues
+            # The strict filtering was rejecting too many valid results
+            # TODO: Re-enable with better logic after testing
+            
+            # title_lower = title.lower()
+            # if query_words:
+            #     at_least_one_word_found = False
+            #     for word in query_words:
+            #         if word in title_lower:
+            #             at_least_one_word_found = True
+            #             break
+            #     
+            #     if not at_least_one_word_found:
+            #         continue
 
             # Extract Image URL - PRIORITIZE CONFIGURED SELECTOR
             image_url = None
@@ -623,91 +632,49 @@ async def search_products(
     # 2. Map DB sites to Config keys with improved matching
     site_keys = []
     for site in active_sites:
-        matched = False
-
+        matched_key = None
+        
         # Normalize domain for comparison (remove www., lowercase, etc.)
-        normalized_domain = site.domain.lower().replace("www.", "").strip()
+        site_domain_normalized = site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
 
+        # Try multiple matching strategies:
         for key in SITE_CONFIGS.keys():
-            normalized_key = key.lower().replace("www.", "").strip()
+            key_normalized = key.lower().replace("www.", "")
 
-            # Try multiple matching strategies:
             # 1. Exact match
-            if normalized_domain == normalized_key:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (exact)")
+            if site_domain_normalized == key_normalized:
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (exact match)")
                 break
 
-            # 2. Normalize punctuation (. vs - vs nothing) and compare
+            # 2. Contains match (one in the other)
+            if key_normalized in site_domain_normalized or site_domain_normalized in key_normalized:
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (contains)")
+                break
+
+            # 3. Normalize punctuation (. vs - vs nothing) and compare
             # e.leclerc → eleclerc, e-leclerc.com → eleclecrcom
-            domain_no_punct = normalized_domain.replace("-", "").replace(".", "")
-            key_no_punct = normalized_key.replace("-", "").replace(".", "")
+            domain_no_punct = site_domain_normalized.replace("-", "").replace(".", "")
+            key_no_punct = key_normalized.replace("-", "").replace(".", "")
 
             # Exact match without punctuation
             if domain_no_punct == key_no_punct:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (normalized punctuation - exact)")
+                matched_key = key
+                logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (normalized punctuation)")
                 break
 
             # Contains match without punctuation (handles .com, .fr suffixes)
-            # eleclerc in eleclecrcom → True
-            if domain_no_punct in key_no_punct or key_no_punct in domain_no_punct:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (normalized punctuation - contains)")
-                break
-
-            # 3. Key contains domain or domain contains key
-            if normalized_key in normalized_domain or normalized_domain in normalized_key:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (contains)")
-                break
-
-            # 4. Remove prefixes like "e-", "e.", "la-", "la." and try again
-            domain_without_prefix = (
-                normalized_domain
-                .replace("e-", "")
-                .replace("e.", "")
-                .replace("la-", "")
-                .replace("la.", "")
-            )
-            key_without_prefix = (
-                normalized_key
-                .replace("e-", "")
-                .replace("e.", "")
-                .replace("la-", "")
-                .replace("la.", "")
-            )
-
-            if domain_without_prefix == key_without_prefix:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (without prefix)")
-                break
-
-            # 5. Last resort: fuzzy match on core name (remove all punct + common prefixes)
-            domain_core = (
-                domain_no_punct
-                .replace("e", "", 1)  # Remove first 'e' if present
-                .replace("la", "", 1)  # Remove first 'la' if present
-            )
-            key_core = (
-                key_no_punct
-                .replace("e", "", 1)
-                .replace("la", "", 1)
-            )
-
-            if len(domain_core) > 5 and domain_core in key_core:
-                site_keys.append(key)
-                matched = True
-                logger.debug(f"✓ Matched {site.domain} → {key} (fuzzy core)")
-                break
-
-        if not matched:
-            logger.warning(f"⚠️ No config found for site: {site.domain} (id={site.id})")
+            if len(domain_no_punct) > 3 and len(key_no_punct) > 3:
+                if domain_no_punct in key_no_punct or key_no_punct in domain_no_punct:
+                    matched_key = key
+                    logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (normalized contains)")
+                    break
+        
+        if matched_key:
+            site_keys.append(matched_key)
+        else:
+            logger.warning(f"❌ No config found for {site.name} (domain: {site.domain}, normalized: {site_domain_normalized})")
 
     # 3. Execute searches and stream results
     generators = [ImprovedSearchService.search_site_generator(key, query) for key in site_keys]
