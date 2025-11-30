@@ -175,15 +175,7 @@ class ImprovedSearchService:
             except Exception:
                 pass
 
-            url=product.url,
-            title=product.title,
-            snippet=product.snippet,
-            source=product.source,
-            price=product.price,
-            currency=product.currency,
-            in_stock=product.in_stock,
-            image_url=product.image_url,
-        )
+
 
     @staticmethod
     def _parse_results(html: str, site_key: str, base_url: str, query: str) -> list[SearchResult]:
