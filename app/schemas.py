@@ -53,7 +53,7 @@ class SearchSiteCreate(BaseModel):
     is_active: bool = True
     priority: int = 0
     requires_js: bool = False
-    debug_enabled: bool = False  # Activer le dump HTML pour ce site
+    # debug_enabled removed
     price_selector: str | None = None
     search_url: str | None = None  # URL avec {query} placeholder, ex: https://amazon.fr/s?k={query}
     product_link_selector: str | None = None  # Sélecteur CSS pour les liens produits
@@ -67,7 +67,7 @@ class SearchSiteUpdate(BaseModel):
     is_active: bool | None = None
     priority: int | None = None
     requires_js: bool | None = None
-    debug_enabled: bool | None = None  # Activer le dump HTML pour ce site
+    # debug_enabled removed
     price_selector: str | None = None
     search_url: str | None = None
     product_link_selector: str | None = None
@@ -82,7 +82,7 @@ class SearchSiteResponse(BaseModel):
     is_active: bool
     priority: int
     requires_js: bool
-    debug_enabled: bool = False  # Activer le dump HTML pour ce site
+    # debug_enabled removed
     price_selector: str | None = None
     search_url: str | None = None
     product_link_selector: str | None = None

@@ -41,17 +41,17 @@ async def update_site(
 ):
     """
     Met à jour un site de recherche.
-    Permet uniquement de modifier is_active, priority et debug_enabled.
+    Permet uniquement de modifier is_active et priority.
     """
     # Limiter les champs modifiables
-    allowed_fields = {"is_active", "priority", "debug_enabled"}
+    allowed_fields = {"is_active", "priority"}
     update_data = site.model_dump(exclude_unset=True)
     filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields}
 
     if not filtered_data:
         raise HTTPException(
             status_code=400,
-            detail="Seuls les champs 'is_active', 'priority' et 'debug_enabled' peuvent être modifiés"
+            detail="Seuls les champs 'is_active' et 'priority' peuvent être modifiés"
         )
 
     updated = search_service.update_site(db, site_id, filtered_data)

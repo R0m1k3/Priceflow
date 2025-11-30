@@ -253,3 +253,18 @@ def admin_change_user_password(
     logger.info(f"Admin '{admin_user.username}' changed password for user '{user.username}'")
 
     return {"message": "Mot de passe modifié avec succès"}
+
+
+@router.get("/debug-login")
+def debug_login(db: Session = Depends(get_db)):
+    """
+    DEBUG ONLY: Get a valid token for admin user, creating it if necessary.
+    """
+    username = "admin"
+    user = auth_service.get_user_by_username(db, username)
+    if not user:
+        user = auth_service.create_user(db, username, "admin", is_admin=True)
+        logger.info("Created missing admin user via debug-login")
+    
+    token = auth_service.create_token(user.id, user.username, user.is_admin)
+    return {"token": token, "username": user.username}

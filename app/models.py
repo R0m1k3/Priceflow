@@ -94,7 +94,7 @@ class SearchSite(Base):
     is_active: bool = Column(Boolean, default=True)  # type: ignore
     priority: int = Column(Integer, default=0)  # type: ignore  # Ordre d'affichage
     requires_js: bool = Column(Boolean, default=False)  # type: ignore  # Force Browserless si True
-    debug_enabled: bool = Column(Boolean, default=False)  # type: ignore  # Activer le dump HTML pour ce site
+    debug_enabled: bool = Column(Boolean, default=False, nullable=False)  # type: ignore
     price_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour le prix
     search_url: str | None = Column(String, nullable=True)  # type: ignore  # URL de recherche avec {query} placeholder
     product_link_selector: str | None = Column(String, nullable=True)  # type: ignore  # Sélecteur CSS pour les liens produits
