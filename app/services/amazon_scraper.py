@@ -207,22 +207,15 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
     user_agent = random.choice(AMAZON_USER_AGENTS)
     logger.debug(f"🎭 User-Agent: {user_agent[:50]}...")
 
-    # Select random proxy
-    proxy = get_random_proxy()
-    if proxy:
-        # Extract just the IP for logging (hide credentials)
-        proxy_parts = proxy.split('@')
-        proxy_server = proxy_parts[1] if len(proxy_parts) > 1 else proxy
-        logger.debug(f"🌐 Using proxy: {proxy_server}")
-    else:
-        logger.warning("⚠️ No proxy available - may face rate limiting")
+    # NOTE: Not using proxies here - Browserless service has its own proxy system
+    # We can integrate with browserless_service later if needed
 
     # Configure Crawl4AI browser with anti-detection
     browser_config = BrowserConfig(
         headless=True,
         verbose=False,
         user_agent=user_agent,
-        proxy_config=proxy,  # Use proxy_config instead of deprecated proxy
+        # proxy_config removed - let Crawl4AI use default or integrate with Browserless later
         extra_args=[
             "--disable-blink-features=AutomationControlled",  # Disable automation detection
             "--disable-dev-shm-usage",
