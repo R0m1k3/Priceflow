@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { Loader2, Play, Clock, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Loader2, Play, Clock, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '../../hooks/use-auth';
 
 const API_BASE = '/api/catalogues/admin';
@@ -77,6 +77,30 @@ export default function CatalogueAdmin() {
         }
     };
 
+    const triggerPurge = async () => {
+        if (!confirm('Êtes-vous sûr de vouloir purger les catalogues expirés depuis plus de 3 mois ?')) {
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await axios.post(`${API_BASE}/purge`, null, {
+                headers: getAuthHeaders()
+            });
+
+            toast.success(response.data.message);
+            toast.info(`${response.data.deleted_count} catalogue(s) supprimé(s)`);
+
+            // Reload data
+            await Promise.all([loadStats(), loadLogs()]);
+        } catch (error) {
+            console.error('Error triggering purge:', error);
+            toast.error('Erreur lors de la purge');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const getStatusIcon = (status) => {
         switch (status) {
             case 'success':
@@ -97,9 +121,28 @@ export default function CatalogueAdmin() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h2 className="text-2xl font-bold mb-2">Administration Catalogues</h2>
-                <p className="text-muted-foreground">Gérer le scraping des catalogues Bonial</p>
+            <div className="flex justify-between items-center">
+                <div>
+                    <h2 className="text-2xl font-bold mb-2">Administration Catalogues</h2>
+                    <p className="text-muted-foreground">Gérer le scraping des catalogues Cataloguemate</p>
+                </div>
+                <button
+                    onClick={triggerPurge}
+                    disabled={loading}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                    {loading ? (
+                        <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Purge...
+                        </>
+                    ) : (
+                        <>
+                            <Trash2 className="h-4 w-4" />
+                            Purger (&gt; 3 mois)
+                        </>
+                    )}
+                </button>
             </div>
 
             {/* Stats Cards */}

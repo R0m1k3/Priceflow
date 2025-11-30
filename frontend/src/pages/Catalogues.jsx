@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Calendar, BookOpen, Search, ChevronRight, Eye } from 'lucide-react';
+import { Loader2, Calendar, BookOpen, Search, ChevronRight, Eye, Trash2 } from 'lucide-react';
 import axios from 'axios';
+import { useAuth } from '../hooks/use-auth';
 
 const API_BASE = '/api/catalogues';
 
@@ -14,6 +15,7 @@ export default function Catalogues() {
     const [selectedCatalogue, setSelectedCatalogue] = useState(null);
     const [cataloguePages, setCataloguePages] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const { user, getAuthHeaders } = useAuth();
 
     useEffect(() => {
         loadEnseignes();
@@ -102,6 +104,26 @@ export default function Catalogues() {
         const debut = new Date(catalogue.date_debut);
         const fin = new Date(catalogue.date_fin);
         return now >= debut && now <= fin;
+    };
+
+    const deleteCatalogue = async (catalogueId, event) => {
+        event.stopPropagation(); // Prevent opening the catalogue
+
+        if (!confirm('Êtes-vous sûr de vouloir supprimer ce catalogue ?')) {
+            return;
+        }
+
+        try {
+            await axios.delete(`${API_BASE}/admin/${catalogueId}`, {
+                headers: getAuthHeaders()
+            });
+
+            toast.success('Catalogue supprimé');
+            loadCatalogues(); // Reload the list
+        } catch (error) {
+            console.error('Error deleting catalogue:', error);
+            toast.error('Erreur lors de la suppression');
+        }
     };
 
     return (
@@ -244,9 +266,20 @@ export default function Catalogues() {
                                     </div>
 
                                     {/* Pages */}
-                                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                        <BookOpen className="h-4 w-4" />
-                                        <span>{catalogue.nombre_pages} pages</span>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                            <BookOpen className="h-4 w-4" />
+                                            <span>{catalogue.nombre_pages} pages</span>
+                                        </div>
+                                        {user?.is_admin && (
+                                            <button
+                                                onClick={(e) => deleteCatalogue(catalogue.id, e)}
+                                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                title="Supprimer le catalogue"
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>

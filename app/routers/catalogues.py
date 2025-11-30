@@ -322,3 +322,55 @@ async def cleanup_catalogs(
     logger.info(f"Cleanup: deleted {deleted_count} invalid catalogs")
     
     return {"message": f"Cleanup complete. Deleted {deleted_count} invalid catalogs."}
+
+
+@router.delete("/admin/{catalogue_id}")
+async def delete_catalogue(
+    catalogue_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a specific catalogue (admin only)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    catalogue = db.query(Catalogue).filter(Catalogue.id == catalogue_id).first()
+    if not catalogue:
+        raise HTTPException(status_code=404, detail="Catalogue not found")
+    
+    # Pages are cascade-deleted automatically due to relationship
+    db.delete(catalogue)
+    db.commit()
+    logger.info(f"Deleted catalogue {catalogue_id} ({catalogue.titre})")
+    
+    return {"message": f"Catalogue '{catalogue.titre}' deleted successfully"}
+
+
+@router.post("/admin/purge")
+async def purge_old_catalogues(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Purge catalogues expired more than 3 months ago (admin only)"""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    from datetime import timedelta
+    cutoff_date = datetime.now() - timedelta(days=90)
+    
+    old_catalogues = db.query(Catalogue).filter(
+        Catalogue.date_fin < cutoff_date
+    ).all()
+    
+    count = len(old_catalogues)
+    for cat in old_catalogues:
+        db.delete(cat)
+    
+    db.commit()
+    logger.info(f"Purged {count} catalogues with date_fin < {cutoff_date}")
+    
+    return {
+        "message": f"Purged {count} catalogues expired more than 3 months ago",
+        "cutoff_date": cutoff_date.isoformat(),
+        "deleted_count": count
+    }
