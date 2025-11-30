@@ -146,28 +146,39 @@ class BrowserlessService:
         """
         Extract price from generic e-commerce pages using common selectors and patterns.
         Returns price text (e.g., "1,99 €") or empty string if not found.
+        IMPROVED: Better validation to avoid "fantasy" prices
         """
         # Common price selectors used across e-commerce sites (ordered by priority)
         price_selectors = [
             # Highest priority: semantic and explicit current prices
             "[itemprop='price']",
+            "[data-testid='price']",
+            "[data-test='price']",
             ".current-price",
             ".sale-price",
             ".final-price",
             ".product-price",
+            ".special-price",
             "[data-price]",
-            # Medium priority: generic price classes (exclude old/was/original)
-            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original']):not([class*='before']):not([class*='regular'])",
+            # Specific e-commerce platforms
+            ".price-current",
+            ".price-now",
+            ".price-sales",
+            # Medium priority: generic price classes (exclude old/was/original/strikethrough)
+            "[class*='price']:not([class*='old']):not([class*='was']):not([class*='original']):not([class*='before']):not([class*='regular']):not([class*='strike']):not([class*='barre'])",
             # ID-based
             "#price",
             "#product-price",
             "#our-price",
+            "#main-price",
             # French-specific
-            "span[class*='prix']:not([class*='ancien']):not([class*='barre'])",
-            "div[class*='prix']:not([class*='ancien'])",
+            "span[class*='prix']:not([class*='ancien']):not([class*='barre']):not([class*='promotion'])",
+            "div[class*='prix']:not([class*='ancien']):not([class*='barre'])",
             "span[class*='tarif']",
+            ".prix-actuel",
+            ".prix-vente",
             # Lower priority: generic .price (might catch old prices)
-            ".price",
+            ".price:not(.old-price):not(.was-price)",
         ]
 
         found_prices = []
@@ -196,12 +207,29 @@ class BrowserlessService:
                             if price_text and ('€' in price_text or (',' in price_text and any(c.isdigit() for c in price_text))):
                                 # Clean up price text
                                 price_text = price_text.strip()
-                                found_prices.append((selector, price_text))
-                                logger.info(f"Found price via selector {selector}: {price_text}")
 
-                                # Return immediately if we found with high-priority selector
-                                if selector in ["[itemprop='price']", ".current-price", ".sale-price", ".final-price", ".product-price"]:
-                                    return price_text
+                                # VALIDATION: Check if price is reasonable (not fantasy)
+                                import re
+                                numeric_match = re.search(r'(\d+[.,]?\d*)', price_text.replace(' ', '').replace('\xa0', ''))
+                                if numeric_match:
+                                    try:
+                                        # Parse as float
+                                        price_val = float(numeric_match.group(1).replace(',', '.'))
+
+                                        # Reject unreasonable prices
+                                        if price_val <= 0 or price_val < 0.01 or price_val > 100000:
+                                            logger.debug(f"Rejected unreasonable price: {price_val}€ from {selector}")
+                                            continue
+
+                                        found_prices.append((selector, price_text))
+                                        logger.info(f"Found valid price via {selector}: {price_text} ({price_val}€)")
+
+                                        # Return immediately if high-priority
+                                        if selector in ["[itemprop='price']", "[data-testid='price']", ".current-price", ".sale-price", ".final-price", ".product-price"]:
+                                            return price_text
+                                    except (ValueError, AttributeError):
+                                        logger.debug(f"Could not parse price: {price_text}")
+                                        continue
                     except Exception:
                         continue
             except Exception:
