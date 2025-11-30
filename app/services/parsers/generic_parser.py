@@ -73,6 +73,7 @@ class GenericParser(BaseParser):
             fallback_selectors = [
                 # Product-specific URLs
                 "a[href*='/produit']",
+                "a[href*='/products/']",  # Shopify
                 "a[href*='/product']",
                 "a[href*='/p/']",
                 "a[href*='/item']",
@@ -82,9 +83,13 @@ class GenericParser(BaseParser):
                 ".product-card a[href]",
                 ".product-item a[href]",
                 "[class*='product'] a[href]",
+                # Shopify specific
+                "a.product-card__link",
+                "a[href*='/collections/']",
                 # Generic structure
                 "article[class*='product'] a",
                 "div[class*='product'] a",
+                "li[class*='product'] a",
                 # Very generic (last resort)
                 "a[class*='product']",
             ]
