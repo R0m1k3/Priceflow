@@ -41,6 +41,33 @@ async def scheduled_scrape_job():
         db.close()
 
 
+async def scheduled_purge_job():
+    """Scheduled job to purge old catalogs (expired > 3 months)"""
+    logger.info("Starting scheduled catalog purge job")
+    
+    from datetime import datetime, timedelta
+    from app.models import Catalogue
+    
+    db = SessionLocal()
+    try:
+        cutoff_date = datetime.now() - timedelta(days=90)
+        
+        old_catalogues = db.query(Catalogue).filter(
+            Catalogue.date_fin < cutoff_date
+        ).all()
+        
+        count = len(old_catalogues)
+        for cat in old_catalogues:
+            db.delete(cat)
+        
+        db.commit()
+        logger.info(f"Scheduled purge complete: deleted {count} catalogues with date_fin < {cutoff_date}")
+    except Exception as e:
+        logger.error(f"Error in scheduled purge job: {e}")
+    finally:
+        db.close()
+
+
 def start_scheduler():
     """Start the scheduler with configured jobs"""
     # Schedule scraping twice daily at 6:00 and 18:00
@@ -48,12 +75,21 @@ def start_scheduler():
         scheduled_scrape_job,
         CronTrigger(hour="6,18", minute=0),
         id="catalog_scraping",
-        name="Scrape Bonial catalogs",
+        name="Scrape Cataloguemate catalogs",
+        replace_existing=True,
+    )
+    
+    # Schedule automatic purge on the 1st of each month at 3:00 AM
+    scheduler.add_job(
+        scheduled_purge_job,
+        CronTrigger(day=1, hour=3, minute=0),
+        id="catalog_purge",
+        name="Purge old catalogs",
         replace_existing=True,
     )
     
     scheduler.start()
-    logger.info("Catalog scraping scheduler started (runs at 6:00 and 18:00)")
+    logger.info("Catalog scraping scheduler started (scraping at 6:00 and 18:00, purge on 1st of month at 3:00)")
 
 
 def stop_scheduler():

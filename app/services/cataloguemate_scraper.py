@@ -102,20 +102,60 @@ async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
 async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
     """
     Scrape pages from a specific catalog.
-    Iterates through ?page=1, ?page=2 etc.
+    Detects total pages from pagination links on first page.
     """
     pages = []
     page_num = 1
-    max_pages = 100 # Safety limit
+    max_pages = 100 # Default safety limit
     
+    # First page: detect total number of pages from pagination
+    first_page_html, _ = await browserless_service.get_page_content(catalog_url)
+    
+    if not first_page_html:
+        logger.error(f"Failed to fetch first page for {catalog_url}")
+        return []
+    
+    soup = BeautifulSoup(first_page_html, 'html.parser')
+    
+    # Try to detect max pages from pagination links
+    # Look for links with ?page=X or just numeric text
+    pagination_links = soup.find_all('a', href=True)
+    page_numbers = []
+    
+    for link in pagination_links:
+        href = link.get('href', '')
+        text = link.get_text(strip=True)
+        
+        # Check if it's a page number link
+        if 'page=' in href:
+            try:
+                page_match = re.search(r'page=(\d+)', href)
+                if page_match:
+                    page_numbers.append(int(page_match.group(1)))
+            except:
+                pass
+        elif text.isdigit():
+            # Direct numeric link (e.g., "11")
+            page_numbers.append(int(text))
+    
+    if page_numbers:
+        max_pages = max(page_numbers)
+        logger.info(f"Detected {max_pages} total pages from pagination")
+    else:
+        logger.warning(f"Could not detect page count, using default limit of {max_pages}")
+    
+    # Now scrape all pages
     while page_num <= max_pages:
         # Construct URL for specific page
         current_url = catalog_url if page_num == 1 else f"{catalog_url}?page={page_num}"
         
-        logger.info(f"Scraping page {page_num}: {current_url}")
+        logger.info(f"Scraping page {page_num}/{max_pages}: {current_url}")
         
-        # Use browserless service
-        html_content, _ = await browserless_service.get_page_content(current_url)
+        # Reuse first page HTML for page 1
+        if page_num == 1:
+            html_content = first_page_html
+        else:
+            html_content, _ = await browserless_service.get_page_content(current_url)
         
         if not html_content:
             logger.warning(f"Failed to fetch page {page_num}")
@@ -148,17 +188,15 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
             
             # Heuristic: Catalog pages are usually large vertical images
             # Check src for keywords
-            is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images'])
+            is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images', 'leaflet'])
             
             # Logic:
             # 1. If keyword match AND decent size -> Strong candidate
             # 2. If no keyword match but HUGE size -> Candidate
             
             if is_likely_catalog:
-                if area > max_area:
+                if area > max_area or (area == 0 and max_area == 0):
                     max_area = area
-                    main_image_url = src
-                elif area == 0 and not main_image_url:
                     main_image_url = src
             elif area > 100000: # Arbitrary large size (e.g. 300x333)
                 if area > max_area:
@@ -179,18 +217,16 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
             logger.info(f"Found image for page {page_num}: {main_image_url}")
         else:
             logger.warning(f"No catalog image found on page {page_num}")
-            # If we can't find an image, we might have reached the end or it's a bad page
+            # If we can't find an image after page 1, we've likely reached the end
             if page_num > 1:
+                logger.info(f"Stopping pagination at page {page_num - 1} (no image found)")
                 break
         
-        # Check for pagination "Next" to know if we should continue
-        if not main_image_url:
-            break
-            
         page_num += 1
-        # Small delay handled by browserless service already, but adding a tiny one here
+        # Small delay to avoid overwhelming the server
         await asyncio.sleep(0.5)
 
+    logger.info(f"Scraped {len(pages)} pages total")
     return pages
 
 async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
