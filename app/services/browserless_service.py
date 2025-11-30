@@ -446,6 +446,15 @@ class BrowserlessService:
                             break
                         except Exception:
                             continue
+                
+                # Generic wait selector
+                if wait_selector:
+                    try:
+                        logger.info(f"⏳ Waiting for selector: {wait_selector}")
+                        await page.wait_for_selector(wait_selector, timeout=10000, state="attached")
+                        logger.info(f"✅ Wait selector found: {wait_selector}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Wait selector {wait_selector} timed out or failed: {e}")
 
                 # Extract content
                 if extract_text:

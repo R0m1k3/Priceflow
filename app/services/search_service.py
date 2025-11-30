@@ -78,7 +78,7 @@ class NewSearchService:
             logger.warning(f"No content returned for {site_key}")
             return []
 
-        return NewSearchService._parse_results(html_content, site_key, search_url)
+        return NewSearchService._parse_results(html_content, site_key, search_url, query)
 
     @staticmethod
     async def scrape_item(result: SearchResult) -> SearchResult:
@@ -153,113 +153,73 @@ class NewSearchService:
         return result
 
     @staticmethod
-    async def search_site(site_key: str, query: str) -> list[SearchResult]:
-        """Search a single site"""
-        config = SITE_CONFIGS.get(site_key)
-        if not config:
-            logger.error(f"Unknown site: {site_key}")
-            return []
-
-        search_url = config["search_url"].format(query=quote_plus(query))
-        logger.info(f"Searching {config['name']} at {search_url}")
-
-        # Use proxy if required by config
-        use_proxy = config.get("requires_proxy", False)
-        
-        html_content, _ = await browserless_service.get_page_content(
-            search_url, 
-            use_proxy=use_proxy,
-            wait_selector=config.get("wait_selector")
-        )
-
-        if not html_content:
-            logger.warning(f"No content returned for {site_key}")
-            return []
-
-        # Phase 1: Parse results
-        initial_results = NewSearchService._parse_results(html_content, site_key, search_url, query)
-        
-        # Phase 2: Scrape details for each result (Parallel)
-        # Limit concurrency to avoid overloading
-        semaphore = asyncio.Semaphore(3)
-        
-        async def scrape_with_limit(res):
-            async with semaphore:
-                return await NewSearchService.scrape_item(res)
-
-        tasks = [scrape_with_limit(r) for r in initial_results]
-        enriched_results = await asyncio.gather(*tasks)
-        
-        return enriched_results
-
-    @staticmethod
-    def _parse_results(html: str, site_key: str, base_url: str, query: str) -> list[SearchResult]:
+    def _parse_results(content: str, site: str, base_url: str, query: str) -> list[SearchResult]:
         """Parse HTML content to extract search results"""
-        config = SITE_CONFIGS[site_key]
-        soup = BeautifulSoup(html, "html.parser")
         results = []
+        config = SITE_CONFIGS[site]
+        soup = BeautifulSoup(content, "html.parser")
+        
+        # Log content length and selector
+        logger.debug(f"Parsing content for {site} (length: {len(content)}) with selector: {config['product_selector']}")
 
-        # Prepare query words for filtering
-        # Split by whitespace, lowercase, remove special chars if needed, filter out short words
-        query_words = [w.lower() for w in query.split() if len(w) > 2]
-
-        # Select product links
         links = soup.select(config["product_selector"])
-        
-        # Deduplicate links
-        seen_urls = set()
-        
-        for link in links:
-            # Limit removed as per user request
-            # if len(results) >= 5:
-            #    break
+        logger.debug(f"Found {len(links)} raw items for {site}")
 
-            href = link.get("href")
+        if "amazon" in site:
+            base_url = "https://www.amazon.fr"
+        
+        seen_urls = set()
+        query_words = query.lower().split() if query else []
+
+        for container in links:
+            # Handle container-based selectors (where the selector is the card, not the link)
+            link = None
+            href = None
+            title = None
             
-            # Special handling for sites where selector targets a container (Carrefour, Stokomani)
+            # Try to find link within container
+            if "product_link_selector" in config:
+                link_el = container.select_one(config["product_link_selector"])
+                if link_el:
+                    link = link_el
+                    href = link.get("href")
+            
+            # Fallback: check if container itself is a link
+            if not href:
+                href = container.get("href")
+                if href:
+                    link = container
+            
+            # Special handling for sites where selector targets a container but no explicit link selector
             if not href and config.get("name") in ["Carrefour", "Stokomani"]:
-                # Try to find the main product link inside the container
-                # For Carrefour, it's usually .product-card-click-wrapper, but generic 'a' often works if it's the first one
-                child_link = link.find("a", class_="product-card-click-wrapper") or link.find("a")
+                child_link = container.find("a", class_="product-card-click-wrapper") or container.find("a")
                 if child_link:
                     href = child_link.get("href")
-                    # Update link to point to the anchor for title/image extraction
                     link = child_link
 
             if not href:
+                # logger.debug(f"Skipping result: No href found for {config['name']}")
                 continue
 
             full_url = urljoin(base_url, href)
             
-            # Basic cleanup
             if full_url in seen_urls:
                 continue
             seen_urls.add(full_url)
 
             # Extract title
-            title = link.get_text(strip=True)
+            title = None
+            if "product_title_selector" in config:
+                # Use container to find title
+                title_el = container.select_one(config["product_title_selector"])
+                if title_el:
+                    title = title_el.get_text(strip=True)
             
-            # If no text, check title attribute or nested image alt
-            if not title:
-                if link.get("title"):
-                    title = link.get("title")
-                else:
-                    img = link.find("img")
-                    if img and img.get("alt"):
-                        title = img.get("alt")
-            
-            # Special case for Stokomani or similar where link might be wrapping text but get_text failed or we selected a container
-            if not title and config.get("name") == "Stokomani":
-                 # If we selected the container .product-card__title, the link is inside
-                 child_link = link.find("a")
-                 if child_link:
-                     title = child_link.get_text(strip=True)
-                     if not href: # Update href if we selected a container
-                        href = child_link.get("href")
-                        if href:
-                            full_url = urljoin(base_url, href)
+            if not title and link:
+                title = link.get_text(strip=True)
 
             if not title or len(title) < 3:
+                logger.debug(f"Skipping result: No title or too short ({title}) for {full_url}")
                 continue
 
             # STRICT FILTERING: Check if all query words are in the title
@@ -272,7 +232,7 @@ class NewSearchService:
                         break
                 
                 if not all_words_found:
-                    # logger.debug(f"Skipping result '{title}' - does not contain all query words: {query_words}")
+                    logger.debug(f"Skipping result '{title}' - does not contain all query words: {query_words}")
                     continue
 
             # Extract Image URL (Enhanced with multi-selector support)
@@ -284,17 +244,10 @@ class NewSearchService:
                 img_el = None
                 # Try each selector in order
                 for selector in selectors:
-                    # Search in the link itself first
-                    img_el = link.select_one(selector)
+                    # Search in the container first
+                    img_el = container.select_one(selector)
                     if img_el:
                         break
-                    
-                    # If not found in link, search in parent container
-                    container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
-                    if container:
-                        img_el = container.select_one(selector)
-                        if img_el:
-                            break
                 
                 if img_el:
                     # Try multiple image attributes in order of priority
@@ -311,9 +264,9 @@ class NewSearchService:
                         srcset = img_el.get("srcset")
                         image_url = srcset.split(",")[0].split()[0]
             
-            # Fallback: Find any img in the link
+            # Fallback: Find any img in the container
             if not image_url:
-                img = link.find("img")
+                img = container.find("img")
                 if img:
                     image_url = (
                         img.get("src") or 
@@ -328,35 +281,18 @@ class NewSearchService:
                         srcset = img.get("srcset")
                         image_url = srcset.split(",")[0].split()[0]
             
-            # Fallback: Search in parent container
-            if not image_url:
-                container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
-                if container:
-                    img = container.find("img")
-                    if img:
-                        image_url = (
-                            img.get("src") or 
-                            img.get("data-src") or 
-                            img.get("data-lazy-src") or
-                            img.get("data-original") or
-                            img.get("data-lazy")
-                        )
-                        if not image_url and img.get("srcset"):
-                            srcset = img.get("srcset")
-                            image_url = srcset.split(",")[0].split()[0]
-
             # Make absolute URL
             if image_url:
                 # Clean up data URIs or invalid URLs
                 if image_url.startswith("data:"):
-                    logger.debug(f"Skipping data URI for: {title[:30]}")
+                    # logger.debug(f"Skipping data URI for: {title[:30]}")
                     image_url = None
                 elif not image_url.startswith("http"):
                     image_url = urljoin(base_url, image_url)
             
             # Log if image not found
             if not image_url:
-                logger.warning(f"No image found for: {title[:50]} | {site_key}")
+                logger.warning(f"No image found for: {title[:50]} | {site}")
 
 
             # Create result
@@ -368,7 +304,7 @@ class NewSearchService:
                 image_url=image_url
             ))
 
-        logger.info(f"Found {len(results)} results for {site_key}")
+        logger.info(f"Found {len(results)} results for {site}")
         return results
 
     @staticmethod
