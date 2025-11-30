@@ -240,17 +240,26 @@ class NewSearchService:
                     # logger.debug(f"Skipping result '{title}' - does not contain all query words: {query_words}")
                     continue
 
-            # Extract Image URL (Enhanced)
+            # Extract Image URL (Enhanced with multi-selector support)
             image_url = None
             if "product_image_selector" in config:
-                # Search in the link itself first
-                img_el = link.select_one(config["product_image_selector"])
+                # Split selectors by comma to support multiple fallback selectors
+                selectors = [s.strip() for s in config["product_image_selector"].split(",")]
                 
-                # If not found in link, search in parent container
-                if not img_el:
+                img_el = None
+                # Try each selector in order
+                for selector in selectors:
+                    # Search in the link itself first
+                    img_el = link.select_one(selector)
+                    if img_el:
+                        break
+                    
+                    # If not found in link, search in parent container
                     container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
                     if container:
-                        img_el = container.select_one(config["product_image_selector"])
+                        img_el = container.select_one(selector)
+                        if img_el:
+                            break
                 
                 if img_el:
                     # Try multiple image attributes in order of priority
@@ -258,7 +267,8 @@ class NewSearchService:
                         img_el.get("src") or 
                         img_el.get("data-src") or 
                         img_el.get("data-lazy-src") or
-                        img_el.get("data-original")
+                        img_el.get("data-original") or
+                        img_el.get("data-lazy")
                     )
                     
                     # Handle srcset (use first URL)
@@ -274,17 +284,44 @@ class NewSearchService:
                         img.get("src") or 
                         img.get("data-src") or 
                         img.get("data-lazy-src") or
-                        img.get("data-original")
+                        img.get("data-original") or
+                        img.get("data-lazy")
                     )
                     
                     # Handle srcset
                     if not image_url and img.get("srcset"):
                         srcset = img.get("srcset")
                         image_url = srcset.split(",")[0].split()[0]
+            
+            # Fallback: Search in parent container
+            if not image_url:
+                container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
+                if container:
+                    img = container.find("img")
+                    if img:
+                        image_url = (
+                            img.get("src") or 
+                            img.get("data-src") or 
+                            img.get("data-lazy-src") or
+                            img.get("data-original") or
+                            img.get("data-lazy")
+                        )
+                        if not image_url and img.get("srcset"):
+                            srcset = img.get("srcset")
+                            image_url = srcset.split(",")[0].split()[0]
 
             # Make absolute URL
-            if image_url and not image_url.startswith("http"):
-                image_url = urljoin(base_url, image_url)
+            if image_url:
+                # Clean up data URIs or invalid URLs
+                if image_url.startswith("data:"):
+                    logger.debug(f"Skipping data URI for: {title[:30]}")
+                    image_url = None
+                elif not image_url.startswith("http"):
+                    image_url = urljoin(base_url, image_url)
+            
+            # Log if image not found
+            if not image_url:
+                logger.warning(f"No image found for: {title[:50]} | {site_key}")
 
 
             # Create result
