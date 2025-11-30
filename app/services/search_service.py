@@ -240,26 +240,52 @@ class NewSearchService:
                     # logger.debug(f"Skipping result '{title}' - does not contain all query words: {query_words}")
                     continue
 
-            # Extract Image URL (New)
+            # Extract Image URL (Enhanced)
             image_url = None
             if "product_image_selector" in config:
-                # Try to find image relative to the link or its container
-                # This is tricky because 'link' is just the <a> tag.
-                # We might need to look up to a container.
-                container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
-                if container:
-                    img_el = container.select_one(config["product_image_selector"])
-                    if img_el:
-                        image_url = img_el.get("src") or img_el.get("data-src")
+                # Search in the link itself first
+                img_el = link.select_one(config["product_image_selector"])
+                
+                # If not found in link, search in parent container
+                if not img_el:
+                    container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
+                    if container:
+                        img_el = container.select_one(config["product_image_selector"])
+                
+                if img_el:
+                    # Try multiple image attributes in order of priority
+                    image_url = (
+                        img_el.get("src") or 
+                        img_el.get("data-src") or 
+                        img_el.get("data-lazy-src") or
+                        img_el.get("data-original")
+                    )
+                    
+                    # Handle srcset (use first URL)
+                    if not image_url and img_el.get("srcset"):
+                        srcset = img_el.get("srcset")
+                        image_url = srcset.split(",")[0].split()[0]
             
-            # Fallback image extraction
+            # Fallback: Find any img in the link
             if not image_url:
                 img = link.find("img")
                 if img:
-                    image_url = img.get("src") or img.get("data-src")
+                    image_url = (
+                        img.get("src") or 
+                        img.get("data-src") or 
+                        img.get("data-lazy-src") or
+                        img.get("data-original")
+                    )
+                    
+                    # Handle srcset
+                    if not image_url and img.get("srcset"):
+                        srcset = img.get("srcset")
+                        image_url = srcset.split(",")[0].split()[0]
 
+            # Make absolute URL
             if image_url and not image_url.startswith("http"):
                 image_url = urljoin(base_url, image_url)
+
 
             # Create result
             results.append(SearchResult(
