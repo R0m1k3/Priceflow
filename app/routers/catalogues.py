@@ -270,10 +270,15 @@ async def trigger_scraping(
             "error": log.message_erreur
         }
     else:
-        # Not implemented yet for all enseignes in this version
+        # Scrape all enseignes
+        from app.services.cataloguemate_scraper import scrape_all_enseignes
+        logs = await scrape_all_enseignes(db)
+        
+        total_new = sum(log.catalogues_nouveaux for log in logs)
+        
         return {
-            "message": "Scraping all enseignes not yet implemented with new scraper",
-            "catalogues_nouveaux": 0,
+            "message": f"Scraping completed for all enseignes. {len(logs)} processed.",
+            "catalogues_nouveaux": total_new,
         }
 
 
