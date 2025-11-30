@@ -59,8 +59,13 @@ def get_realistic_headers(user_agent: str) -> dict:
     }
 
 
-def get_random_proxy() -> dict | None:
-    """Get a random proxy from the pool"""
+def get_random_proxy() -> str | None:
+    """
+    Get a random proxy from the pool in Crawl4AI format.
+
+    Returns:
+        Proxy string in format: http://username:password@ip:port
+    """
     if not AMAZON_PROXY_LIST_RAW:
         return None
 
@@ -68,11 +73,14 @@ def get_random_proxy() -> dict | None:
     parts = proxy_str.split(":")
 
     if len(parts) == 4:
-        return {
-            "server": f"http://{parts[0]}:{parts[1]}",
-            "username": parts[2],
-            "password": parts[3]
-        }
+        ip = parts[0]
+        port = parts[1]
+        username = parts[2]
+        password = parts[3]
+
+        # Format: http://username:password@ip:port
+        return f"http://{username}:{password}@{ip}:{port}"
+
     return None
 
 
@@ -202,7 +210,10 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
     # Select random proxy
     proxy = get_random_proxy()
     if proxy:
-        logger.debug(f"🌐 Using proxy: {proxy['server']}")
+        # Extract just the IP for logging (hide credentials)
+        proxy_parts = proxy.split('@')
+        proxy_server = proxy_parts[1] if len(proxy_parts) > 1 else proxy
+        logger.debug(f"🌐 Using proxy: {proxy_server}")
     else:
         logger.warning("⚠️ No proxy available - may face rate limiting")
 
@@ -211,7 +222,7 @@ async def scrape_amazon_search(query: str, max_results: int = 20) -> list[Amazon
         headless=True,
         verbose=False,
         user_agent=user_agent,
-        proxy=proxy,
+        proxy_config=proxy,  # Use proxy_config instead of deprecated proxy
         extra_args=[
             "--disable-blink-features=AutomationControlled",  # Disable automation detection
             "--disable-dev-shm-usage",

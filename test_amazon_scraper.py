@@ -98,7 +98,10 @@ async def test_anti_detection():
     # Test proxy
     proxy = get_random_proxy()
     if proxy:
-        logger.info(f"✓ Proxy test: {proxy['server']}")
+        # Extract just the IP for logging (hide credentials)
+        proxy_parts = proxy.split('@')
+        proxy_server = proxy_parts[1] if len(proxy_parts) > 1 else proxy
+        logger.info(f"✓ Proxy test: {proxy_server}")
     else:
         logger.warning("⚠️ Pas de proxy configuré")
 
