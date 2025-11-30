@@ -117,32 +117,6 @@ async def test_catalog_page_extraction():
             logger.info(f"  Pages trouvées: {len(pages_data)}")
             
             if len(pages_data) > 0:
-                logger.info(f"\n  Exemples de pages:")
-                for page in pages_data[:3]:
-                    logger.info(f"    - Page {page['numero_page']}: {page['width']}x{page['height']}px")
-                    logger.info(f"      URL: {page['image_url'][:80]}...")
-                return True
-            else:
-                logger.warning("⚠ Aucune page trouvée (structure du site a peut-être changé)")
-                return False
-                
-    except Exception as e:
-        logger.error(f"✗ Erreur lors de l'extraction: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-async def main():
-    """Exécuter tous les tests"""
-    logger.info("=" * 70)
-    logger.info("VÉRIFICATION CRAWL4AI - SCRAPER TIENDEO")
-    logger.info("=" * 70)
-    
-    # Test 1: Import
-    test1 = await test_crawl4ai_import()
-    
-    # Test 2: Extraction
     test2 = await test_catalog_page_extraction()
     
     # Résumé
