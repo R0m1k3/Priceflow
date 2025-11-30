@@ -24,7 +24,8 @@ from app.schemas_catalogues import (
     ScrapingLogResponse,
     ScrapingStatsResponse,
 )
-from app.services.tiendeo_scraper import scrape_all_enseignes, scrape_enseigne
+from app.services.cataloguemate_scraper import scrape_enseigne
+# from app.services.tiendeo_scraper import scrape_all_enseignes, scrape_enseigne
 
 logger = logging.getLogger(__name__)
 
@@ -258,25 +259,21 @@ async def trigger_scraping(
         if not enseigne:
             raise HTTPException(status_code=404, detail="Enseigne not found")
         
-        async with async_playwright() as p:
-            import os
-            browserless_url = os.environ.get("BROWSERLESS_URL", "ws://browserless:3000")
-            browser = await p.chromium.connect_over_cdp(browserless_url)
-            log = await scrape_enseigne(enseigne, db, browser)
-            await browser.close()
+        # Use Cataloguemate scraper
+        log = await scrape_enseigne(enseigne, db)
         
         return {
             "message": f"Scraping completed for {enseigne.nom}",
             "catalogues_trouves": log.catalogues_trouves,
             "catalogues_nouveaux": log.catalogues_nouveaux,
+            "status": log.statut,
+            "error": log.message_erreur
         }
     else:
-        logs = await scrape_all_enseignes(db)
-        total_nouveaux = sum(log.catalogues_nouveaux for log in logs)
-        
+        # Not implemented yet for all enseignes in this version
         return {
-            "message": f"Scraping completed for all enseignes",
-            "catalogues_nouveaux": total_nouveaux,
+            "message": "Scraping all enseignes not yet implemented with new scraper",
+            "catalogues_nouveaux": 0,
         }
 
 

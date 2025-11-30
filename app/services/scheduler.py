@@ -9,7 +9,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.database import SessionLocal
-from app.services.bonial_scraper import scrape_all_enseignes
+from app.services.cataloguemate_scraper import scrape_all_enseignes
+# from app.services.bonial_scraper import scrape_all_enseignes
 
 logger = logging.getLogger(__name__)
 

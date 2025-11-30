@@ -1,0 +1,278 @@
+"""
+Cataloguemate.fr Scraper Service
+
+Scrapes promotional catalogs from Cataloguemate.fr.
+Replaces Tiendeo scraper due to better reliability and simpler structure.
+"""
+
+import asyncio
+import logging
+import re
+from datetime import datetime, timedelta
+from typing import Any, Optional
+
+from bs4 import BeautifulSoup
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from sqlalchemy.orm import Session
+
+from app.models import Enseigne, Catalogue, ScrapingLog
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://www.cataloguemate.fr"
+
+async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> list[dict[str, Any]]:
+    """
+    Scrape the list of catalogs for an enseigne from its main page.
+    URL format: https://www.cataloguemate.fr/{enseigne_slug}/
+    """
+    slug = enseigne.slug_bonial.lower()
+    # Handle specific slug mapping
+    if enseigne.nom.lower() == "b&m":
+        slug = "bm"
+    elif enseigne.nom.lower() == "la foir'fouille":
+        slug = "la-foirfouille"
+    
+    url = f"{BASE_URL}/{slug}/"
+    logger.info(f"Scraping catalog list from: {url}")
+
+    config = CrawlerRunConfig(
+        cache_mode=CacheMode.BYPASS,
+        wait_for_images=True,
+    )
+
+    result = await crawler.arun(url=url, config=config)
+    if not result.success:
+        logger.error(f"Failed to crawl list {url}: {result.error_message}")
+        return []
+
+    soup = BeautifulSoup(result.html, 'html.parser')
+    catalogs = []
+    
+    # Find all links that might be catalogs for THIS enseigne
+    # We look for links starting with /{slug}/ and containing date patterns or 'catalogue'
+    
+    links = soup.find_all('a', href=True)
+    seen_urls = set()
+    
+    for link in links:
+        href = link['href']
+        text = link.get_text(strip=True)
+        
+        # Normalize href
+        if href.startswith(BASE_URL):
+            href = href.replace(BASE_URL, "")
+            
+        # Filter: must start with /{slug}/ to ensure it's for this enseigne
+        # Must NOT be the main page itself or a city search page
+        if href.startswith(f"/{slug}/") and href != f"/{slug}/":
+            if any(x in href for x in ["offres", "magasins", "rechercher"]):
+                continue
+                
+            full_url = f"{BASE_URL}{href}"
+            
+            if full_url in seen_urls:
+                continue
+                
+            # Check if it looks like a catalog (usually has an ID or date)
+            # e.g. /action/black-friday-du-mercredi-26-11-2025-61136/
+            if re.search(r'\d+', href):
+                catalogs.append({
+                    'url': full_url,
+                    'title': text or "Catalogue",
+                })
+                seen_urls.add(full_url)
+                logger.info(f"Found catalog: {full_url}")
+
+    return catalogs
+
+async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> list[dict[str, Any]]:
+    """
+    Scrape pages from a specific catalog.
+    Iterates through ?page=1, ?page=2 etc.
+    """
+    pages = []
+    page_num = 1
+    max_pages = 100 # Safety limit
+    
+    while page_num <= max_pages:
+        # Construct URL for specific page
+        current_url = catalog_url if page_num == 1 else f"{catalog_url}?page={page_num}"
+        
+        logger.info(f"Scraping page {page_num}: {current_url}")
+        
+        config = CrawlerRunConfig(
+            cache_mode=CacheMode.BYPASS,
+            wait_for_images=True,
+            delay_before_return_html=1.0
+        )
+        
+        result = await crawler.arun(url=current_url, config=config)
+        if not result.success:
+            logger.warning(f"Failed to fetch page {page_num}")
+            break
+            
+        soup = BeautifulSoup(result.html, 'html.parser')
+        
+        # Find the main catalog image
+        # Strategy: Look for the largest image that contains 'page' or 'upload' in src
+        # or is inside a specific viewer container
+        
+        main_image_url = None
+        max_area = 0
+        
+        all_imgs = soup.find_all('img')
+        for img in all_imgs:
+            src = img.get('src')
+            if not src: continue
+            
+            # Skip common UI elements
+            if any(x in src.lower() for x in ['logo', 'icon', 'facebook', 'twitter', 'instagram']):
+                continue
+                
+            # Calculate area if dimensions exist
+            width = img.get('width')
+            height = img.get('height')
+            area = 0
+            if width and height:
+                try:
+                    area = int(width) * int(height)
+                except:
+                    pass
+            
+            # Heuristic: Catalog pages are usually large vertical images
+            # Check src for keywords
+            is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images'])
+            
+            if is_likely_catalog:
+                # If we have dimensions, prioritize large ones
+                if area > max_area:
+                    max_area = area
+                    main_image_url = src
+                elif area == 0 and not main_image_url:
+                    # If no dimensions but looks like a catalog image, take it if we haven't found one
+                    main_image_url = src
+        
+        if main_image_url:
+            # Ensure absolute URL
+            if main_image_url.startswith("//"):
+                main_image_url = "https:" + main_image_url
+            elif main_image_url.startswith("/"):
+                main_image_url = BASE_URL + main_image_url
+                
+            pages.append({
+                'page_number': page_num,
+                'image_url': main_image_url
+            })
+            logger.info(f"Found image for page {page_num}: {main_image_url}")
+        else:
+            logger.warning(f"No catalog image found on page {page_num}")
+            # If we can't find an image, we might have reached the end or it's a bad page
+            if page_num > 1:
+                break
+        
+        # Check for pagination "Next" to know if we should continue
+        # Cataloguemate usually has a "Suivant" link or page numbers
+        # If we are on page X and there is no link to X+1, we stop
+        
+        # Simple check: if we found an image, try next page. 
+        # If the page loaded but had no image, we stop.
+        if not main_image_url:
+            break
+            
+        page_num += 1
+        await asyncio.sleep(0.5)
+
+    return pages
+
+async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
+    """Main entry point for scraping an enseigne"""
+    start_time = datetime.now()
+    log = ScrapingLog(
+        enseigne_id=enseigne.id,
+        statut="running",
+        date_debut=start_time,
+        catalogues_trouves=0,
+        catalogues_nouveaux=0,
+        catalogues_mis_a_jour=0
+    )
+    db.add(log)
+    db.commit()
+
+    try:
+        browser_config = BrowserConfig(headless=True)
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            # 1. Get list of catalogs
+            catalogs_list = await scrape_catalog_list(crawler, enseigne)
+            log.catalogues_trouves = len(catalogs_list)
+            
+            for cat_info in catalogs_list:
+                # Check if catalog exists
+                existing = db.query(Catalogue).filter(
+                    Catalogue.catalogue_url == cat_info['url']
+                ).first()
+                
+                if existing:
+                    continue
+                    
+                # 2. Scrape pages for new catalog
+                pages = await scrape_catalog_pages(crawler, cat_info['url'])
+                
+                if not pages:
+                    continue
+                    
+                # Create catalog entry
+                new_cat = Catalogue(
+                    enseigne_id=enseigne.id,
+                    titre=cat_info['title'],
+                    catalogue_url=cat_info['url'],
+                    date_debut=datetime.now(), # Todo: extract real dates
+                    date_fin=datetime.now() + timedelta(days=14),
+                    image_couverture_url=pages[0]['image_url']
+                )
+                db.add(new_cat)
+                db.commit()
+                db.refresh(new_cat)
+                
+                # Add pages
+                for page_data in pages:
+                    new_page = CataloguePage(
+                        catalogue_id=new_cat.id,
+                        numero_page=page_data['page_number'],
+                        image_url=page_data['image_url'],
+                        # We don't have dimensions from this method yet, but that's fine
+                    )
+                    db.add(new_page)
+                
+                db.commit()
+                log.catalogues_nouveaux += 1
+                logger.info(f"Saved catalog '{new_cat.titre}' with {len(pages)} pages")
+                
+        log.statut = "success"
+    except Exception as e:
+        logger.error(f"Scraping failed: {e}")
+        log.statut = "error"
+        log.message_erreur = str(e)
+    finally:
+        log.date_fin = datetime.now()
+        db.commit()
+        
+    return log
+
+async def scrape_all_enseignes(db: Session) -> list[ScrapingLog]:
+    """
+    Scrape catalogs for all active enseignes.
+    """
+    logger.info("Starting scraping for all enseignes...")
+    logs = []
+    
+    enseignes = db.query(Enseigne).filter(Enseigne.is_active == True).all()
+    
+    for enseigne in enseignes:
+        try:
+            log = await scrape_enseigne(enseigne, db)
+            logs.append(log)
+        except Exception as e:
+            logger.error(f"Error scraping enseigne {enseigne.nom}: {e}")
+            
+    return logs
