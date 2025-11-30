@@ -326,52 +326,89 @@ class ImprovedSearchService:
                 if not all_words_found:
                     continue
 
-            # Extract Image URL - Multiple strategies
+            # Extract Image URL - PRIORITIZE CONFIGURED SELECTOR
             image_url = None
 
-            # Strategy 1: Look for img directly in the link
-            img = link.find("img")
-            if img:
-                # Try multiple attributes (src, data-src, data-lazy-src, etc.)
-                image_url = (
-                    img.get("src") or
-                    img.get("data-src") or
-                    img.get("data-lazy-src") or
-                    img.get("data-original") or
-                    img.get("srcset", "").split(",")[0].split()[0] if img.get("srcset") else None
-                )
+            # PRIORITY 1: Use product_image_selector if configured (site-specific)
+            if "product_image_selector" in config:
+                # Try in link first
+                img_el = link.select_one(config["product_image_selector"])
+                
+                # If not found in link, search in parent container
+                if not img_el:
+                    container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
+                    if container:
+                        img_el = container.select_one(config["product_image_selector"])
+                
+                if img_el:
+                    # Try multiple attributes in order of priority
+                    image_url= (
+                        img_el.get("src") or
+                        img_el.get("data-src") or
+                        img_el.get("data-lazy-src") or
+                        img_el.get("data-original")
+                    )
+                    
+                    # Handle srcset (use first URL)
+                    if not image_url and img_el.get("srcset"):
+                        srcset = img_el.get("srcset")
+                        # srcset format: "url1 size1, url2 size2"
+                        image_url = srcset.split(",")[0].split()[0]
+                    
+                    if image_url:
+                        logger.debug(f"  🖼️ Image found via product_image_selector: {image_url[:50]}...")
 
-            # Strategy 2: Look in parent container if configured
-            if not image_url and "product_image_selector" in config:
-                container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
-                if container:
-                    img_el = container.select_one(config["product_image_selector"])
-                    if img_el:
-                        image_url = (
-                            img_el.get("src") or
-                            img_el.get("data-src") or
-                            img_el.get("data-lazy-src")
-                        )
+            # PRIORITY 2: Fallback - Look for any img directly in the link
+            if not image_url:
+                img = link.find("img")
+                if img:
+                    image_url = (
+                        img.get("src") or
+                        img.get("data-src") or
+                        img.get("data-lazy-src") or
+                        img.get("data-original")
+                    )
+                    
+                    # Handle srcset
+                    if not image_url and img.get("srcset"):
+                        srcset = img.get("srcset")
+                        image_url = srcset.split(",")[0].split()[0]
+                    
+                    if image_url:
+                        logger.debug(f"  🖼️ Image found via link.find('img'): {image_url[:50]}...")
 
-            # Strategy 3: Look for picture > source elements
+            # PRIORITY 3: Look for picture > source elements
             if not image_url:
                 picture = link.find("picture")
                 if picture:
                     source = picture.find("source")
-                    if source:
-                        image_url = source.get("srcset", "").split(",")[0].split()[0] if source.get("srcset") else None
+                    if source and source.get("srcset"):
+                        srcset = source.get("srcset")
+                        image_url = srcset.split(",")[0].split()[0]
+                    
                     if not image_url:
                         img_in_picture = picture.find("img")
                         if img_in_picture:
                             image_url = img_in_picture.get("src") or img_in_picture.get("data-src")
+                    
+                    if image_url:
+                        logger.debug(f"  🖼️ Image found via <picture>: {image_url[:50]}...")
 
-            # Clean up image URL
+            # Clean up and validate image URL
             if image_url:
-                # Remove data URIs and 1x1 pixels
-                if image_url.startswith("data:") or "1x1" in image_url or "placeholder" in image_url.lower():
+                # Remove data URIs, 1x1 pixels, placeholders
+                if (image_url.startswith("data:") or 
+                    "1x1" in image_url or 
+                    "placeholder" in image_url.lower() or
+                    image_url.strip() == ""):
+                    logger.debug(f"  ⏭️ Skipping invalid image: {image_url[:50]}")
                     image_url = None
                 elif not image_url.startswith("http"):
                     image_url = urljoin(base_url, image_url)
+                    logger.debug(f"  🔗 Made image URL absolute: {image_url[:80]}...")
+            
+            if not image_url:
+                logger.warning(f"  ⚠️ No image found for: {title[:50]}")
 
             # Create result
             results.append(SearchResult(
