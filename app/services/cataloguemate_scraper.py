@@ -102,58 +102,65 @@ async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
 async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
     """
     Scrape pages from a specific catalog.
-    Detects total pages from pagination links on first page.
+    Detects total pages from pagination links (must check page 2, as page 1 doesn't show them).
     """
     pages = []
     page_num = 1
     max_pages = 100 # Default safety limit
     
-    # First page: detect total number of pages from pagination
-    first_page_html, _ = await browserless_service.get_page_content(catalog_url)
+    # IMPORTANT: Pagination links only appear on page 2+, not on page 1
+    # So we fetch page 2 first to detect the max pages
+    page_2_url = f"{catalog_url}?page=2"
+    page_2_html, _ = await browserless_service.get_page_content(page_2_url)
     
-    if not first_page_html:
-        logger.error(f"Failed to fetch first page for {catalog_url}")
-        return []
-    
-    soup = BeautifulSoup(first_page_html, 'html.parser')
-    
-    # Try to detect max pages from pagination links
-    # Look for links with ?page=X or just numeric text
-    pagination_links = soup.find_all('a', href=True)
-    page_numbers = []
-    
-    for link in pagination_links:
-        href = link.get('href', '')
-        text = link.get_text(strip=True)
+    if page_2_html:
+        soup = BeautifulSoup(page_2_html, 'html.parser')
         
-        # Check if it's a page number link
-        if 'page=' in href:
-            try:
-                page_match = re.search(r'page=(\d+)', href)
-                if page_match:
-                    page_numbers.append(int(page_match.group(1)))
-            except:
-                pass
-        elif text.isdigit():
-            # Direct numeric link (e.g., "11")
-            page_numbers.append(int(text))
-    
-    if page_numbers:
-        max_pages = max(page_numbers)
-        logger.info(f"Detected {max_pages} total pages from pagination")
+        # Try to detect max pages from pagination links on page 2
+        pagination_links = soup.find_all('a', href=True)
+        page_numbers = []
+        
+        for link in pagination_links:
+            href = link.get('href', '')
+            text = link.get_text(strip=True)
+            
+            # Check if it's a page number link
+            if 'page=' in href:
+                try:
+                    page_match = re.search(r'page=(\d+)', href)
+                    if page_match:
+                        page_numbers.append(int(page_match.group(1)))
+                except:
+                    pass
+            elif text.isdigit():
+                # Direct numeric link (e.g., "11")
+                page_numbers.append(int(text))
+        
+        if page_numbers:
+            detected_max = max(page_numbers)
+            # Sanity check: cataloguemate sometimes shows wrong page counts (e.g., 188)
+            # Real catalogs rarely exceed 30-40 pages. Cap at 50 to be safe.
+            if detected_max > 50:
+                logger.warning(f"Detected abnormally high page count ({detected_max}), capping at 50")
+                max_pages = 50
+            else:
+                max_pages = detected_max
+            logger.info(f"Detected {max_pages} total pages from pagination (checked page 2)")
+        else:
+            logger.warning(f"Could not detect page count from page 2, using default limit of {max_pages}")
     else:
-        logger.warning(f"Could not detect page count, using default limit of {max_pages}")
+        logger.warning(f"Could not fetch page 2 to detect pagination, using default limit")
     
-    # Now scrape all pages
+    # Now scrape all pages starting from page 1
     while page_num <= max_pages:
         # Construct URL for specific page
         current_url = catalog_url if page_num == 1 else f"{catalog_url}?page={page_num}"
         
         logger.info(f"Scraping page {page_num}/{max_pages}: {current_url}")
         
-        # Reuse first page HTML for page 1
-        if page_num == 1:
-            html_content = first_page_html
+        # Reuse page 2 HTML if we're on page 2
+        if page_num == 2 and page_2_html:
+            html_content = page_2_html
         else:
             html_content, _ = await browserless_service.get_page_content(current_url)
         
@@ -252,12 +259,14 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
         log.catalogues_trouves = len(catalogs_list)
         
         for cat_info in catalogs_list:
-            # Check if catalog exists
+            # Generate content hash BEFORE checking existence (need pages for first image)
+            # First, check if catalog exists by URL
             existing = db.query(Catalogue).filter(
                 Catalogue.catalogue_url == cat_info['url']
             ).first()
             
             if existing:
+                logger.info(f"Catalogue already exists by URL: {cat_info['title']} (ID: {existing.id})")
                 continue
                 
             # 2. Scrape pages for new catalog
@@ -265,11 +274,19 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
             
             if not pages:
                 continue
-                
-            # Create catalog entry
-            # Generate content hash (URL + Title + Date)
-            hash_input = f"{cat_info['url']}{cat_info['title']}{datetime.now().date()}".encode('utf-8')
+            
+            # Generate content hash based on title and first image (stable identifier)
+            hash_input = f"{cat_info['title']}{pages[0]['image_url']}".encode('utf-8')
             content_hash = hashlib.sha256(hash_input).hexdigest()
+            
+            # Check if a catalog with the same content already exists
+            existing_by_hash = db.query(Catalogue).filter(
+                Catalogue.content_hash == content_hash
+            ).first()
+            
+            if existing_by_hash:
+                logger.info(f"Catalogue already exists by content hash: {cat_info['title']} (ID: {existing_by_hash.id}, original URL: {existing_by_hash.catalogue_url})")
+                continue
             
             new_cat = Catalogue(
                 enseigne_id=enseigne.id,

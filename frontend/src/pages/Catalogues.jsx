@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Calendar, BookOpen, Search, ChevronRight, Eye, Trash2 } from 'lucide-react';
+import { Loader2, Calendar, BookOpen, Search, ChevronRight, Eye, Trash2, ChevronLeft, X } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../hooks/use-auth';
 
@@ -15,6 +15,7 @@ export default function Catalogues() {
     const [selectedCatalogue, setSelectedCatalogue] = useState(null);
     const [cataloguePages, setCataloguePages] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const { user, getAuthHeaders } = useAuth();
 
     useEffect(() => {
@@ -86,12 +87,14 @@ export default function Catalogues() {
 
     const openCatalogue = (catalogue) => {
         setSelectedCatalogue(catalogue);
+        setCurrentPageIndex(0); // Reset to first page
         loadCataloguePages(catalogue.id);
     };
 
     const closeCatalogue = () => {
         setSelectedCatalogue(null);
         setCataloguePages([]);
+        setCurrentPageIndex(0);
     };
 
     const formatDate = (dateString) => {
@@ -125,6 +128,24 @@ export default function Catalogues() {
             toast.error('Erreur lors de la suppression');
         }
     };
+
+    // Keyboard navigation support
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (!selectedCatalogue) return;
+
+            if (e.key === 'ArrowLeft') {
+                setCurrentPageIndex(prev => Math.max(0, prev - 1));
+            } else if (e.key === 'ArrowRight') {
+                setCurrentPageIndex(prev => Math.min(cataloguePages.length - 1, prev + 1));
+            } else if (e.key === 'Escape') {
+                closeCatalogue();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [selectedCatalogue, cataloguePages.length]);
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
@@ -311,53 +332,109 @@ export default function Catalogues() {
                 </>
             )}
 
-            {/* Catalogue Viewer Modal */}
+            {/* Catalogue Viewer Modal - Page by Page Navigation */}
             {selectedCatalogue && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                    <div className="bg-background rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+                <div
+                    className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+                    onClick={closeCatalogue}
+                >
+                    <div
+                        className="relative w-full h-full flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {/* Header */}
-                        <div className="p-4 border-b flex justify-between items-start">
-                            <div>
-                                <h2 className="text-xl font-bold mb-1">{selectedCatalogue.titre}</h2>
-                                <p className="text-sm text-muted-foreground">
-                                    {selectedCatalogue.enseigne.nom} • {cataloguePages.length} pages
-                                </p>
+                        <div className="bg-black/50 backdrop-blur-sm p-4 flex justify-between items-center">
+                            <div className="flex items-center gap-4">
+                                <h2 className="text-white text-xl font-bold">{selectedCatalogue.titre}</h2>
+                                <span className="text-white/70 text-sm">
+                                    {selectedCatalogue.enseigne.nom}
+                                </span>
                             </div>
-                            <button
-                                onClick={closeCatalogue}
-                                className="px-4 py-2 rounded-lg hover:bg-secondary"
-                            >
-                                Fermer
-                            </button>
+                            <div className="flex items-center gap-4">
+                                {cataloguePages.length > 0 && (
+                                    <span className="text-white text-sm font-medium">
+                                        Page {currentPageIndex + 1} / {cataloguePages.length}
+                                    </span>
+                                )}
+                                <button
+                                    onClick={closeCatalogue}
+                                    className="p-2 text-white hover:bg-white/20 rounded-lg transition-colors"
+                                    title="Fermer (ESC)"
+                                >
+                                    <X className="h-6 w-6" />
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Pages Viewer */}
-                        <div className="flex-1 overflow-y-auto p-4">
+                        {/* Main Image Viewer */}
+                        <div className="flex-1 flex items-center justify-center p-8 relative">
                             {cataloguePages.length === 0 ? (
-                                <div className="flex justify-center py-20">
-                                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                                </div>
+                                <Loader2 className="h-12 w-12 animate-spin text-white" />
                             ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                    {cataloguePages.map(page => (
-                                        <div
+                                <>
+                                    {/* Current Page Image */}
+                                    <div className="max-w-4xl max-h-full flex items-center justify-center">
+                                        <img
+                                            src={cataloguePages[currentPageIndex]?.image_url}
+                                            alt={`Page ${currentPageIndex + 1}`}
+                                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                        />
+                                    </div>
+
+                                    {/* Navigation Buttons */}
+                                    {cataloguePages.length > 1 && (
+                                        <>
+                                            {/* Previous Button */}
+                                            <button
+                                                onClick={() => setCurrentPageIndex(prev => Math.max(0, prev - 1))}
+                                                disabled={currentPageIndex === 0}
+                                                className="absolute left-4 top-1/2 -translate-y-1/2 p-4 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                                title="Page précédente (←)"
+                                            >
+                                                <ChevronLeft className="h-8 w-8" />
+                                            </button>
+
+                                            {/* Next Button */}
+                                            <button
+                                                onClick={() => setCurrentPageIndex(prev => Math.min(cataloguePages.length - 1, prev + 1))}
+                                                disabled={currentPageIndex === cataloguePages.length - 1}
+                                                className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                                title="Page suivante (→)"
+                                            >
+                                                <ChevronRight className="h-8 w-8" />
+                                            </button>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        {/* Thumbnail Strip */}
+                        {cataloguePages.length > 1 && (
+                            <div className="bg-black/50 backdrop-blur-sm p-4">
+                                <div className="flex gap-2 overflow-x-auto pb-2">
+                                    {cataloguePages.map((page, index) => (
+                                        <button
                                             key={page.id}
-                                            className="relative aspect-[3/4] rounded-lg overflow-hidden border cursor-pointer hover:shadow-lg transition-shadow"
-                                            onClick={() => window.open(page.image_url, '_blank')}
+                                            onClick={() => setCurrentPageIndex(index)}
+                                            className={`relative flex-shrink-0 w-20 h-28 rounded-lg overflow-hidden border-2 transition-all ${index === currentPageIndex
+                                                ? 'border-primary scale-110'
+                                                : 'border-white/20 hover:border-white/50'
+                                                }`}
                                         >
                                             <img
                                                 src={page.image_url}
-                                                alt={`Page ${page.numero_page}`}
+                                                alt={`Page ${index + 1}`}
                                                 className="w-full h-full object-cover"
                                             />
-                                            <div className="absolute top-2 left-2 px-2 py-1 rounded bg-black/70 text-white text-xs font-medium">
-                                                Page {page.numero_page}
+                                            <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-xs text-center py-0.5">
+                                                {index + 1}
                                             </div>
-                                        </div>
+                                        </button>
                                     ))}
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
