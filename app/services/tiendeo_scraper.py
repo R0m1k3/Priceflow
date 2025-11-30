@@ -12,6 +12,7 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 
+from bs4 import BeautifulSoup
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
