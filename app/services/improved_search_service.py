@@ -457,6 +457,74 @@ class ImprovedSearchService:
 
 
 
+
+    @classmethod
+    async def search_site_generator(cls, site_key: str, query: str) -> AsyncGenerator[SearchResult, None]:
+        """Search a single site and yield results as they are scraped"""
+        config = SITE_CONFIGS.get(site_key)
+        if not config:
+            logger.error(f"Unknown site: {site_key}")
+            return
+
+        search_url = config["search_url"].format(query=quote_plus(query))
+        logger.info(f"Searching {config['name']} at {search_url}")
+
+        if not await cls._ensure_browser_connected():
+            logger.error("Failed to connect to browser")
+            return
+
+        try:
+            context = await cls._create_context(cls._browser)
+            
+            try:
+                page = await context.new_page()
+                
+                # Navigate
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Wait for selector
+                wait_selector = config.get("wait_selector") or config.get("product_selector")
+                try:
+                    if wait_selector:
+                        await page.wait_for_selector(wait_selector, timeout=10000)
+                except Exception:
+                    logger.warning(f"Timeout waiting for selector {wait_selector} on {site_key}")
+
+                # Get content
+                content = await page.content()
+                await page.close() # Close search page to free resources
+                
+                # Parse results (Phase 1)
+                base_url = search_url.split("/search")[0]
+                if "amazon" in site_key:
+                    base_url = "https://www.amazon.fr"
+                    
+                initial_results = cls._parse_results(content, site_key, base_url, query)
+                
+                if not initial_results:
+                    logger.warning(f"No results found for {site_key}")
+                    return
+
+                # Phase 2: Scrape details (Streaming)
+                semaphore = asyncio.Semaphore(3)
+                
+                async def scrape_wrapper(res):
+                    async with semaphore:
+                        return await cls._scrape_item_details(res, context)
+
+                tasks = [scrape_wrapper(r) for r in initial_results]
+                
+                for future in asyncio.as_completed(tasks):
+                    enriched_res = await future
+                    if enriched_res:
+                        yield enriched_res
+
+            finally:
+                await context.close()
+
+        except Exception as e:
+            logger.error(f"Error searching {site_key}: {e}")
+
     @classmethod
     async def search_all(cls, query: str) -> list[SearchResult]:
         """Search all configured sites"""
