@@ -367,28 +367,29 @@ export default function Catalogues() {
                         </div>
 
                         {/* Main Image Viewer */}
-                        <div className="flex-1 flex items-center justify-center p-8 relative">
+                        <div className="flex-1 flex items-center justify-center relative overflow-hidden">
                             {cataloguePages.length === 0 ? (
                                 <Loader2 className="h-12 w-12 animate-spin text-white" />
                             ) : (
                                 <>
                                     {/* Current Page Image */}
-                                    <div className="max-w-4xl max-h-full flex items-center justify-center">
+                                    <div className="w-full h-full flex items-center justify-center p-8">
                                         <img
                                             src={cataloguePages[currentPageIndex]?.image_url}
                                             alt={`Page ${currentPageIndex + 1}`}
-                                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                            className="w-auto h-auto max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                            style={{ maxHeight: 'calc(100vh - 200px)' }}
                                         />
                                     </div>
 
-                                    {/* Navigation Buttons */}
+                                    {/* Navigation Buttons - Fixed Position */}
                                     {cataloguePages.length > 1 && (
                                         <>
                                             {/* Previous Button */}
                                             <button
                                                 onClick={() => setCurrentPageIndex(prev => Math.max(0, prev - 1))}
                                                 disabled={currentPageIndex === 0}
-                                                className="absolute left-4 top-1/2 -translate-y-1/2 p-4 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                                className="fixed left-8 top-1/2 -translate-y-1/2 p-4 bg-black/70 hover:bg-black/90 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all z-10"
                                                 title="Page précédente (←)"
                                             >
                                                 <ChevronLeft className="h-8 w-8" />
@@ -398,7 +399,7 @@ export default function Catalogues() {
                                             <button
                                                 onClick={() => setCurrentPageIndex(prev => Math.min(cataloguePages.length - 1, prev + 1))}
                                                 disabled={currentPageIndex === cataloguePages.length - 1}
-                                                className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-black/50 hover:bg-black/70 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                                className="fixed right-8 top-1/2 -translate-y-1/2 p-4 bg-black/70 hover:bg-black/90 text-white rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-all z-10"
                                                 title="Page suivante (→)"
                                             >
                                                 <ChevronRight className="h-8 w-8" />
