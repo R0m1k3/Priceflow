@@ -199,22 +199,36 @@ class ImprovedSearchService:
         # Deduplicate links
         seen_urls = set()
 
-        for link in links:
+        for item in links:
+            # Keep reference to original container for image search
+            container = item
+            
             # If selector targets the container (div.product-card), we need to find the link inside
-            if link.name != 'a':
+            if item.name != 'a':
                 # Try to find the link using product_link_selector if available
                 if "product_link_selector" in config:
-                    found_link = link.select_one(config["product_link_selector"])
+                    found_link = item.select_one(config["product_link_selector"])
                     if found_link:
                         link = found_link
                     else:
                         # Fallback: find first 'a' tag
-                        found_link = link.find('a')
+                        found_link = item.find('a')
                         if found_link:
                             link = found_link
                         else:
                             logger.debug(f"  ⚠️ No link found in container for {site_key}")
                             continue
+                else:
+                    # No link selector specified, try to find first 'a'
+                    found_link = item.find('a')
+                    if found_link:
+                        link = found_link
+                    else:
+                        logger.debug(f"  ⚠️ No link found in container for {site_key}")
+                        continue
+            else:
+                # Item is already a link
+                link = item
             
             href = link.get("href")
             if not href:
@@ -229,15 +243,6 @@ class ImprovedSearchService:
             seen_urls.add(full_url)
 
             # Extract title
-            title = None
-            if "product_title_selector" in config:
-                # If we are in a container, search in container, else search in link (or parent)
-                # But 'link' is now the <a> tag. If we started with a container, we should use that.
-                # However, the loop variable 'link' was overwritten.
-                # Let's fix the loop logic to handle container vs link better.
-                pass 
-            
-            # Simple extraction from the link we found
             title = link.get_text(strip=True)
 
             # If no text, check title attribute or nested image alt
@@ -258,14 +263,8 @@ class ImprovedSearchService:
 
             # PRIORITY 1: Use product_image_selector if configured (site-specific)
             if "product_image_selector" in config:
-                # Try in link first
-                img_el = link.select_one(config["product_image_selector"])
-                
-                # If not found in link, search in parent container
-                if not img_el:
-                    container = link.find_parent("article") or link.find_parent("div", class_=lambda x: x and "product" in x)
-                    if container:
-                        img_el = container.select_one(config["product_image_selector"])
+                # Search in the original container first
+                img_el = container.select_one(config["product_image_selector"])
                 
                 if img_el:
                     # Try multiple attributes in order of priority
