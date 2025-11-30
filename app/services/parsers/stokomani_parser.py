@@ -13,63 +13,47 @@ class StokomaniParser(BaseParser):
         soup = BeautifulSoup(html, "html.parser")
         results = []
         
-        # Find product title links
-        links = soup.select("a.reversed-link.block")
+        # Stokomani products
+        # Config: div.product-card
         
-        seen_urls = set()
+        cards = soup.select("div.product-card")
         
-        for link in links:
+        for card in cards:
             try:
-                href = link.get('href')
-                if not href or href in seen_urls:
-                    continue
-                
-                if '/products/' not in href:
+                # Link
+                link_el = card.select_one("h3.product-card__title a, a[href*='/products/']")
+                if not link_el:
                     continue
                     
-                seen_urls.add(href)
+                href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title = link.get_text(strip=True)
+                # Title
+                title_el = card.select_one("span.reversed-link__text, h3.product-card__title")
+                title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
+                
                 if not title:
                     continue
 
-                # Image: Look for the preceding <a> with aria-label
+                # Image
                 img_url = None
-                prev_a = link.find_previous_sibling("a", attrs={"aria-label": True})
-                if prev_a and prev_a.get('href') == href:
-                    # Try specific selector first
-                    img_el = prev_a.select_one("motion-element img, img")
-                    if img_el:
-                        # Check for lazy loading attributes explicitly
-                        img_url = img_el.get('data-src') or img_el.get('data-srcset') or img_el.get('srcset') or img_el.get('src')
-                        if img_url and " " in img_url:
-                            # Handle srcset: take the first URL
-                            img_url = img_url.split(" ")[0]
-                    
-                    if not img_url:
-                        img_url = self.extract_image_url(prev_a)
+                img_el = card.select_one("div.media-wrapper img, img")
+                if img_el:
+                    img_url = self._get_image_src(img_el)
+                    if img_url:
+                        img_url = self.make_absolute_url(img_url)
                 
-                if img_url:
-                    img_url = self.make_absolute_url(img_url)
-                
-                # Price: Look for text node after the link
+                # Price
                 price = None
-                next_sibling = link.next_sibling
-                while next_sibling:
-                    if isinstance(next_sibling, NavigableString):
-                        price_text = next_sibling.strip()
-                        if "€" in price_text:
-                            price = self.parse_price_text(price_text)
-                            if price:
-                                break
-                    elif next_sibling.name == 'div' and 'price' in str(next_sibling.get('class', [])):
-                         # Try finding price in next div if it's a price container
-                         price = self.parse_price_text(next_sibling.get_text())
-                         if price:
-                             break
-                    next_sibling = next_sibling.next_sibling
-
+                price_el = card.select_one("span.f-price-item--regular, .f-price-item, [class*='price']")
+                if price_el:
+                    price = self.parse_price_text(price_el.get_text())
+                
+                # Fallback price search in text
+                if not price:
+                    text = card.get_text(" ", strip=True)
+                    price = self.parse_price_text(text)
+                
                 results.append(ProductResult(
                     title=title,
                     url=url,

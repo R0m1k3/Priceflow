@@ -13,51 +13,39 @@ class LIncroyableParser(BaseParser):
         results = []
         
         # L'Incroyable products
-        # Config: a.product-link
+        # Config: div.tailleBlocProdNew
         
-        # Try finding cards first
-        cards = soup.select("div.product-card, div.product-miniature, article")
+        cards = soup.select("div.tailleBlocProdNew")
         
-        # If no cards found, try finding by link and getting parent
-        if not cards:
-            links = soup.select("a[href*='/p/'], a[href*='/produit/']")
-            cards = []
-            for link in links:
-                # Try to find a container div
-                parent = link.find_parent("div", class_=lambda x: x and ("product" in x or "card" in x))
-                if parent:
-                    cards.append(parent)
-                else:
-                    cards.append(link.parent) # Fallback to immediate parent
-
         for card in cards:
             try:
-                link_el = card.select_one("a[href*='/p/'], a[href*='/produit/'], a.product-link")
+                # Link is usually in an 'a' tag inside, or the card itself might be clickable (but here we see multiple links)
+                # We look for the main link to the product
+                link_el = card.select_one("a[href*='/p']")
                 if not link_el:
-                    # If card is the link itself
-                    if card.name == 'a' and card.get('href'):
-                        link_el = card
-                    else:
-                        continue
+                    continue
                     
                 href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title_el = card.select_one(".product-title, h3, h2, [class*='title']")
+                # Title
+                title_el = card.select_one("h3.nomCoupDeCoeurNew, .nomCoupDeCoeurNew")
                 title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
                 
                 if not title:
                     continue
 
+                # Image
                 img_url = None
-                img_el = card.select_one("img")
+                img_el = card.select_one("img.imgCoup2coeur, img")
                 if img_el:
                     img_url = self._get_image_src(img_el)
                     if img_url:
                         img_url = self.make_absolute_url(img_url)
                 
+                # Price
                 price = None
-                price_el = card.select_one(".price, .product-price, [class*='price']")
+                price_el = card.select_one("p.prixCoupDeCoeurNew, .prixCoupDeCoeurNew")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 

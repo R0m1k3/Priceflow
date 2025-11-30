@@ -13,15 +13,17 @@ class CarrefourParser(BaseParser):
         results = []
         
         # Carrefour products
-        # New container: div containing both image and title link
-        cards = soup.select("div.product-list-card-plp-grid-new, article, div[class*='product-card']") 
+        # New container: article.large-horizontal or div.product-list-card-plp-grid-new
+        cards = soup.select("article.large-horizontal, div.product-list-card-plp-grid-new, article, div[class*='product-card']") 
         
         # If no cards, try finding by link
         if not cards:
             links = soup.select("a.c-link.product-card-click-wrapper, a[href*='/p/'], a[href*='/produit']")
             cards = []
             for link in links:
-                parent = link.find_parent("div", class_=lambda x: x and "product" in x)
+                parent = link.find_parent("article")
+                if not parent:
+                    parent = link.find_parent("div", class_=lambda x: x and "product" in x)
                 if parent:
                     cards.append(parent)
                 else:
@@ -36,14 +38,14 @@ class CarrefourParser(BaseParser):
                 href = link_el.get('href')
                 url = self.make_absolute_url(href)
                 
-                title_el = card.select_one("h3, h2, [class*='title']")
+                title_el = card.select_one("h3.product-card-title__text, h3, h2, [class*='title']")
                 title = title_el.get_text(strip=True) if title_el else link_el.get_text(strip=True)
                 
                 if not title:
                     continue
 
                 img_url = None
-                img_el = card.select_one("img")
+                img_el = card.select_one("img.product-card-image-new__content, img")
                 if img_el:
                     img_url = self._get_image_src(img_el)
                     if img_url:
@@ -51,7 +53,7 @@ class CarrefourParser(BaseParser):
                 
                 price = None
                 # Price is often text node near h3 or in a specific price element
-                price_el = card.select_one("[class*='price'], .product-card-price, span[class*='amount']")
+                price_el = card.select_one("div.product-price__amount--main, [class*='price'], .product-card-price, span[class*='amount']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 

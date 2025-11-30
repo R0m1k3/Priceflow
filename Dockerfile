@@ -65,6 +65,7 @@ COPY alembic.ini ./
 COPY docker-entrypoint.sh ./
 
 # Make entrypoint executable
+RUN sed -i 's/\r$//' docker-entrypoint.sh
 RUN chmod +x docker-entrypoint.sh
 
 # Copy built frontend static files
