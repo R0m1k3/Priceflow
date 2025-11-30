@@ -620,13 +620,44 @@ async def search_products(
         results=[],
     )
 
-    # 2. Map DB sites to Config keys
+    # 2. Map DB sites to Config keys with improved matching
     site_keys = []
     for site in active_sites:
+        matched = False
+
+        # Normalize domain for comparison (remove www., e-, etc.)
+        normalized_domain = site.domain.lower().replace("www.", "").strip()
+
         for key in SITE_CONFIGS.keys():
-            if key in site.domain or site.domain in key:
+            normalized_key = key.lower().replace("www.", "").strip()
+
+            # Try multiple matching strategies:
+            # 1. Exact match
+            if normalized_domain == normalized_key:
                 site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (exact)")
                 break
+
+            # 2. Key contains domain or domain contains key
+            if normalized_key in normalized_domain or normalized_domain in normalized_key:
+                site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (contains)")
+                break
+
+            # 3. Remove prefixes like "e-" and try again
+            domain_without_prefix = normalized_domain.replace("e-", "").replace("la-", "")
+            key_without_prefix = normalized_key.replace("e-", "").replace("la-", "")
+
+            if domain_without_prefix == key_without_prefix:
+                site_keys.append(key)
+                matched = True
+                logger.debug(f"✓ Matched {site.domain} → {key} (without prefix)")
+                break
+
+        if not matched:
+            logger.warning(f"⚠️ No config found for site: {site.domain} (id={site.id})")
 
     # 3. Execute searches and stream results
     generators = [ImprovedSearchService.search_site_generator(key, query) for key in site_keys]
