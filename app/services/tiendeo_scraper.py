@@ -212,6 +212,21 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
         if not catalog_id:
             continue
         
+        # CRITICAL FIX: Filter by enseigne name
+        # The catalog link or its parent container MUST contain the enseigne name
+        link_text = link.get_text(strip=True)
+        parent = link.find_parent(['div', 'section', 'article', 'li'])
+        parent_text = parent.get_text(strip=True) if parent else ''
+        
+        # Combined text to search in
+        combined_text = f"{link_text} {parent_text}".lower()
+        enseigne_name_lower = enseigne.nom.lower()
+        
+        # Check if enseigne name is in the link or parent text
+        if enseigne_name_lower not in combined_text:
+            logger.debug(f"Skipping catalog (not for {enseigne.nom}): {link_text[:50]}")
+            continue
+        
         seen_urls.add(href)
         
         # Extract title
