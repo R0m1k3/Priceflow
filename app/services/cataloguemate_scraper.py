@@ -198,7 +198,7 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
     log = ScrapingLog(
         enseigne_id=enseigne.id,
         statut="running",
-        date_debut=start_time,
+        # date_execution is set automatically by default
         catalogues_trouves=0,
         catalogues_nouveaux=0,
         catalogues_mis_a_jour=0
@@ -261,7 +261,10 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
         log.statut = "error"
         log.message_erreur = str(e)
     finally:
-        log.date_fin = datetime.now()
+        # Calculate duration
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        log.duree_secondes = duration
         db.commit()
         
     return log
