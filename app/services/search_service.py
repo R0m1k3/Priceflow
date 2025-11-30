@@ -108,21 +108,45 @@ class NewSearchService:
                 return result
 
             # Use AI to analyze
-            from app.services.ai_service import AIService
-            ai_result = await AIService.analyze_image(screenshot_path, page_text=page_text)
+            try:
+                from app.services.ai_service import AIService
+                # Check if AI service is available/configured before calling? 
+                # For now, just try/except the call
+                ai_result = await AIService.analyze_image(screenshot_path, page_text=page_text)
+                
+                if ai_result:
+                    extraction, _ = ai_result
+                    result.price = extraction.price
+                    result.currency = extraction.currency or "EUR"
+                    result.in_stock = extraction.in_stock
+                    
+                    # Update image URL to point to our local screenshot
+                    import os
+                    filename = os.path.basename(screenshot_path)
+                    result.image_url = f"/screenshots/{filename}"
+                else:
+                    raise Exception("AI returned no result")
+
+            except Exception as e:
+                logger.warning(f"AI Analysis failed for {result.url}: {e}")
+                # Fallback: Try to extract price from page_text if Browserless found it
+                if page_text and "PRIX DÉTECTÉ:" in page_text:
+                    try:
+                        import re
+                        price_match = re.search(r"PRIX DÉTECTÉ:\s*([\d\.]+)", page_text)
+                        if price_match:
+                            price_val = float(price_match.group(1))
+                            result.price = price_val
+                            logger.info(f"💰 Fallback: Extracted price {price_val} from text for {result.url}")
+                    except Exception as parse_e:
+                        logger.error(f"Error parsing fallback price: {parse_e}")
+
+                # Still use the screenshot if we have it
+                if screenshot_path:
+                    import os
+                    filename = os.path.basename(screenshot_path)
+                    result.image_url = f"/screenshots/{filename}"
             
-            if ai_result:
-                extraction, _ = ai_result
-                result.price = extraction.price
-                result.currency = extraction.currency or "EUR"
-                result.in_stock = extraction.in_stock
-                
-                # Update image URL to point to our local screenshot
-                # The frontend expects /screenshots/filename
-                import os
-                filename = os.path.basename(screenshot_path)
-                result.image_url = f"/screenshots/{filename}"
-                
         except Exception as e:
             logger.error(f"Error scraping item {result.url}: {e}")
             
@@ -191,6 +215,17 @@ class NewSearchService:
             #    break
 
             href = link.get("href")
+            
+            # Special handling for sites where selector targets a container (Carrefour, Stokomani)
+            if not href and config.get("name") in ["Carrefour", "Stokomani"]:
+                # Try to find the main product link inside the container
+                # For Carrefour, it's usually .product-card-click-wrapper, but generic 'a' often works if it's the first one
+                child_link = link.find("a", class_="product-card-click-wrapper") or link.find("a")
+                if child_link:
+                    href = child_link.get("href")
+                    # Update link to point to the anchor for title/image extraction
+                    link = child_link
+
             if not href:
                 continue
 

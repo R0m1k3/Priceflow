@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.services.improved_search_service import ImprovedSearchService
+from app.services.browserless_service import browserless_service
 from app.core.search_config import SITE_CONFIGS
 
 async def dump_search_html(site_key: str, query: str = "chaise"):
@@ -19,31 +19,37 @@ async def dump_search_html(site_key: str, query: str = "chaise"):
     print(f"\n🔍 Dumping HTML for: {config['name']}")
     
     # Ensure browser is initialized
-    await ImprovedSearchService.initialize()
-    
-    # Create context manually to get HTML
-    context = await ImprovedSearchService._create_context(ImprovedSearchService._browser)
-    page = await context.new_page()
+    await browserless_service.initialize()
     
     try:
         search_url = config["search_url"].format(query=query)
         print(f"   URL: {search_url}")
         
-        await page.goto(search_url, wait_until="networkidle", timeout=30000)
-        await ImprovedSearchService._handle_popups(page)
-        await page.wait_for_timeout(3000)
+        # Override wait_selector for La Foir'Fouille
+        wait_selector = config.get("wait_selector")
+        if site_key == "lafoirfouille.fr":
+            wait_selector = ".sf-grid-vignet"
+            print(f"   ⚠️  Overriding wait_selector to: {wait_selector}")
         
-        html = await page.content()
+        html_content, screenshot_path = await browserless_service.get_page_content(
+            search_url,
+            wait_selector=wait_selector,
+            use_proxy=config.get("requires_proxy", False)
+        )
         
+        if not html_content:
+            print("   ❌ No HTML content returned")
+            return
+
         filename = f"dump_{site_key.replace('.', '_')}.html"
         with open(filename, "w", encoding="utf-8") as f:
-            f.write(html)
+            f.write(html_content)
         
-        print(f"   ✅ Saved to: {filename} ({len(html)} bytes)")
+        print(f"   ✅ Saved to: {filename} ({len(html_content)} bytes)")
         
         # Quick analysis
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html_content, "html.parser")
         
         # Try current selector
         current_selector = config.get("product_selector")
@@ -55,19 +61,18 @@ async def dump_search_html(site_key: str, query: str = "chaise"):
             img_selector = config["product_image_selector"]
             img_matches = soup.select(img_selector)
             print(f"   🖼️  Current image selector '{img_selector}' matches: {len(img_matches)}")
+            
+    except Exception as e:
+        print(f"   ❌ Error during dump: {e}")
         
     finally:
-        await context.close()
+        # We don't close the browser here to allow reuse if needed, 
+        # but main() will shut it down.
+        pass
 
 async def main():
     sites = [
-        "e-leclerc.com",
-        "auchan.fr",
-        "carrefour.fr",
-        "stokomani.fr",
-        "centrakor.com",
-        "cdiscount.com",
-        "lincroyable.fr"
+        "stokomani.fr"
     ]
     
     for site_key in sites:
@@ -77,7 +82,7 @@ async def main():
             print(f"❌ Error: {e}")
         await asyncio.sleep(1)
     
-    await ImprovedSearchService.shutdown()
+    await browserless_service.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -14,9 +14,9 @@ class AuchanParser(BaseParser):
         
         # Auchan products - Ultra Robust Strategy
         # The DOM is flat and dynamic. We rely on finding product links first.
-        # Links usually contain '/p-' in the href.
+        # Links usually contain '/p-' or '/pr-' in the href.
         
-        links = soup.select("a[href*='/p-']")
+        links = soup.select("a[href*='/p-'], a[href*='/pr-']")
         seen_urls = set()
         
         for link in links:
@@ -26,7 +26,7 @@ class AuchanParser(BaseParser):
                     continue
                 
                 # Filter out non-product links if any (e.g. facets)
-                if '/p-' not in href:
+                if '/p-' not in href and '/pr-' not in href:
                     continue
                     
                 seen_urls.add(href)
@@ -50,7 +50,7 @@ class AuchanParser(BaseParser):
                 # Title
                 title = link.get('title')
                 if not title:
-                    title_el = container.select_one("h3, div[class*='title'], span[class*='title']")
+                    title_el = container.select_one("p.product-thumbnail__description, h3, div[class*='title'], span[class*='title']")
                     if title_el:
                         title = title_el.get_text(strip=True)
                 if not title:
@@ -61,7 +61,7 @@ class AuchanParser(BaseParser):
 
                 # Image
                 img_url = None
-                img_el = container.select_one("img")
+                img_el = container.select_one(".product-thumbnail__picture img, img")
                 if img_el:
                     img_url = self._get_image_src(img_el)
                     if img_url:
@@ -69,7 +69,7 @@ class AuchanParser(BaseParser):
                 
                 # Price
                 price = None
-                price_el = container.select_one("div[class*='price'], span[class*='price'], .product-price")
+                price_el = container.select_one("div.product-price, div[class*='price'], span[class*='price'], .product-price")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 

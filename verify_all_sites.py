@@ -80,7 +80,7 @@ async def verify_all_sites():
     # 1. Test Browserless Connection
     print("\n[1] Testing Browserless Connection...")
     try:
-        await browserless_service.start()
+        await browserless_service.initialize()
         print("✅ Browserless connected successfully")
     except Exception as e:
         print(f"❌ Browserless connection failed: {e}")
@@ -135,7 +135,7 @@ async def verify_all_sites():
             print(f"   {status} {site['site']:20s} {count}")
     
     # 5. Cleanup
-    await browserless_service.stop()
+    await browserless_service.shutdown()
     
     print("\n" + "=" * 80)
     print(f"Verification completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
