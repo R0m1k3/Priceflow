@@ -258,12 +258,11 @@ class ImprovedSearchService:
                 if results:
                     logger.info(f"📦 Found {len(results)} initial results, enriching with details...")
                     
-                    # LIMIT: Only enrich first 10 products to avoid frontend timeouts
-                    # Full enrichment (visiting each product page) takes too long
-                    results_to_enrich = results[:10]
-                    logger.info(f"⚡ Limiting enrichment to {len(results_to_enrich)} products")
+                    # Enrich all results
+                    results_to_enrich = results
+                    logger.info(f"⚡ Enriching all {len(results_to_enrich)} products")
                     
-                    semaphore = asyncio.Semaphore(2)  # Limit concurrency
+                    semaphore = asyncio.Semaphore(4)  # Increased concurrency slightly
 
                     async def scrape_with_limit(res):
                         async with semaphore:
@@ -272,8 +271,8 @@ class ImprovedSearchService:
                     tasks = [scrape_with_limit(r) for r in results_to_enrich]
                     enriched_results = await asyncio.gather(*tasks)
                     
-                    # Return enriched results + remaining non-enriched (with None price)
-                    results = [r for r in enriched_results if r] + results[10:]
+                    # Filter out failed enrichments if any (though scrape_item_details returns original on failure)
+                    results = [r for r in enriched_results if r]
 
             finally:
                 await context.close()

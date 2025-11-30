@@ -4,66 +4,62 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class BoulangerParser(BaseParser):
+class ActionParser(BaseParser):
     def __init__(self):
-        super().__init__("boulanger.com", "https://www.boulanger.com")
+        super().__init__("action.com", "https://www.action.com")
 
     def parse_search_results(self, html: str, query: str, search_url: str) -> list[ProductResult]:
         soup = BeautifulSoup(html, "html.parser")
         results = []
         
-        # Boulanger products
-        # Config: a[href*='/ref/'][href*='_']
+        # Action products
+        # Config: a.group[href^='/fr-fr/p/']
         
-        cards = soup.select(".product-item, .product-list__item, article")
+        links = soup.select("a[href^='/fr-fr/p/']")
         
-        for card in cards:
+        seen_urls = set()
+        
+        for link in links:
             try:
-                # Link
-                link_el = card.select_one("a[href*='/ref/'], a[class*='link']")
-                if not link_el:
+                href = link.get('href')
+                if not href or href in seen_urls:
                     continue
-                    
-                href = link_el.get('href')
-                if not href:
-                    continue
-                    
+                seen_urls.add(href)
+                
                 url = self.make_absolute_url(href)
                 
-                # Title
+                # Action usually has the card content inside the link
                 title = None
-                title_el = card.select_one("h2, h3, .product-label, [class*='title']")
+                title_el = link.select_one("[class*='title'], h3, h4")
                 if title_el:
                     title = title_el.get_text(strip=True)
                 else:
-                    title = link_el.get_text(strip=True)
+                    title = link.get_text(strip=True)
                 
                 if not title:
                     continue
 
-                # Image
-                img_url = self.extract_image_url(card)
+                img_url = self.extract_image_url(link)
                 
-                # Price
                 price = None
-                price_el = card.select_one(".price, .product-price, [class*='price']")
+                price_el = link.select_one("[class*='price']")
                 if price_el:
                     price = self.parse_price_text(price_el.get_text())
                 
                 results.append(ProductResult(
                     title=title,
                     url=url,
-                    source="Boulanger",
+                    source="Action",
                     price=price,
                     currency="EUR",
                     in_stock=True,
                     image_url=img_url,
-                    snippet=f"Product from Boulanger"
+                    snippet=f"Product from Action"
                 ))
                 
             except Exception as e:
-                logger.error(f"Error parsing Boulanger product: {e}")
+                logger.error(f"Error parsing Action product: {e}")
                 continue
                 
-        logger.info(f"BoulangerParser found {len(results)} results")
+        logger.info(f"ActionParser found {len(results)} results")
         return results
