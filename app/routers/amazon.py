@@ -12,7 +12,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.amazon_scraper_v2 import scrape_amazon_search, AmazonProduct
+from app.services.amazon_scraper_service import amazon_scraper_service, AmazonProduct
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +55,9 @@ async def search_amazon(
             )
             yield f"event: progress\ndata: {progress.model_dump_json()}\n\n"
 
-            # Execute search
+            # Execute search with persistent browser service
             logger.info(f"Starting Amazon search for: {q}")
-            products = await scrape_amazon_search(q, max_results=max_results)
+            products = await amazon_scraper_service.scrape_search(q, max_results=max_results)
 
             # Convert to dict
             results = [p.model_dump() for p in products]
