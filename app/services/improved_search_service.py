@@ -8,8 +8,9 @@ UPDATED: Now uses modular, site-specific parsers for robust product extraction
 import asyncio
 import logging
 from typing import AsyncGenerator
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urljoin
 
+from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
