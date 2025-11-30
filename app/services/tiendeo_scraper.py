@@ -120,13 +120,66 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     url = f"{TIENDEO_BASE_URL}/Magasins/nancy/{enseigne.slug_bonial.lower()}"
     logger.info(f"Scraping catalog list for {enseigne.nom} from {url}")
     
-    # Configure crawler for this page
+    # JavaScript to extract catalog data
+    extraction_js = """
+    const results = [];
+    
+    // Find all links to catalog pages (format: /Catalogues/{id})
+    const catalogLinks = document.querySelectorAll('a[href*="/Catalogues/"]');
+    
+    catalogLinks.forEach((link) => {
+        const href = link.href;
+        const catalogId = href.split('/Catalogues/')[1];
+        
+        if (!catalogId) return;
+        
+        // Extract title from link text or nearby heading
+        let title = link.textContent.trim();
+        
+        // Try to find h3 or h4 near this link for better title
+        const parentContainer = link.closest('div, section, article');
+        if (parentContainer) {
+            const heading = parentContainer.querySelector('h3, h4, h2');
+            if (heading && heading.textContent.trim().length > title.length) {
+                title = heading.textContent.trim();
+            }
+        }
+        
+        // Look for image in the same container
+        let imgSrc = null;
+        if (parentContainer) {
+            const img = parentContainer.querySelector('img');
+            if (img) {
+                imgSrc = img.src || img.getAttribute('data-src') || img.getAttribute('srcset')?.split(' ')[0];
+            }
+        }
+        
+        // Extract date information from container text
+        const containerText = parentContainer ? parentContainer.textContent : link.textContent;
+        
+        // Avoid duplicates
+        if (!results.some(r => r.url === href)) {
+            results.push({
+                title: title,
+                url: href,
+                image: imgSrc,
+                containerText: containerText.substring(0, 300),  // For date parsing
+            });
+        }
+    });
+    
+    // Store results in window for retrieval
+    window.__catalogData = results;
+    """
+    
+    # Configure crawler for this page with JavaScript extraction
     config = CrawlerRunConfig(
         cache_mode=CacheMode.BYPASS,
         wait_for_images=True,
         process_iframes=False,
         remove_overlay_elements=True,
         wait_until="networkidle",
+        js_code=extraction_js,  # Execute extraction JavaScript
     )
     
     result = await crawler.arun(url=url, config=config)
@@ -135,60 +188,60 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
         logger.error(f"Failed to crawl {url}: {result.error_message}")
         return []
     
-    # Extract catalog cards using JavaScript
-    catalog_data = await crawler.crawler_strategy.execute_js(
-        """
-        () => {
-            const results = [];
+    # Parse the HTML to extract data (fallback if js_code doesn't return data directly)
+    # We'll use BeautifulSoup as a reliable method
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(result.html, 'html.parser')
+    
+    catalog_links = soup.find_all('a', href=lambda h: h and '/Catalogues/' in h)
+    
+    catalog_data = []
+    seen_urls = set()
+    
+    for link in catalog_links:
+        href = link.get('href', '')
+        if not href or href in seen_urls:
+            continue
+        
+        # Make absolute URL
+        if href.startswith('/'):
+            href = TIENDEO_BASE_URL + href
+        
+        catalog_id = href.split('/Catalogues/')[-1].split('/')[0] if '/Catalogues/' in href else None
+        if not catalog_id:
+            continue
+        
+        seen_urls.add(href)
+        
+        # Extract title
+        title = link.get_text(strip=True)
+        
+        # Try to find better title in parent container
+        parent = link.find_parent(['div', 'section', 'article'])
+        if parent:
+            heading = parent.find(['h2', 'h3', 'h4'])
+            if heading and len(heading.get_text(strip=True)) > len(title):
+                title = heading.get_text(strip=True)
             
-            // Find all links to catalog pages (format: /Catalogues/{id})
-            const catalogLinks = document.querySelectorAll('a[href*="/Catalogues/"]');
+            # Find image
+            img = parent.find('img')
+            img_src = None
+            if img:
+                img_src = img.get('src') or img.get('data-src')
+                if not img_src and img.get('srcset'):
+                    img_src = img.get('srcset').split(' ')[0]
             
-            catalogLinks.forEach((link) => {
-                const href = link.href;
-                const catalogId = href.split('/Catalogues/')[1];
-                
-                if (!catalogId) return;
-                
-                // Extract title from link text or nearby heading
-                let title = link.textContent.trim();
-                
-                // Try to find h3 or h4 near this link for better title
-                const parentContainer = link.closest('div, section, article');
-                if (parentContainer) {
-                    const heading = parentContainer.querySelector('h3, h4, h2');
-                    if (heading && heading.textContent.trim().length > title.length) {
-                        title = heading.textContent.trim();
-                    }
-                }
-                
-                // Look for image in the same container
-                let imgSrc = null;
-                if (parentContainer) {
-                    const img = parentContainer.querySelector('img');
-                    if (img) {
-                        imgSrc = img.src || img.getAttribute('data-src') || img.getAttribute('srcset')?.split(' ')[0];
-                    }
-                }
-                
-                // Extract date information from container text
-                const containerText = parentContainer ? parentContainer.textContent : link.textContent;
-                
-                // Avoid duplicates
-                if (!results.some(r => r.url === href)) {
-                    results.push({
-                        title: title,
-                        url: href,
-                        image: imgSrc,
-                        containerText: containerText.substring(0, 300),  // For date parsing
-                    });
-                }
-            });
-            
-            return results;
-        }
-        """
-    )
+            container_text = parent.get_text(strip=True)[:300]
+        else:
+            img_src = None
+            container_text = title
+        
+        catalog_data.append({
+            'title': title,
+            'url': href,
+            'image': img_src,
+            'containerText': container_text,
+        })
     
     logger.info(f"Found {len(catalog_data)} catalog links for {enseigne.nom}")
     
@@ -266,65 +319,64 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalogue_url: str) -> 
         logger.error(f"Failed to crawl {catalogue_url}: {result.error_message}")
         return []
     
-    # Extract catalog page images using JavaScript with intelligent filtering
-    pages_data = await crawler.crawler_strategy.execute_js(
-        """
-        () => {
-            const results = [];
-            const seenUrls = new Set();
-            
-            // Find all images - prioritize those in viewer containers
-            const allImages = document.querySelectorAll('img');
-            
-            allImages.forEach((img) => {
-                // Get image source (try multiple attributes)
-                let src = img.src || img.getAttribute('data-src');
-                
-                // Try srcset as fallback
-                if (!src && img.srcset) {
-                    const srcsetParts = img.srcset.split(',')[0].trim().split(' ');
-                    src = srcsetParts[0];
-                }
-                
-                if (!src || seenUrls.has(src)) return;
-                
-                // Skip obvious non-catalog images
-                if (src.includes('logo') || src.includes('icon') || src.includes('avatar')) {
-                    return;
-                }
-                
-                // Get dimensions
-                const width = img.naturalWidth || img.width;
-                const height = img.naturalHeight || img.height;
-                
-                // Filter by dimensions - catalog pages are typically portrait and high-res
-                // Minimum 400px width, aspect ratio close to 3:4 or similar
-                if (width < 400 || height < 400) return;
-                
-                const aspectRatio = width / height;
-                
-                // Portrait images (0.5 to 0.9 ratio) - catalog pages are usually portrait
-                if (aspectRatio > 0.5 && aspectRatio < 0.9) {
-                    seenUrls.add(src);
-                    results.push({
-                        image_url: src,
-                        width: width,
-                        height: height,
-                    });
-                }
-            });
-            
-            // Sort by area (largest first) to prioritize full resolution images
-            results.sort((a, b) => (b.width * b.height) - (a.width * a.height));
-            
-            // Assign page numbers
-            return results.map((item, index) => ({
-                ...item,
-                numero_page: index + 1,
-            }));
-        }
-        """
-    )
+    # Parse HTML to extract catalog page images
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(result.html, 'html.parser')
+    
+    all_images = soup.find_all('img')
+    
+    pages_data = []
+    seen_urls = set()
+    
+    for img in all_images:
+        # Get image source (try multiple attributes)
+        src = img.get('src') or img.get('data-src')
+        
+        # Try srcset as fallback
+        if not src and img.get('srcset'):
+            srcset_parts = img.get('srcset').split(',')[0].strip().split(' ')
+            src = srcset_parts[0]
+        
+        if not src or src in seen_urls:
+            continue
+        
+        # Skip obvious non-catalog images
+        if 'logo' in src.lower() or 'icon' in src.lower() or 'avatar' in src.lower():
+            continue
+        
+        # Get dimensions from attributes (not perfect but workable fallback)
+        width = img.get('width')
+        height = img.get('height')
+        
+        # Try to parse as int
+        try:
+            width = int(width) if width else 800  # Default assumption for catalog pages
+            height = int(height) if height else 1100  # Default portrait ratio
+        except (ValueError, TypeError):
+            width = 800
+            height = 1100
+        
+        # Filter by dimensions - catalog pages are typically portrait and high-res
+        if width < 400 or height < 400:
+            continue
+        
+        aspect_ratio = width / height
+        
+        # Portrait images (0.5 to 0.9 ratio) - catalog pages are usually portrait
+        if 0.5 < aspect_ratio < 0.9:
+            seen_urls.add(src)
+            pages_data.append({
+                'image_url': src,
+                'width': width,
+                'height': height,
+            })
+    
+    # Sort by area (largest first) to prioritize full resolution images
+    pages_data.sort(key=lambda x: x['width'] * x['height'], reverse=True)
+    
+    # Assign page numbers
+    for idx, page in enumerate(pages_data):
+        page['numero_page'] = idx + 1
     
     logger.info(f"Found {len(pages_data)} pages in catalog")
     return pages_data
