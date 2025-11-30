@@ -3,6 +3,7 @@ Cataloguemate.fr Scraper Service
 
 Scrapes promotional catalogs from Cataloguemate.fr.
 Replaces Tiendeo scraper due to better reliability and simpler structure.
+Refactored to use BrowserlessService for robust containerized scraping.
 """
 
 import asyncio
@@ -12,16 +13,16 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from bs4 import BeautifulSoup
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from sqlalchemy.orm import Session
 
-from app.models import Enseigne, Catalogue, ScrapingLog
+from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
+from app.services.browserless_service import browserless_service
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.cataloguemate.fr"
 
-async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> list[dict[str, Any]]:
+async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
     """
     Scrape the list of catalogs for an enseigne.
     We use a default city (Paris) because the main page often doesn't list catalogs directly.
@@ -38,24 +39,17 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     url = f"{BASE_URL}/offres/paris/{slug}/"
     logger.info(f"Scraping catalog list from: {url}")
 
-    config = CrawlerRunConfig(
-        cache_mode=CacheMode.BYPASS,
-        wait_for_images=True,
-    )
-
-    result = await crawler.arun(url=url, config=config)
-    if not result.success:
-        logger.error(f"Failed to crawl list {url}: {result.error_message}")
+    # Use browserless service to get content
+    html_content, _ = await browserless_service.get_page_content(url)
+    
+    if not html_content:
+        logger.error(f"Failed to fetch list {url}")
         return []
 
-    soup = BeautifulSoup(result.html, 'html.parser')
+    soup = BeautifulSoup(html_content, 'html.parser')
     catalogs = []
     
     # Find all links that might be catalogs
-    # On city pages, catalogs are often under "Ces produits sont actuellement dans les catalogues" 
-    # or "Catalogues populaires" or just listed.
-    # We look for links that look like /enseigne/titre-id/
-    
     links = soup.find_all('a', href=True)
     seen_urls = set()
     
@@ -104,7 +98,7 @@ async def scrape_catalog_list(crawler: AsyncWebCrawler, enseigne: Enseigne) -> l
     logger.info(f"Total catalogs found: {len(catalogs)}")
     return catalogs
 
-async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> list[dict[str, Any]]:
+async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
     """
     Scrape pages from a specific catalog.
     Iterates through ?page=1, ?page=2 etc.
@@ -119,23 +113,16 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> li
         
         logger.info(f"Scraping page {page_num}: {current_url}")
         
-        config = CrawlerRunConfig(
-            cache_mode=CacheMode.BYPASS,
-            wait_for_images=True,
-            delay_before_return_html=1.0
-        )
+        # Use browserless service
+        html_content, _ = await browserless_service.get_page_content(current_url)
         
-        result = await crawler.arun(url=current_url, config=config)
-        if not result.success:
+        if not html_content:
             logger.warning(f"Failed to fetch page {page_num}")
             break
             
-        soup = BeautifulSoup(result.html, 'html.parser')
+        soup = BeautifulSoup(html_content, 'html.parser')
         
         # Find the main catalog image
-        # Strategy: Look for the largest image that contains 'page' or 'upload' in src
-        # or is inside a specific viewer container
-        
         main_image_url = None
         max_area = 0
         
@@ -161,14 +148,6 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> li
             # Heuristic: Catalog pages are usually large vertical images
             # Check src for keywords
             is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images'])
-            
-            # Calculate area
-            area = 0
-            if width and height:
-                try:
-                    area = int(width) * int(height)
-                except:
-                    pass
             
             # Logic:
             # 1. If keyword match AND decent size -> Strong candidate
@@ -204,15 +183,11 @@ async def scrape_catalog_pages(crawler: AsyncWebCrawler, catalog_url: str) -> li
                 break
         
         # Check for pagination "Next" to know if we should continue
-        # Cataloguemate usually has a "Suivant" link or page numbers
-        # If we are on page X and there is no link to X+1, we stop
-        
-        # Simple check: if we found an image, try next page. 
-        # If the page loaded but had no image, we stop.
         if not main_image_url:
             break
             
         page_num += 1
+        # Small delay handled by browserless service already, but adding a tiny one here
         await asyncio.sleep(0.5)
 
     return pages
@@ -232,67 +207,54 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
     db.commit()
 
     try:
-        browser_config = BrowserConfig(headless=True)
-        async with AsyncWebCrawler(config=browser_config) as crawler:
-            # 0. Test connection
-            logger.info("Testing browser connection...")
-            try:
-                test_result = await crawler.arun(url="https://www.cataloguemate.fr/", config=CrawlerRunConfig(cache_mode=CacheMode.BYPASS))
-                if test_result.success:
-                    logger.info(f"Connection test successful (status: {len(test_result.html)} chars)")
-                else:
-                    logger.error(f"Connection test failed: {test_result.error_message}")
-                    raise Exception(f"Connection failed: {test_result.error_message}")
-            except Exception as e:
-                logger.error(f"Browser/Network error: {e}")
-                raise e
+        # 0. Test connection (Implicit in get_page_content, but good to log)
+        logger.info(f"Starting scraping for {enseigne.nom} using Browserless...")
 
-            # 1. Get list of catalogs
-            catalogs_list = await scrape_catalog_list(crawler, enseigne)
-            log.catalogues_trouves = len(catalogs_list)
+        # 1. Get list of catalogs
+        catalogs_list = await scrape_catalog_list(enseigne)
+        log.catalogues_trouves = len(catalogs_list)
+        
+        for cat_info in catalogs_list:
+            # Check if catalog exists
+            existing = db.query(Catalogue).filter(
+                Catalogue.catalogue_url == cat_info['url']
+            ).first()
             
-            for cat_info in catalogs_list:
-                # Check if catalog exists
-                existing = db.query(Catalogue).filter(
-                    Catalogue.catalogue_url == cat_info['url']
-                ).first()
+            if existing:
+                continue
                 
-                if existing:
-                    continue
-                    
-                # 2. Scrape pages for new catalog
-                pages = await scrape_catalog_pages(crawler, cat_info['url'])
+            # 2. Scrape pages for new catalog
+            pages = await scrape_catalog_pages(cat_info['url'])
+            
+            if not pages:
+                continue
                 
-                if not pages:
-                    continue
-                    
-                # Create catalog entry
-                new_cat = Catalogue(
-                    enseigne_id=enseigne.id,
-                    titre=cat_info['title'],
-                    catalogue_url=cat_info['url'],
-                    date_debut=datetime.now(), # Todo: extract real dates
-                    date_fin=datetime.now() + timedelta(days=14),
-                    image_couverture_url=pages[0]['image_url']
+            # Create catalog entry
+            new_cat = Catalogue(
+                enseigne_id=enseigne.id,
+                titre=cat_info['title'],
+                catalogue_url=cat_info['url'],
+                date_debut=datetime.now(), # Todo: extract real dates
+                date_fin=datetime.now() + timedelta(days=14),
+                image_couverture_url=pages[0]['image_url']
+            )
+            db.add(new_cat)
+            db.commit()
+            db.refresh(new_cat)
+            
+            # Add pages
+            for page_data in pages:
+                new_page = CataloguePage(
+                    catalogue_id=new_cat.id,
+                    numero_page=page_data['page_number'],
+                    image_url=page_data['image_url'],
                 )
-                db.add(new_cat)
-                db.commit()
-                db.refresh(new_cat)
-                
-                # Add pages
-                for page_data in pages:
-                    new_page = CataloguePage(
-                        catalogue_id=new_cat.id,
-                        numero_page=page_data['page_number'],
-                        image_url=page_data['image_url'],
-                        # We don't have dimensions from this method yet, but that's fine
-                    )
-                    db.add(new_page)
-                
-                db.commit()
-                log.catalogues_nouveaux += 1
-                logger.info(f"Saved catalog '{new_cat.titre}' with {len(pages)} pages")
-                
+                db.add(new_page)
+            
+            db.commit()
+            log.catalogues_nouveaux += 1
+            logger.info(f"Saved catalog '{new_cat.titre}' with {len(pages)} pages")
+            
         log.statut = "success"
     except Exception as e:
         logger.error(f"Scraping failed: {e}")
