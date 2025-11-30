@@ -103,12 +103,12 @@ async def process_item_check(item_id: int):
 
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
-        # Use new browserless service
-        # Note: smart_scroll is handled internally by browserless_service
-        screenshot_path, page_text = await browserless_service.get_page_content(
+        # Use browserless service with extract_text=True for monitoring
+        page_text, screenshot_path = await browserless_service.get_page_content(
             item_data["url"],
-            use_proxy="amazon" in item_data["url"],  # Simple heuristic for now
-            wait_selector=item_data["selector"]
+            use_proxy="amazon" in item_data["url"],
+            wait_selector=item_data["selector"],
+            extract_text=True  # Get visible text for AI analysis
         )
         
         # Determine availability based on content presence
