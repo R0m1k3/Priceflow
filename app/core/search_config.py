@@ -179,9 +179,9 @@ SITE_CONFIGS = {
     "action.com": {
         "name": "Action",
         "search_url": "https://www.action.com/fr-fr/search/?q={query}",
-        "product_selector": "div.product-card, div.card",
-        "product_image_selector": "img",
-        "wait_selector": "div.product-card, div.card",
+        "product_selector": "div[data-testid='product-card']",
+        "product_image_selector": "img[data-testid='product-card-image']",
+        "wait_selector": "div[data-testid='product-card']",
         "category": "Discount",
         "requires_proxy": True,
     },
