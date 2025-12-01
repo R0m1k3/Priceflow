@@ -11,7 +11,7 @@ from typing import AsyncGenerator, Optional
 from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
-from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright, TimeoutError as PlaywrightTimeoutError
 from sqlalchemy.orm import Session
 
 from app.models import SearchSite

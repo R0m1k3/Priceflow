@@ -176,6 +176,24 @@ SITE_CONFIGS = {
         "category": "Grande Surface",
         "requires_proxy": False,
     },
+    "action.com": {
+        "name": "Action",
+        "search_url": "https://www.action.com/fr-fr/search/?q={query}",
+        "product_selector": "div.product-card, div.card",
+        "product_image_selector": "img",
+        "wait_selector": "div.product-card, div.card",
+        "category": "Discount",
+        "requires_proxy": True,
+    },
+    "e-leclerc.com": {
+        "name": "E.Leclerc",
+        "search_url": "https://www.e.leclerc/recherche?q={query}",
+        "product_selector": "a.product-card-link",
+        "product_image_selector": "img",
+        "wait_selector": "a.product-card-link",
+        "category": "Grande Surface",
+        "requires_proxy": False,
+    },
 }
 
 # === COOKIE BANNERS ===
