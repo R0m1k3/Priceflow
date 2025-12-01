@@ -1,6 +1,21 @@
 """
 Improved Search Service - Using Persistent Browser Connection
-from app.services.parsers import ParserFactory, ProductResult
+Based on ScraperService pattern for better session management and reliability
+"""
+
+import asyncio
+import json
+import logging
+import re
+from typing import AsyncGenerator, Optional
+from urllib.parse import quote_plus, urljoin, urlparse
+
+from bs4 import BeautifulSoup
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+
+from app.core.config import settings
+from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
+from app.services.ai_price_extractor import AIPriceExtractor
 
 logger = logging.getLogger(__name__)
 
