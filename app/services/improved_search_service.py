@@ -467,7 +467,7 @@ class ImprovedSearchService:
 
     @staticmethod
     async def _extract_price(page: Page) -> float | None:
-        """Extract price using Hybrid Strategy: JSON-LD -> CSS -> AI"""
+        """Extract price using Hybrid Strategy: JSON-LD -> AI -> CSS"""
         import re
         
         # STRATEGY 1: JSON-LD (Most reliable)
@@ -497,7 +497,20 @@ class ImprovedSearchService:
         except Exception as e:
             logger.debug(f"  JSON-LD extraction failed: {e}")
 
-        # STRATEGY 2: CSS Selectors (Standard)
+        # STRATEGY 2: AI Extraction (Priority over CSS as requested)
+        try:
+            logger.info("  🤖 Attempting AI extraction (Priority Strategy)...")
+            html_content = await page.content()
+            title = await page.title()
+            
+            ai_price = await AIPriceExtractor.extract_price(html_content, title)
+            if ai_price:
+                logger.info(f"  🤖 AI found price: {ai_price}€")
+                return ai_price
+        except Exception as e:
+            logger.error(f"  AI extraction failed: {e}")
+
+        # STRATEGY 3: CSS Selectors (Fallback)
         
         # PRIORITY 1: Selectors for sale/promotional prices (highest priority)
         sale_price_selectors = [
@@ -595,19 +608,6 @@ class ImprovedSearchService:
             lowest_price = min(all_prices)
             logger.debug(f"Selected lowest price from {len(all_prices)} candidates: {lowest_price}€")
             return lowest_price
-
-        # STRATEGY 3: AI Fallback (Gemma 2 / OpenRouter)
-        try:
-            logger.info("  🤖 CSS extraction failed, attempting AI extraction...")
-            html_content = await page.content()
-            title = await page.title()
-            
-            ai_price = await AIPriceExtractor.extract_price(html_content, title)
-            if ai_price:
-                logger.info(f"  🤖 AI found price: {ai_price}€")
-                return ai_price
-        except Exception as e:
-            logger.error(f"  AI fallback failed: {e}")
 
         logger.debug("No price found")
         return None
