@@ -49,6 +49,10 @@ POPUP_SELECTORS = [
     "button:has-text('Tout accepter')",
     "button:has-text('Accepter')",
     "input[aria-labelledby='sp-cc-accept-label']",
+    # Amazon interstitials
+    "button:has-text('Continuer les achats')",
+    "span:has-text('Continuer les achats')",
+    "a:has-text('Continuer les achats')",
 ]
 
 
