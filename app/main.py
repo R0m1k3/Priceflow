@@ -19,6 +19,7 @@ from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
 from app.services.amazon_scraper_service import amazon_scraper_service
 from app.services.improved_search_service import improved_search_service
+from app.services.tracking_scraper_service import TrackingScraperService
 
 # Configure logging
 logging.basicConfig(
@@ -150,6 +151,10 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Improved Search Service...")
     await improved_search_service.initialize()
 
+    # Initialize Tracking Scraper Service
+    logger.info("Initializing Tracking Scraper Service...")
+    await TrackingScraperService.initialize()
+
     logger.info("Application started")
     yield
     logger.info("Shutting down schedulers and services...")
@@ -157,6 +162,7 @@ async def lifespan(app: FastAPI):
     stop_catalog_scheduler()
     await amazon_scraper_service.shutdown()
     await improved_search_service.shutdown()
+    await TrackingScraperService.shutdown()
     logger.info("Application shutdown complete")
 
 
