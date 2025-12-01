@@ -14,6 +14,9 @@ from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from sqlalchemy.orm import Session
 
+from app.models import SearchSite
+from app.schemas import SearchProgress, SearchResultItem
+
 
 from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
 from app.services.ai_price_extractor import AIPriceExtractor
