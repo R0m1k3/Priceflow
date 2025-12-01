@@ -15,6 +15,7 @@ services:
       - BROWSERLESS_URL=ws://browserless:3000
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=*
+      - OPENROUTER_API_KEY=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
     depends_on:
       db:
         condition: service_healthy

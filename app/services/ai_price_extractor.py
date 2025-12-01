@@ -31,9 +31,9 @@ class AIPriceExtractor:
                 logger.warning("No OpenRouter API key found for AI Price Extraction")
                 return None
 
-            # Smart truncation: keep first 3000 chars which usually contain the price
-            # and product info. 
-            clean_html = html_content[:3000]
+            # Smart truncation: keep first 15000 chars to ensure we capture the price
+            # (3000 was too short for B&M)
+            clean_html = html_content[:15000]
             
             prompt = f"""
             You are a price extraction expert.
@@ -52,13 +52,13 @@ class AIPriceExtractor:
             
             try:
                 # Try Primary Model (Gemma 3)
+                # Note: Removed response_format={"type": "json_object"} as it's not supported by all models
                 response = await acompletion(
                     model=cls.PRIMARY_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     api_key=api_key,
                     api_base="https://openrouter.ai/api/v1",
-                    temperature=0.1,
-                    response_format={"type": "json_object"}
+                    temperature=0.1
                 )
             except Exception as e:
                 logger.warning(f"Primary model {cls.PRIMARY_MODEL} failed ({e}), trying fallback {cls.FALLBACK_MODEL}...")
@@ -68,24 +68,28 @@ class AIPriceExtractor:
                     messages=[{"role": "user", "content": prompt}],
                     api_key=api_key,
                     api_base="https://openrouter.ai/api/v1",
-                    temperature=0.1,
-                    response_format={"type": "json_object"}
+                    temperature=0.1
                 )
-            
-            content = response.choices[0].message.content
             
             content = response.choices[0].message.content
             if not content:
                 return None
-                
-            data = json.loads(content)
-            price = data.get("price")
             
-            if price:
-                # Handle string price "24,95" or "24.95"
-                if isinstance(price, str):
-                    price = price.replace(',', '.').replace('€', '').strip()
-                return float(price)
+            # Clean markdown code blocks if present (common with LLMs)
+            content = content.replace("```json", "").replace("```", "").strip()
+                
+            try:
+                data = json.loads(content)
+                price = data.get("price")
+                
+                if price and str(price).lower() != "null":
+                    # Handle string price "24,95" or "24.95"
+                    if isinstance(price, str):
+                        price = price.replace(',', '.').replace('€', '').strip()
+                    return float(price)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse AI response as JSON: {content}")
+                return None
                 
             return None
                 

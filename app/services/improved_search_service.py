@@ -467,7 +467,7 @@ class ImprovedSearchService:
 
     @staticmethod
     async def _extract_price(page: Page) -> float | None:
-        """Extract price using Hybrid Strategy: JSON-LD -> AI -> CSS"""
+        """Extract price using Hybrid Strategy: JSON-LD -> AI -> Strict CSS -> Loose CSS"""
         import re
         
         # STRATEGY 1: JSON-LD (Most reliable)
@@ -499,7 +499,8 @@ class ImprovedSearchService:
 
         # STRATEGY 2: AI Extraction (Priority over CSS as requested)
         try:
-            logger.info("  🤖 Attempting AI extraction (Priority Strategy)...")
+            # Only try AI if API key is configured (check implicitly via helper)
+            # We log info but don't block if it fails
             html_content = await page.content()
             title = await page.title()
             
@@ -510,9 +511,60 @@ class ImprovedSearchService:
         except Exception as e:
             logger.error(f"  AI extraction failed: {e}")
 
-        # STRATEGY 3: CSS Selectors (Fallback)
+        # STRATEGY 3: Strict CSS Selectors (High Confidence)
+        # These selectors usually point to the main product price. 
+        # If found, we trust them and return immediately.
+        strict_selectors = [
+            '[itemprop="price"]',  # Schema.org standard
+            '.current-price-value',
+            '.product-price .price',
+            'meta[property="product:price:amount"]',
+            'meta[name="twitter:data1"]', # Sometimes used for price
+        ]
         
-        # PRIORITY 1: Selectors for sale/promotional prices (highest priority)
+        for selector in strict_selectors:
+            try:
+                # Check meta tags first
+                if selector.startswith('meta'):
+                    element = await page.query_selector(selector)
+                    if element:
+                        content = await element.get_attribute('content')
+                        if content:
+                            try:
+                                price_val = float(content.strip().replace(',', '.'))
+                                logger.debug(f"  ✅ Found price via Meta Tag {selector}: {price_val}€")
+                                return price_val
+                            except:
+                                pass
+                    continue
+
+                # Standard elements
+                elements = await page.query_selector_all(selector)
+                for elem in elements:
+                    # Skip hidden
+                    if not await elem.is_visible():
+                        continue
+                        
+                    price_text = await elem.inner_text()
+                    if price_text:
+                        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
+                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
+                        match = re.search(r'(\d+\.?\d*)', cleaned)
+                        if match:
+                            try:
+                                price_val = float(match.group(1))
+                                if 0.01 < price_val < 100000:
+                                    logger.debug(f"  ✅ Found price via Strict CSS {selector}: {price_val}€")
+                                    return price_val
+                            except:
+                                continue
+            except:
+                continue
+
+        # STRATEGY 4: Loose CSS Selectors (Fallback - Lowest Price Logic)
+        # Used when strict selectors fail. We collect ALL prices and pick the lowest.
+        
+        # PRIORITY 1: Selectors for sale/promotional prices
         sale_price_selectors = [
             '.price-current',
             '.prix-actuel',
@@ -527,7 +579,6 @@ class ImprovedSearchService:
         price_selectors = [
             '.price',
             '[data-testid="price"]',
-            '[itemprop="price"]',
             '.product-price',
             '.a-price .a-offscreen',
             '.a-price-whole',
@@ -563,7 +614,6 @@ class ImprovedSearchService:
         
         
         # Fallback to standard price selectors
-        # Collect ALL valid prices and return the lowest (usually the promotional price)
         all_prices = []
         
         for selector in price_selectors:
@@ -573,14 +623,10 @@ class ImprovedSearchService:
                     # Skip if element is strikethrough (old price)
                     try:
                         parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
-                        # Check for strikethrough in parent
                         if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
-                            logger.debug(f"  Skipping strikethrough price from {selector}")
                             continue
-                        # Also check the element itself
                         elem_style = await elem.evaluate('el => window.getComputedStyle(el).textDecoration')
                         if 'line-through' in elem_style:
-                            logger.debug(f"  Skipping element with line-through style")
                             continue
                     except:
                         pass
@@ -603,7 +649,7 @@ class ImprovedSearchService:
                 logger.debug(f"  Error with selector {selector}: {e}")
                 continue
         
-        # Return the LOWEST price found (promotional price is usually lower)
+        # Return the LOWEST price found
         if all_prices:
             lowest_price = min(all_prices)
             logger.debug(f"Selected lowest price from {len(all_prices)} candidates: {lowest_price}€")
