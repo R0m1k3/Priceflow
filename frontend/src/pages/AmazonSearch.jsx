@@ -37,7 +37,7 @@ export default function AmazonSearch() {
         // Construire l'URL avec les paramètres
         const params = new URLSearchParams({
             q: query.trim(),
-            max_results: 20,
+            max_results: 50,
         });
 
         // Créer l'EventSource pour SSE
@@ -103,8 +103,8 @@ export default function AmazonSearch() {
                         <Star
                             key={i}
                             className={`h-4 w-4 ${i < Math.floor(rating)
-                                    ? 'fill-yellow-400 text-yellow-400'
-                                    : 'text-gray-300'
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-gray-300'
                                 }`}
                         />
                     ))}

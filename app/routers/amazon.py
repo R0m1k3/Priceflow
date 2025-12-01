@@ -31,7 +31,7 @@ class AmazonSearchProgress(BaseModel):
 @router.get("/search")
 async def search_amazon(
     q: str = Query(..., min_length=1, description="Terme de recherche"),
-    max_results: int = Query(20, ge=1, le=50, description="Nombre max de résultats"),
+    max_results: int = Query(50, ge=1, le=100, description="Nombre max de résultats"),
 ):
     """
     Recherche de produits sur Amazon France.

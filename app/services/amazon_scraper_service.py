@@ -277,7 +277,7 @@ class AmazonScraperService:
             pass
 
     @classmethod
-    async def scrape_search(cls, query: str, max_results: int = 20) -> list[AmazonProduct]:
+    async def scrape_search(cls, query: str, max_results: int = 50) -> list[AmazonProduct]:
         """
         Scrape Amazon France search results
 

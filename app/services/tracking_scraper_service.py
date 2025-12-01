@@ -175,7 +175,7 @@ class TrackingScraperService:
                 if selector:
                     await TrackingScraperService._wait_for_selector(page, selector)
                 else:
-                    await TrackingScraperService._auto_detect_price(page)
+                    await TrackingScraperService._auto_detect_price(page, url)
 
                 if config.smart_scroll:
                     await TrackingScraperService._smart_scroll(page, scroll_pixels)
@@ -336,8 +336,33 @@ class TrackingScraperService:
             logger.warning(f"Selector {selector} not found or timed out: {e}")
 
     @staticmethod
-    async def _auto_detect_price(page: Page):
-        logger.info("No selector provided. Attempting to find price element...")
+    async def _auto_detect_price(page: Page, url: str = ""):
+        logger.info("No selector provided. Attempting to find product area...")
+        
+        # Amazon-specific handling to ensure we capture the product, not reviews
+        if "amazon" in url.lower():
+            logger.info("🛒 Amazon detected - targeting main product area")
+            amazon_selectors = [
+                "#imgTagWrapperId",      # Main image
+                "#main-image-container", # Main image container
+                "#productTitle",         # Product title
+                "#ppd",                  # Product Page Desktop (main container)
+                "#centerCol",            # Center column
+            ]
+            
+            for selector in amazon_selectors:
+                try:
+                    if await page.locator(selector).count() > 0:
+                        logger.info(f"Found Amazon product area: {selector}")
+                        element = page.locator(selector).first
+                        await element.scroll_into_view_if_needed()
+                        # Scroll up a bit to ensure header is visible/good framing
+                        await page.evaluate("window.scrollBy(0, -100)")
+                        return
+                except Exception:
+                    pass
+        
+        # Generic fallback: look for price
         try:
             price_locator = page.locator("text=/$[0-9,]+(\\.[0-9]{2})?/")
             if await price_locator.count() > 0:
