@@ -138,7 +138,7 @@ export function ItemModal({ item, onClose, onSaved, open, categories = [] }) {
                             <div className="flex gap-2">
                                 <Input
                                     id="custom_category"
-                                    placeholder="Enter new category"
+                                    placeholder="Entrer une nouvelle catégorie"
                                     value={formData.category}
                                     onChange={e => setFormData({ ...formData, category: e.target.value })}
                                     autoFocus
@@ -151,7 +151,7 @@ export function ItemModal({ item, onClose, onSaved, open, categories = [] }) {
                                         setShowCustomInput(false);
                                         setFormData({ ...formData, category: '' });
                                     }}
-                                    title="Select existing category"
+                                    title="Sélectionner une catégorie existante"
                                 >
                                     <X className="h-4 w-4" />
                                 </Button>
@@ -171,30 +171,30 @@ export function ItemModal({ item, onClose, onSaved, open, categories = [] }) {
                                 }}
                             >
                                 <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Select a category" />
+                                    <SelectValue placeholder="Sélectionner une catégorie" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="none">None</SelectItem>
+                                    <SelectItem value="none">Aucune</SelectItem>
                                     {categories.map(cat => (
                                         <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                     ))}
-                                    <SelectItem value="__custom__">Custom...</SelectItem>
+                                    <SelectItem value="__custom__">Autre...</SelectItem>
                                 </SelectContent>
                             </Select>
                         )}
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="channel">Notification Channel</Label>
+                        <Label htmlFor="channel">Canal de Notification</Label>
                         <Select
                             value={formData.notification_channel_id}
                             onValueChange={(val) => setFormData({ ...formData, notification_channel_id: val })}
                         >
                             <SelectTrigger>
-                                <SelectValue placeholder="Select a channel" />
+                                <SelectValue placeholder="Sélectionner un canal" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
+                                <SelectItem value="none">Aucun</SelectItem>
                                 {channels.map(channel => (
                                     <SelectItem key={channel.id} value={channel.id.toString()}>
                                         {channel.name} ({channel.type})
