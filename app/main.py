@@ -151,9 +151,8 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing Improved Search Service...")
     await improved_search_service.initialize()
 
-    # Initialize Tracking Scraper Service
-    logger.info("Initializing Tracking Scraper Service...")
-    await TrackingScraperService.initialize()
+    # Note: TrackingScraperService is initialized on-demand (not at startup)
+    # to avoid connection conflicts with other browser services
 
     logger.info("Application started")
     yield
@@ -162,7 +161,7 @@ async def lifespan(app: FastAPI):
     stop_catalog_scheduler()
     await amazon_scraper_service.shutdown()
     await improved_search_service.shutdown()
-    await TrackingScraperService.shutdown()
+    # TrackingScraperService shutdown is handled on-demand
     logger.info("Application shutdown complete")
 
 

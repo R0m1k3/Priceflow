@@ -12,17 +12,56 @@ logger = logging.getLogger(__name__)
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
 POPUP_SELECTORS = [
+    # Amazon-specific popups
+    "#sp-cc-accept",  # Cookie banner Amazon
+    "#sp-cc-rejectall-link",
+    "button[data-action='a-popover-close']",
+    "[data-action='sp-cc-accept']",
+    "input[aria-labelledby='sp-cc-accept-label']",
+    "#nav-flyout-prime button",  # Prime flyout
+    
+    # French RGPD/Cookie consent platforms
+    "#axeptio_btn_acceptAll",  # Axeptio
+    "#axeptio_main_button",
+    "button#didomi-notice-agree-button",  # Didomi
+    ".didomi-popup-notice-button-accept",
+    "#onetrust-accept-btn-handler",  # OneTrust
+    "button.onetrust-close-btn-handler",
+    "#tarteaucitronPersonalize2",  # TarteAuCitron
+    "button#tarteaucitronAllAllowed",
+    
+    # Generic close buttons
     "button[aria-label='Close']",
     "button[aria-label='close']",
+    "button[aria-label='Fermer']",
+    "button[aria-label='fermer']",
     ".close-button",
     ".modal-close",
     "svg[data-name='Close']",
     "[class*='popup'] button",
     "[class*='modal'] button",
+    "[class*='overlay'] button",
+    
+    # Newsletter/subscription popups
     "button:has-text('No, thanks')",
     "button:has-text('No thanks')",
+    "button:has-text('Non merci')",
+    "button:has-text('Non, merci')",
     "a:has-text('No, thanks')",
+    "a:has-text('Non merci')",
+    
+    # Dialog/modal close buttons
     "div[role='dialog'] button[aria-label='Close']",
+    "div[role='dialog'] button[aria-label='Fermer']",
+    "[role='dialog'] .close",
+    
+    # Cookie banners (generic)
+    "#cookieConsent button",
+    ".cookie-consent button",
+    "button[id*='cookie'][id*='accept']",
+    "button[class*='cookie'][class*='accept']",
+    ".cc-dismiss",
+    ".cc-allow",
 ]
 
 
@@ -131,7 +170,7 @@ class TrackingScraperService:
 
             try:
                 await TrackingScraperService._navigate_and_wait(page, url, timeout)
-                await TrackingScraperService._handle_popups(page)
+                await TrackingScraperService._handle_popups(page, url)
 
                 if selector:
                     await TrackingScraperService._wait_for_selector(page, selector)
@@ -142,6 +181,11 @@ class TrackingScraperService:
                     await TrackingScraperService._smart_scroll(page, scroll_pixels)
 
                 page_text = await TrackingScraperService._extract_text(page, config.text_length)
+                
+                # Second popup handling pass right before screenshot to ensure clean capture
+                await TrackingScraperService._handle_popups(page, url)
+                await page.wait_for_timeout(1000)  # Final wait for any animations
+                
                 screenshot_path = await TrackingScraperService._take_screenshot(page, url, item_id)
 
                 return screenshot_path, page_text
@@ -192,21 +236,93 @@ class TrackingScraperService:
         await page.wait_for_timeout(2000)
 
     @staticmethod
-    async def _handle_popups(page: Page):
+    async def _handle_popups(page: Page, url: str = ""):
+        """
+        Close popups and cookie banners with retry logic and verification.
+        
+        Args:
+            page: Playwright page object
+            url: URL being scraped (for Amazon detection)
+        """
         logger.info("Attempting to close popups...")
+        is_amazon = "amazon" in url.lower() if url else False
+        
+        if is_amazon:
+            logger.info("🛒 Amazon detected - applying enhanced popup handling")
+        
+        closed_popups = []
+        
+        # First pass: Try to close all visible popups
         for popup_selector in POPUP_SELECTORS:
             try:
-                if await page.locator(popup_selector).count() > 0:
+                popup_count = await page.locator(popup_selector).count()
+                if popup_count > 0:
                     logger.info(f"Found popup close button: {popup_selector}")
-                    await page.locator(popup_selector).first.click(timeout=2000)
-                    await page.wait_for_timeout(1000)
+                    await page.locator(popup_selector).first.click(timeout=3000)
+                    closed_popups.append(popup_selector)
+                    await page.wait_for_timeout(1500)  # Increased wait for popup animation
+            except Exception as e:
+                logger.debug(f"Could not click {popup_selector}: {e}")
+                pass
+        
+        # Try Escape key multiple times (some sites need it)
+        for _ in range(2):
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
             except Exception:
                 pass
+        
+        # Second pass: Verify and retry if any popups are still visible
+        if closed_popups:
+            logger.info(f"Verifying {len(closed_popups)} closed popup(s)...")
+            await page.wait_for_timeout(1000)
+            
+            for popup_selector in closed_popups:
+                try:
+                    if await page.locator(popup_selector).count() > 0:
+                        logger.warning(f"Popup reappeared, retrying: {popup_selector}")
+                        await page.locator(popup_selector).first.click(timeout=2000)
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+        
+        # Amazon-specific: Extra wait for JS-heavy popups
+        if is_amazon:
+            await page.wait_for_timeout(2000)
+            logger.info("✅ Amazon popup handling complete")
+        
+        logger.info(f"Popup handling complete ({len(closed_popups)} closed)")
 
-        try:
-            await page.keyboard.press("Escape")
-        except Exception:
-            pass
+    @staticmethod
+    async def _verify_no_popups(page: Page) -> bool:
+        """
+        Verify that no modal/overlay elements are currently visible.
+        
+        Returns:
+            True if no popups are visible, False otherwise
+        """
+        overlay_selectors = [
+            "[role='dialog']",
+            ".modal[style*='display: block']",
+            ".popup[style*='display: block']",
+            "[class*='overlay'][style*='display: block']",
+            "[class*='modal-open']",
+        ]
+        
+        for selector in overlay_selectors:
+            try:
+                count = await page.locator(selector).count()
+                if count > 0:
+                    # Check if actually visible
+                    elem = page.locator(selector).first
+                    if await elem.is_visible():
+                        logger.warning(f"⚠️ Visible popup/overlay detected: {selector}")
+                        return False
+            except Exception:
+                pass
+        
+        return True
 
     @staticmethod
     async def _wait_for_selector(page: Page, selector: str):
