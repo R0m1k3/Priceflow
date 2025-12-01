@@ -55,12 +55,9 @@ function PublicRoute({ children }) {
 }
 
 function AppRoutes() {
-    const { theme, toggleTheme } = useTheme();
-    const { isAuthenticated } = useAuth();
-
     return (
         <>
-            <Toaster position="bottom-right" theme={theme} />
+            <Toaster position="bottom-right" />
             <Routes>
                 <Route
                     path="/login"
@@ -74,7 +71,7 @@ function AppRoutes() {
                     path="/*"
                     element={
                         <ProtectedRoute>
-                            <Layout theme={theme} toggleTheme={toggleTheme}>
+                            <Layout>
                                 <Routes>
                                     <Route path="/" element={<Dashboard />} />
                                     <Route path="/search" element={<Search />} />
