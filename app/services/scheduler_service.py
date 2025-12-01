@@ -10,6 +10,7 @@ from app.services.ai_service import AIService
 from app.services.item_service import ItemService
 from app.services.notification_service import NotificationService
 from app.services.browserless_service import browserless_service
+from app.services.tracking_scraper_service import TrackingScraperService, ScrapeConfig
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -103,12 +104,19 @@ async def process_item_check(item_id: int):
 
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
-        # Use browserless service with extract_text=True for monitoring
-        page_text, screenshot_path = await browserless_service.get_page_content(
-            item_data["url"],
-            use_proxy="amazon" in item_data["url"],
-            wait_selector=item_data["selector"],
-            extract_text=True  # Get visible text for AI analysis
+        # Use TrackingScraperService for monitoring
+        scrape_config = ScrapeConfig(
+            smart_scroll=config["smart_scroll"],
+            scroll_pixels=config["smart_scroll_pixels"],
+            text_length=config["text_length"],
+            timeout=config["scraper_timeout"]
+        )
+
+        screenshot_path, page_text = await TrackingScraperService.scrape_item(
+            url=item_data["url"],
+            selector=item_data["selector"],
+            item_id=item_id,
+            config=scrape_config
         )
         
         # Determine availability based on content presence
