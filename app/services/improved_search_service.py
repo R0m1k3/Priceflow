@@ -13,7 +13,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
-from app.core.config import settings
+
 from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
 from app.services.ai_price_extractor import AIPriceExtractor
 
