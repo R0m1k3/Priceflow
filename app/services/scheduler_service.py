@@ -135,6 +135,18 @@ async def process_item_check(item_id: int):
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")
 
+        # Update the main item screenshot for the UI
+        try:
+            import shutil
+            import os
+            dest_path = f"/app/screenshots/item_{item_id}.png"
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            shutil.copy2(screenshot_path, dest_path)
+            logger.info(f"Updated main screenshot for item {item_id}")
+        except Exception as e:
+            logger.error(f"Failed to update main screenshot: {e}")
+
         if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=page_text)):
             raise Exception("AI analysis failed")
 
