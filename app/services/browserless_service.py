@@ -53,6 +53,9 @@ POPUP_SELECTORS = [
     "button:has-text('Continuer les achats')",
     "span:has-text('Continuer les achats')",
     "a:has-text('Continuer les achats')",
+    "input[value='Continuer les achats']",
+    "input[value='Continue shopping']",
+    "form:has-text('Continuer les achats') input[type='submit']",
 ]
 
 
