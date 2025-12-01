@@ -12,6 +12,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
+from sqlalchemy.orm import Session
 
 
 from app.core.search_config import SITE_CONFIGS, BROWSERLESS_URL
