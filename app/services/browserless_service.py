@@ -163,7 +163,7 @@ class BrowserlessService:
 
         options = {
             "viewport": {"width": 1920, "height": 1080},
-            "user_agent": user_agent,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "locale": "fr-FR",
             "timezone_id": "Europe/Paris",
             "java_script_enabled": True,
@@ -173,19 +173,6 @@ class BrowserlessService:
                 "Sec-Ch-Ua-Platform": '"Windows"',
                 "Upgrade-Insecure-Requests": "1",
             },
-        }
-
-        if use_proxy:
-            logger.info("Proxy support requested (not implemented in this version)")
-
-        context = await browser.new_context(**options)
-        await context.route("**/*", lambda route: route.continue_())
-
-        return context
-
-    @staticmethod
-    async def _navigate_and_wait(page: Page, url: str, timeout: int):
-        """Navigate to URL and wait for page load."""
         logger.info(f"📡 Navigating to {url} (Timeout: {timeout}ms)")
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout)

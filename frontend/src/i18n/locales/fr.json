@@ -50,6 +50,7 @@
         "targetPrice": "Prix cible",
         "targetPricePlaceholder": "ex: 999.99",
         "targetPriceOptional": "(optionnel)",
+        "category": "Catégorie",
         "selector": "Sélecteur CSS",
         "selectorPlaceholder": "ex: .price",
         "selectorOptional": "(optionnel - pour les pages complexes)",
