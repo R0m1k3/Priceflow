@@ -20,6 +20,12 @@ POPUP_SELECTORS = [
     "input[aria-labelledby='sp-cc-accept-label']",
     "#nav-flyout-prime button",  # Prime flyout
     
+    # Amazon Interstitials (Soft blocks)
+    "button:has-text('Continuer les achats')",
+    "input[value='Continuer les achats']",
+    "span.a-button-inner > input.a-button-input[type='submit']",
+    "[aria-labelledby='continue-shopping-label']",
+    
     # French RGPD/Cookie consent platforms
     "#axeptio_btn_acceptAll",  # Axeptio
     "#axeptio_main_button",

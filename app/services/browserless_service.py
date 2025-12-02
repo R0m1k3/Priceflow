@@ -49,13 +49,17 @@ POPUP_SELECTORS = [
     "button:has-text('Tout accepter')",
     "button:has-text('Accepter')",
     "input[aria-labelledby='sp-cc-accept-label']",
-    # Amazon interstitials
+    "#nav-flyout-prime button",
+    
+    # Amazon Interstitials (Soft blocks)
     "button:has-text('Continuer les achats')",
     "span:has-text('Continuer les achats')",
     "a:has-text('Continuer les achats')",
     "input[value='Continuer les achats']",
     "input[value='Continue shopping']",
+    "span.a-button-inner > input.a-button-input[type='submit']",
     "form:has-text('Continuer les achats') input[type='submit']",
+    "[aria-labelledby='continue-shopping-label']",
 ]
 
 
@@ -159,7 +163,7 @@ class BrowserlessService:
 
         options = {
             "viewport": {"width": 1920, "height": 1080},
-            "user_agent": user_agent,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "locale": "fr-FR",
             "timezone_id": "Europe/Paris",
             "java_script_enabled": True,
@@ -175,6 +179,29 @@ class BrowserlessService:
             logger.info("Proxy support requested (not implemented in this version)")
 
         context = await browser.new_context(**options)
+        
+        # Inject stealth scripts
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['fr-FR', 'fr', 'en-US', 'en']
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            window.chrome = { runtime: {} };
+            
+            // Mock permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+        """)
+
         await context.route("**/*", lambda route: route.continue_())
 
         return context
@@ -182,7 +209,6 @@ class BrowserlessService:
     @staticmethod
     async def _navigate_and_wait(page: Page, url: str, timeout: int):
         """Navigate to URL and wait for page load."""
-        logger.info(f"📡 Navigating to {url} (Timeout: {timeout}ms)")
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
             logger.info(f"✅ Page loaded (domcontentloaded): {url}")
@@ -200,21 +226,42 @@ class BrowserlessService:
 
     @staticmethod
     async def _handle_popups(page: Page):
-        """Attempt to close popups and cookie banners."""
+        """Attempt to close popups and cookie banners with retry logic."""
         logger.debug("Attempting to close popups...")
+        
+        # First pass: Try to close all visible popups
+        closed_popups = []
         for popup_selector in POPUP_SELECTORS:
             try:
                 if await page.locator(popup_selector).count() > 0:
                     logger.info(f"🚫 Closing popup: {popup_selector}")
                     await page.locator(popup_selector).first.click(timeout=2000)
-                    await page.wait_for_timeout(500)
+                    closed_popups.append(popup_selector)
+                    await page.wait_for_timeout(1000)
             except Exception:
                 pass
 
-        try:
-            await page.keyboard.press("Escape")
-        except Exception:
-            pass
+        # Try Escape key multiple times
+        for _ in range(2):
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+            except Exception:
+                pass
+                
+        # Second pass: Verify and retry if any popups are still visible
+        if closed_popups:
+            logger.info(f"Verifying {len(closed_popups)} closed popup(s)...")
+            await page.wait_for_timeout(1000)
+            
+            for popup_selector in closed_popups:
+                try:
+                    if await page.locator(popup_selector).count() > 0:
+                        logger.warning(f"Popup reappeared, retrying: {popup_selector}")
+                        await page.locator(popup_selector).first.click(timeout=2000)
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
 
     @staticmethod
     async def _extract_amazon_price(page: Page) -> str:
@@ -514,10 +561,10 @@ class BrowserlessService:
                     # Take screenshot
                     screenshot_path = ""
                     try:
-                        os.makedirs("/app/screenshots", exist_ok=True)
+                        os.makedirs("screenshots", exist_ok=True)
                         timestamp = int(time.time() * 1000)
                         safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
-                        screenshot_path = f"/app/screenshots/{safe_name}_{timestamp}.jpg"
+                        screenshot_path = f"screenshots/{safe_name}_{timestamp}.jpg"
 
                         is_amazon = "amazon" in url.lower() and "/dp/" in url
 
