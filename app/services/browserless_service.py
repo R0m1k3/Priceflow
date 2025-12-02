@@ -173,7 +173,42 @@ class BrowserlessService:
                 "Sec-Ch-Ua-Platform": '"Windows"',
                 "Upgrade-Insecure-Requests": "1",
             },
-        logger.info(f"📡 Navigating to {url} (Timeout: {timeout}ms)")
+        }
+
+        if use_proxy:
+            logger.info("Proxy support requested (not implemented in this version)")
+
+        context = await browser.new_context(**options)
+        
+        # Inject stealth scripts
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['fr-FR', 'fr', 'en-US', 'en']
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            window.chrome = { runtime: {} };
+            
+            // Mock permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+        """)
+
+        await context.route("**/*", lambda route: route.continue_())
+
+        return context
+
+    @staticmethod
+    async def _navigate_and_wait(page: Page, url: str, timeout: int):
+        """Navigate to URL and wait for page load."""
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
             logger.info(f"✅ Page loaded (domcontentloaded): {url}")
