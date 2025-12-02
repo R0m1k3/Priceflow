@@ -10,7 +10,7 @@ from app.services.ai_service import AIService
 from app.services.item_service import ItemService
 from app.services.notification_service import NotificationService
 from app.services.browserless_service import browserless_service
-from app.services.tracking_scraper_service import TrackingScraperService, ScrapeConfig
+from app.services.tracking_scraper_service import ScraperService, ScrapeConfig
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
