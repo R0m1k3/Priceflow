@@ -423,7 +423,8 @@ class BrowserlessService:
         url: str,
         use_proxy: bool = False,
         wait_selector: str | None = None,
-        extract_text: bool = False
+        extract_text: bool = False,
+        retries: int = 3
     ) -> tuple[str, str]:
         """
         Fetch page content with persistent browser.
@@ -435,100 +436,122 @@ class BrowserlessService:
             logger.error("❌ Failed to establish browser connection")
             return "", ""
 
-        try:
-            context = await cls._create_context(cls._browser, use_proxy=use_proxy)
-            page = await context.new_page()
-
+        for attempt in range(retries):
             try:
-                await cls._navigate_and_wait(page, url, 30000)
-                await cls._handle_popups(page)
+                context = await cls._create_context(cls._browser, use_proxy=use_proxy)
+                page = await context.new_page()
 
-                # Amazon-specific wait
-                if "amazon" in url.lower() and "/dp/" in url:
-                    amazon_selectors = [".a-price .a-offscreen", "#corePriceDisplay_desktop_feature_div"]
-                    for selector in amazon_selectors:
-                        try:
-                            await page.wait_for_selector(selector, timeout=5000, state="visible")
-                            logger.info(f"✅ Amazon price element found: {selector}")
-                            break
-                        except Exception:
-                            continue
-                
-                # Generic wait selector
-                if wait_selector:
-                    try:
-                        logger.info(f"⏳ Waiting for selector: {wait_selector}")
-                        await page.wait_for_selector(wait_selector, timeout=10000, state="attached")
-                        logger.info(f"✅ Wait selector found: {wait_selector}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Wait selector {wait_selector} timed out or failed: {e}")
-
-                # Extract content
-                if extract_text:
-                    content = await page.inner_text('body')
-                    logger.info(f"📄 Extracted {len(content)} chars of visible text")
-
-                    # Normalize French prices
-                    content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
-                    content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
-                    content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
-
-                    # Extract price
-                    extracted_price = ""
-                    if "amazon" in url.lower() and "/dp/" in url:
-                        extracted_price = await cls._extract_amazon_price(page)
-                    else:
-                        extracted_price = await cls._extract_generic_price(page)
-
-                    if extracted_price:
-                        normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', extracted_price)
-                        normalized_price = normalized_price.replace(' ', '')
-                        content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
-                        logger.info(f"💰 Prepended price: {normalized_price}")
-                    else:
-                        logger.warning("⚠️ No price detected for this page")
-                else:
-                    content = await page.content()
-                    logger.debug(f"📄 Extracted {len(content)} chars of HTML")
-
-                # Take screenshot
-                screenshot_path = ""
                 try:
-                    os.makedirs("/app/screenshots", exist_ok=True)
-                    timestamp = int(time.time() * 1000)
-                    safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
-                    screenshot_path = f"/app/screenshots/{safe_name}_{timestamp}.jpg"
+                    await cls._navigate_and_wait(page, url, 30000)
+                    await cls._handle_popups(page)
 
-                    is_amazon = "amazon" in url.lower() and "/dp/" in url
+                    # Check for Amazon Captcha / Login Wall
+                    if "amazon" in url.lower():
+                        content_check = await page.content()
+                        if (
+                            "Type the characters you see in this image" in content_check
+                            or "Saisissez les caractères que vous voyez" in content_check
+                            or "Sign in or create an account" in content_check
+                            or "Identifiez-vous ou créez un compte" in content_check
+                        ):
+                            logger.warning(f"⚠️ Amazon Captcha/Login Wall detected (Attempt {attempt+1}/{retries})")
+                            if attempt < retries - 1:
+                                await context.close()
+                                await asyncio.sleep(2 + attempt * 2) # Backoff
+                                continue
+                            else:
+                                logger.error("❌ Amazon blocked all attempts")
+                                return "", ""
 
-                    if is_amazon:
-                        # Focused Amazon screenshot
-                        for selector in ["#dp-container", "#ppd", "#centerCol"]:
+                    # Amazon-specific wait
+                    if "amazon" in url.lower() and "/dp/" in url:
+                        amazon_selectors = [".a-price .a-offscreen", "#corePriceDisplay_desktop_feature_div"]
+                        for selector in amazon_selectors:
                             try:
-                                element = page.locator(selector).first
-                                if await element.is_visible():
-                                    await element.screenshot(path=screenshot_path, quality=85, type="jpeg")
-                                    logger.info(f"📸 Amazon focused screenshot: {selector}")
-                                    break
+                                await page.wait_for_selector(selector, timeout=5000, state="visible")
+                                logger.info(f"✅ Amazon price element found: {selector}")
+                                break
                             except Exception:
                                 continue
+                    
+                    # Generic wait selector
+                    if wait_selector:
+                        try:
+                            logger.info(f"⏳ Waiting for selector: {wait_selector}")
+                            await page.wait_for_selector(wait_selector, timeout=10000, state="attached")
+                            logger.info(f"✅ Wait selector found: {wait_selector}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Wait selector {wait_selector} timed out or failed: {e}")
+
+                    # Extract content
+                    if extract_text:
+                        content = await page.inner_text('body')
+                        logger.info(f"📄 Extracted {len(content)} chars of visible text")
+
+                        # Normalize French prices
+                        content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
+                        content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
+                        content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
+
+                        # Extract price
+                        extracted_price = ""
+                        if "amazon" in url.lower() and "/dp/" in url:
+                            extracted_price = await cls._extract_amazon_price(page)
+                        else:
+                            extracted_price = await cls._extract_generic_price(page)
+
+                        if extracted_price:
+                            normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', extracted_price)
+                            normalized_price = normalized_price.replace(' ', '')
+                            content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
+                            logger.info(f"💰 Prepended price: {normalized_price}")
+                        else:
+                            logger.warning("⚠️ No price detected for this page")
+                    else:
+                        content = await page.content()
+                        logger.debug(f"📄 Extracted {len(content)} chars of HTML")
+
+                    # Take screenshot
+                    screenshot_path = ""
+                    try:
+                        os.makedirs("/app/screenshots", exist_ok=True)
+                        timestamp = int(time.time() * 1000)
+                        safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
+                        screenshot_path = f"/app/screenshots/{safe_name}_{timestamp}.jpg"
+
+                        is_amazon = "amazon" in url.lower() and "/dp/" in url
+
+                        if is_amazon:
+                            # Focused Amazon screenshot
+                            for selector in ["#dp-container", "#ppd", "#centerCol"]:
+                                try:
+                                    element = page.locator(selector).first
+                                    if await element.is_visible():
+                                        await element.screenshot(path=screenshot_path, quality=85, type="jpeg")
+                                        logger.info(f"📸 Amazon focused screenshot: {selector}")
+                                        break
+                                except Exception:
+                                    continue
+                            else:
+                                await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
                         else:
                             await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
-                    else:
-                        await page.screenshot(path=screenshot_path, full_page=False, quality=80, type="jpeg")
-                        logger.info(f"📸 Viewport screenshot saved to {screenshot_path}")
+                            logger.info(f"📸 Viewport screenshot saved to {screenshot_path}")
 
-                except Exception as e:
-                    logger.warning(f"Screenshot failed: {e}")
+                    except Exception as e:
+                        logger.warning(f"Screenshot failed: {e}")
 
-                return content, screenshot_path
+                    return content, screenshot_path
 
-            finally:
-                await context.close()
+                finally:
+                    await context.close()
 
-        except Exception as e:
-            logger.error(f"❌ Error scraping {url}: {e}", exc_info=True)
-            return "", ""
+            except Exception as e:
+                logger.error(f"❌ Error scraping {url} (Attempt {attempt+1}): {e}")
+                if attempt == retries - 1:
+                    return "", ""
+        
+        return "", ""
 
     @classmethod
     async def scrape_item(
