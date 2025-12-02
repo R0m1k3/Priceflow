@@ -131,7 +131,7 @@ async def process_item_check(item_id: int):
         try:
             import shutil
             import os
-            dest_path = f"/app/screenshots/item_{item_id}.png"
+            dest_path = f"screenshots/item_{item_id}.png"
             # Ensure directory exists
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
             shutil.copy2(screenshot_path, dest_path)
