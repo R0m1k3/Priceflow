@@ -541,10 +541,10 @@ class BrowserlessService:
                 # Take screenshot
                 screenshot_path = ""
                 try:
-                    os.makedirs("/app/screenshots", exist_ok=True)
+                    os.makedirs("screenshots", exist_ok=True)
                     timestamp = int(time.time() * 1000)
                     safe_name = "".join(c if c.isalnum() else "_" for c in url.split("//")[-1])[:50]
-                    screenshot_path = f"/app/screenshots/{safe_name}_{timestamp}.jpg"
+                    screenshot_path = f"screenshots/{safe_name}_{timestamp}.jpg"
 
                     is_amazon = "amazon" in url.lower() and "/dp/" in url
 
