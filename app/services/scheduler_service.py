@@ -104,20 +104,15 @@ async def process_item_check(item_id: int):
 
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
-        # Use TrackingScraperService for monitoring
-        scrape_config = ScrapeConfig(
-            smart_scroll=config["smart_scroll"],
-            scroll_pixels=config["smart_scroll_pixels"],
-            text_length=config["text_length"],
-            timeout=config["scraper_timeout"]
-        )
-
-        screenshot_path, page_text = await TrackingScraperService.scrape_item(
+        # Use independent ScraperService for tracking
+        from app.services.tracking_scraper_service import ScraperService
+        
+        screenshot_path, page_text = await ScraperService.scrape_item(
             url=item_data["url"],
             selector=item_data["selector"],
-            item_id=item_id,
-            config=scrape_config
+            item_id=item_id
         )
+
         
         # Determine availability based on content presence
         # If we got content, we assume available unless proven otherwise
@@ -134,18 +129,9 @@ async def process_item_check(item_id: int):
 
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")
-
-        # Update the main item screenshot for the UI
-        try:
-            import shutil
-            import os
-            dest_path = f"screenshots/item_{item_id}.png"
-            # Ensure directory exists
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-            shutil.copy2(screenshot_path, dest_path)
-            logger.info(f"Updated main screenshot for item {item_id}")
-        except Exception as e:
-            logger.error(f"Failed to update main screenshot: {e}")
+            
+        # NOTE: ScraperService already saves to screenshots/item_{item_id}.png
+        # so we don't need to copy it manually anymore.
 
         if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=page_text)):
             raise Exception("AI analysis failed")
