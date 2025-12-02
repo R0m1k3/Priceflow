@@ -12,62 +12,26 @@ logger = logging.getLogger(__name__)
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 
 POPUP_SELECTORS = [
-    # Amazon-specific popups
-    "#sp-cc-accept",  # Cookie banner Amazon
-    "#sp-cc-rejectall-link",
-    "button[data-action='a-popover-close']",
-    "[data-action='sp-cc-accept']",
-    "input[aria-labelledby='sp-cc-accept-label']",
-    "#nav-flyout-prime button",  # Prime flyout
-    
-    # Amazon Interstitials (Soft blocks)
-    "button:has-text('Continuer les achats')",
-    "input[value='Continuer les achats']",
-    "span.a-button-inner > input.a-button-input[type='submit']",
-    "[aria-labelledby='continue-shopping-label']",
-    
-    # French RGPD/Cookie consent platforms
-    "#axeptio_btn_acceptAll",  # Axeptio
-    "#axeptio_main_button",
-    "button#didomi-notice-agree-button",  # Didomi
-    ".didomi-popup-notice-button-accept",
-    "#onetrust-accept-btn-handler",  # OneTrust
-    "button.onetrust-close-btn-handler",
-    "#tarteaucitronPersonalize2",  # TarteAuCitron
-    "button#tarteaucitronAllAllowed",
-    
-    # Generic close buttons
     "button[aria-label='Close']",
     "button[aria-label='close']",
-    "button[aria-label='Fermer']",
-    "button[aria-label='fermer']",
     ".close-button",
     ".modal-close",
     "svg[data-name='Close']",
     "[class*='popup'] button",
     "[class*='modal'] button",
-    "[class*='overlay'] button",
-    
-    # Newsletter/subscription popups
     "button:has-text('No, thanks')",
     "button:has-text('No thanks')",
-    "button:has-text('Non merci')",
-    "button:has-text('Non, merci')",
     "a:has-text('No, thanks')",
-    "a:has-text('Non merci')",
-    
-    # Dialog/modal close buttons
     "div[role='dialog'] button[aria-label='Close']",
-    "div[role='dialog'] button[aria-label='Fermer']",
-    "[role='dialog'] .close",
-    
-    # Cookie banners (generic)
-    "#cookieConsent button",
-    ".cookie-consent button",
-    "button[id*='cookie'][id*='accept']",
-    "button[class*='cookie'][class*='accept']",
-    ".cc-dismiss",
-    ".cc-allow",
+    # Amazon Interstitials (Added for robustness)
+    "button:has-text('Continuer les achats')",
+    "span:has-text('Continuer les achats')",
+    "a:has-text('Continuer les achats')",
+    "input[value='Continuer les achats']",
+    "input[value='Continue shopping']",
+    "span.a-button-inner > input.a-button-input[type='submit']",
+    "form:has-text('Continuer les achats') input[type='submit']",
+    "[aria-labelledby='continue-shopping-label']",
 ]
 
 
@@ -81,7 +45,7 @@ class ScrapeConfig:
     timeout: int = 90000
 
 
-class TrackingScraperService:
+class ScraperService:
     _playwright = None
     _browser: Browser | None = None
     _lock = asyncio.Lock()
@@ -96,23 +60,23 @@ class TrackingScraperService:
     async def _initialize(cls):
         """Internal initialization logic (Assumes lock is held)."""
         if cls._browser is None:
-            logger.info("Initializing TrackingScraperService shared browser...")
+            logger.info("Initializing ScraperService shared browser...")
             cls._playwright = await async_playwright().start()
             cls._browser = await cls._connect_browser(cls._playwright)
-            logger.info("TrackingScraperService initialized.")
+            logger.info("ScraperService initialized.")
 
     @classmethod
     async def shutdown(cls):
         """Shutdown the shared browser instance."""
         async with cls._lock:
             if cls._browser:
-                logger.info("Shutting down TrackingScraperService shared browser...")
+                logger.info("Shutting down ScraperService shared browser...")
                 await cls._browser.close()
                 cls._browser = None
             if cls._playwright:
                 await cls._playwright.stop()
                 cls._playwright = None
-            logger.info("TrackingScraperService shutdown complete.")
+            logger.info("ScraperService shutdown complete.")
 
     @classmethod
     async def _ensure_browser_connected(cls) -> bool:
@@ -166,33 +130,28 @@ class TrackingScraperService:
         timeout = max(30000, config.timeout if config.timeout > 0 else 90000)
 
         # Ensure browser is connected and healthy
-        if not await TrackingScraperService._ensure_browser_connected():
+        if not await ScraperService._ensure_browser_connected():
             logger.error("Failed to establish browser connection")
             return None, ""
 
         try:
-            context = await TrackingScraperService._create_context(TrackingScraperService._browser)
+            context = await ScraperService._create_context(ScraperService._browser)
             page = await context.new_page()
 
             try:
-                await TrackingScraperService._navigate_and_wait(page, url, timeout)
-                await TrackingScraperService._handle_popups(page, url)
+                await ScraperService._navigate_and_wait(page, url, timeout)
+                await ScraperService._handle_popups(page)
 
                 if selector:
-                    await TrackingScraperService._wait_for_selector(page, selector)
+                    await ScraperService._wait_for_selector(page, selector)
                 else:
-                    await TrackingScraperService._auto_detect_price(page, url)
+                    await ScraperService._auto_detect_price(page)
 
                 if config.smart_scroll:
-                    await TrackingScraperService._smart_scroll(page, scroll_pixels)
+                    await ScraperService._smart_scroll(page, scroll_pixels)
 
-                page_text = await TrackingScraperService._extract_text(page, config.text_length)
-                
-                # Second popup handling pass right before screenshot to ensure clean capture
-                await TrackingScraperService._handle_popups(page, url)
-                await page.wait_for_timeout(1000)  # Final wait for any animations
-                
-                screenshot_path = await TrackingScraperService._take_screenshot(page, url, item_id)
+                page_text = await ScraperService._extract_text(page, config.text_length)
+                screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
                 return screenshot_path, page_text
 
@@ -242,93 +201,21 @@ class TrackingScraperService:
         await page.wait_for_timeout(2000)
 
     @staticmethod
-    async def _handle_popups(page: Page, url: str = ""):
-        """
-        Close popups and cookie banners with retry logic and verification.
-        
-        Args:
-            page: Playwright page object
-            url: URL being scraped (for Amazon detection)
-        """
+    async def _handle_popups(page: Page):
         logger.info("Attempting to close popups...")
-        is_amazon = "amazon" in url.lower() if url else False
-        
-        if is_amazon:
-            logger.info("🛒 Amazon detected - applying enhanced popup handling")
-        
-        closed_popups = []
-        
-        # First pass: Try to close all visible popups
         for popup_selector in POPUP_SELECTORS:
             try:
-                popup_count = await page.locator(popup_selector).count()
-                if popup_count > 0:
+                if await page.locator(popup_selector).count() > 0:
                     logger.info(f"Found popup close button: {popup_selector}")
-                    await page.locator(popup_selector).first.click(timeout=3000)
-                    closed_popups.append(popup_selector)
-                    await page.wait_for_timeout(1500)  # Increased wait for popup animation
-            except Exception as e:
-                logger.debug(f"Could not click {popup_selector}: {e}")
-                pass
-        
-        # Try Escape key multiple times (some sites need it)
-        for _ in range(2):
-            try:
-                await page.keyboard.press("Escape")
-                await page.wait_for_timeout(500)
+                    await page.locator(popup_selector).first.click(timeout=2000)
+                    await page.wait_for_timeout(1000)
             except Exception:
                 pass
-        
-        # Second pass: Verify and retry if any popups are still visible
-        if closed_popups:
-            logger.info(f"Verifying {len(closed_popups)} closed popup(s)...")
-            await page.wait_for_timeout(1000)
-            
-            for popup_selector in closed_popups:
-                try:
-                    if await page.locator(popup_selector).count() > 0:
-                        logger.warning(f"Popup reappeared, retrying: {popup_selector}")
-                        await page.locator(popup_selector).first.click(timeout=2000)
-                        await page.wait_for_timeout(1000)
-                except Exception:
-                    pass
-        
-        # Amazon-specific: Extra wait for JS-heavy popups
-        if is_amazon:
-            await page.wait_for_timeout(2000)
-            logger.info("✅ Amazon popup handling complete")
-        
-        logger.info(f"Popup handling complete ({len(closed_popups)} closed)")
 
-    @staticmethod
-    async def _verify_no_popups(page: Page) -> bool:
-        """
-        Verify that no modal/overlay elements are currently visible.
-        
-        Returns:
-            True if no popups are visible, False otherwise
-        """
-        overlay_selectors = [
-            "[role='dialog']",
-            ".modal[style*='display: block']",
-            ".popup[style*='display: block']",
-            "[class*='overlay'][style*='display: block']",
-            "[class*='modal-open']",
-        ]
-        
-        for selector in overlay_selectors:
-            try:
-                count = await page.locator(selector).count()
-                if count > 0:
-                    # Check if actually visible
-                    elem = page.locator(selector).first
-                    if await elem.is_visible():
-                        logger.warning(f"⚠️ Visible popup/overlay detected: {selector}")
-                        return False
-            except Exception:
-                pass
-        
-        return True
+        try:
+            await page.keyboard.press("Escape")
+        except Exception:
+            pass
 
     @staticmethod
     async def _wait_for_selector(page: Page, selector: str):
@@ -342,33 +229,8 @@ class TrackingScraperService:
             logger.warning(f"Selector {selector} not found or timed out: {e}")
 
     @staticmethod
-    async def _auto_detect_price(page: Page, url: str = ""):
-        logger.info("No selector provided. Attempting to find product area...")
-        
-        # Amazon-specific handling to ensure we capture the product, not reviews
-        if "amazon" in url.lower():
-            logger.info("🛒 Amazon detected - targeting main product area")
-            amazon_selectors = [
-                "#imgTagWrapperId",      # Main image
-                "#main-image-container", # Main image container
-                "#productTitle",         # Product title
-                "#ppd",                  # Product Page Desktop (main container)
-                "#centerCol",            # Center column
-            ]
-            
-            for selector in amazon_selectors:
-                try:
-                    if await page.locator(selector).count() > 0:
-                        logger.info(f"Found Amazon product area: {selector}")
-                        element = page.locator(selector).first
-                        await element.scroll_into_view_if_needed()
-                        # Scroll up a bit to ensure header is visible/good framing
-                        await page.evaluate("window.scrollBy(0, -100)")
-                        return
-                except Exception:
-                    pass
-        
-        # Generic fallback: look for price
+    async def _auto_detect_price(page: Page):
+        logger.info("No selector provided. Attempting to find price element...")
         try:
             price_locator = page.locator("text=/$[0-9,]+(\\.[0-9]{2})?/")
             if await price_locator.count() > 0:
