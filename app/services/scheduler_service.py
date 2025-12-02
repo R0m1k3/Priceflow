@@ -10,6 +10,7 @@ from app.services.ai_service import AIService
 from app.services.item_service import ItemService
 from app.services.notification_service import NotificationService
 from app.services.browserless_service import browserless_service
+from app.services.tracking_scraper_service import TrackingScraperService, ScrapeConfig
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -111,6 +112,7 @@ async def process_item_check(item_id: int):
             selector=item_data["selector"],
             item_id=item_id
         )
+
         
         # Determine availability based on content presence
         # If we got content, we assume available unless proven otherwise
