@@ -16,15 +16,28 @@ class ItemService:
     @staticmethod
     def get_items(db: Session):
         items = db.query(models.Item).all()
-        return [
-            {
-                **item.__dict__,
-                "screenshot_url": f"/screenshots/item_{item.id}.png"
-                if os.path.exists(f"screenshots/item_{item.id}.png")
-                else None,
-            }
-            for item in items
-        ]
+        result = []
+        for item in items:
+            # Get latest price history with screenshot
+            latest_history = (
+                db.query(models.PriceHistory)
+                .filter(models.PriceHistory.item_id == item.id)
+                .filter(models.PriceHistory.screenshot_path.isnot(None))
+                .order_by(models.PriceHistory.timestamp.desc())
+                .first()
+            )
+            
+            screenshot_url = None
+            if latest_history and latest_history.screenshot_path:
+                # Convert absolute path /app/screenshots/... to URL /screenshots/...
+                filename = os.path.basename(latest_history.screenshot_path)
+                screenshot_url = f"/screenshots/{filename}"
+            elif os.path.exists(f"screenshots/item_{item.id}.png"):
+                 # Fallback to legacy static file
+                 screenshot_url = f"/screenshots/item_{item.id}.png"
+
+            result.append({**item.__dict__, "screenshot_url": screenshot_url})
+        return result
 
     @staticmethod
     def create_item(db: Session, item: schemas.ItemCreate):

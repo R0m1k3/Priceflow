@@ -49,6 +49,13 @@ POPUP_SELECTORS = [
     "button:has-text('Tout accepter')",
     "button:has-text('Accepter')",
     "input[aria-labelledby='sp-cc-accept-label']",
+    "#nav-flyout-prime button",
+    
+    # Amazon Interstitials (Soft blocks)
+    "button:has-text('Continuer les achats')",
+    "input[value='Continuer les achats']",
+    "span.a-button-inner > input.a-button-input[type='submit']",
+    "[aria-labelledby='continue-shopping-label']",
 ]
 
 
@@ -193,21 +200,42 @@ class BrowserlessService:
 
     @staticmethod
     async def _handle_popups(page: Page):
-        """Attempt to close popups and cookie banners."""
+        """Attempt to close popups and cookie banners with retry logic."""
         logger.debug("Attempting to close popups...")
+        
+        # First pass: Try to close all visible popups
+        closed_popups = []
         for popup_selector in POPUP_SELECTORS:
             try:
                 if await page.locator(popup_selector).count() > 0:
                     logger.info(f"🚫 Closing popup: {popup_selector}")
                     await page.locator(popup_selector).first.click(timeout=2000)
-                    await page.wait_for_timeout(500)
+                    closed_popups.append(popup_selector)
+                    await page.wait_for_timeout(1000)
             except Exception:
                 pass
 
-        try:
-            await page.keyboard.press("Escape")
-        except Exception:
-            pass
+        # Try Escape key multiple times
+        for _ in range(2):
+            try:
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+            except Exception:
+                pass
+                
+        # Second pass: Verify and retry if any popups are still visible
+        if closed_popups:
+            logger.info(f"Verifying {len(closed_popups)} closed popup(s)...")
+            await page.wait_for_timeout(1000)
+            
+            for popup_selector in closed_popups:
+                try:
+                    if await page.locator(popup_selector).count() > 0:
+                        logger.warning(f"Popup reappeared, retrying: {popup_selector}")
+                        await page.locator(popup_selector).first.click(timeout=2000)
+                        await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
 
     @staticmethod
     async def _extract_amazon_price(page: Page) -> str:
