@@ -19,7 +19,7 @@ from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
 from app.services.amazon_scraper_service import amazon_scraper_service
 from app.services.improved_search_service import improved_search_service
-from app.services.tracking_scraper_service import TrackingScraperService
+from app.services.tracking_scraper_service import ScraperService
 
 # Configure logging
 logging.basicConfig(
