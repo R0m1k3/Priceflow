@@ -245,17 +245,17 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
 
                     <div className="flex gap-1">
                         {onViewHistory && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onViewHistory(item)} title="Historique des prix">
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onViewHistory(item)} title={t('dashboard.history') || "Historique"}>
                                 <History className="h-3 w-3" />
                             </Button>
                         )}
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(item)}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onEdit(item)} title={t('common.edit') || "Modifier"}>
                             <Edit2 className="h-3 w-3" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onCheck(item.id)} disabled={item.is_refreshing}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => onCheck(item.id)} disabled={item.is_refreshing} title={t('dashboard.refresh') || "Forcer la mise à jour"}>
                             <RefreshCw className={cn("h-3 w-3", item.is_refreshing && "animate-spin text-primary")} />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => onDelete(item)}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => onDelete(item)} title={t('common.delete') || "Supprimer"}>
                             <Trash2 className="h-3 w-3" />
                         </Button>
                     </div>

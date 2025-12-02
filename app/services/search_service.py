@@ -422,6 +422,10 @@ def seed_default_sites(db: Session) -> int:
             site = existing_sites[clean_domain]
             changed = False
             for key, value in site_data.items():
+                # Skip updating user-configurable fields to preserve preferences
+                if key in ["is_active", "priority"]:
+                    continue
+                    
                 if getattr(site, key) != value:
                     setattr(site, key, value)
                     changed = True

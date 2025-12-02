@@ -53,8 +53,12 @@ POPUP_SELECTORS = [
     
     # Amazon Interstitials (Soft blocks)
     "button:has-text('Continuer les achats')",
+    "span:has-text('Continuer les achats')",
+    "a:has-text('Continuer les achats')",
     "input[value='Continuer les achats']",
+    "input[value='Continue shopping']",
     "span.a-button-inner > input.a-button-input[type='submit']",
+    "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
 ]
 
