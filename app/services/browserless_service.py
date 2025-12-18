@@ -60,6 +60,20 @@ POPUP_SELECTORS = [
     "span.a-button-inner > input.a-button-input[type='submit']",
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
+
+    # Generic & specific additions
+    "[aria-modal='true'] button",
+    "[class*='cookie'] button",
+    "[id*='cookie'] button",
+    "button:has-text('Non merci')",
+    "button:has-text('Continuer sans accepter')",
+    "button:has-text('Fermer')",
+    ".popin-close",
+    ".js-modal-close",
+    
+    # Specific targeted fix for "Stock Inconnu" / "Calendrier" type overlays if they use standard classes
+    "[id*='advent'] button",
+    "[class*='advent'] button",
 ]
 
 
@@ -226,42 +240,56 @@ class BrowserlessService:
 
     @staticmethod
     async def _handle_popups(page: Page):
-        """Attempt to close popups and cookie banners with retry logic."""
-        logger.debug("Attempting to close popups...")
-        
-        # First pass: Try to close all visible popups
-        closed_popups = []
-        for popup_selector in POPUP_SELECTORS:
+        """Attempt to close popups and cookie banners with refined retry logic."""
+        logger.debug("🛡️ Attempting to close popups...")
+
+        async def try_close(selector: str):
             try:
-                if await page.locator(popup_selector).count() > 0:
-                    logger.info(f"🚫 Closing popup: {popup_selector}")
-                    await page.locator(popup_selector).first.click(timeout=2000)
-                    closed_popups.append(popup_selector)
-                    await page.wait_for_timeout(1000)
+                # Check for multiple elements
+                locator = page.locator(selector)
+                count = await locator.count()
+                if count > 0:
+                    # Click the first visible and enabled one
+                    for i in range(count):
+                        el = locator.nth(i)
+                        if await el.is_visible() and await el.is_enabled():
+                            logger.info(f"🚫 Closing popup via selector: {selector}")
+                            await el.click(timeout=1000)
+                            return True
             except Exception:
                 pass
+            return False
 
-        # Try Escape key multiple times
-        for _ in range(2):
+        # Multiple passes to catch delayed popups (animations, etc.)
+        for pass_idx in range(3):
+            closed_something = False
+            
+            # 1. Standard Selectors
+            for selector in POPUP_SELECTORS:
+                if await try_close(selector):
+                    closed_something = True
+                    await page.wait_for_timeout(500) # Wait for animation
+            
+            # 2. Key presses (Escape)
             try:
                 await page.keyboard.press("Escape")
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(300)
             except Exception:
                 pass
                 
-        # Second pass: Verify and retry if any popups are still visible
-        if closed_popups:
-            logger.info(f"Verifying {len(closed_popups)} closed popup(s)...")
-            await page.wait_for_timeout(1000)
-            
-            for popup_selector in closed_popups:
-                try:
-                    if await page.locator(popup_selector).count() > 0:
-                        logger.warning(f"Popup reappeared, retrying: {popup_selector}")
-                        await page.locator(popup_selector).first.click(timeout=2000)
-                        await page.wait_for_timeout(1000)
-                except Exception:
-                    pass
+            # If we didn't find anything in this pass and it's not the first, break early
+            if not closed_something and pass_idx > 0:
+                break
+                
+            await page.wait_for_timeout(1000) # Wait between passes
+
+        # Final check: Force click typical overlay backdrops (risky but effective)
+        try:
+            # Click coordinates (top-right or top-left corner often safish to close modals)
+            # await page.mouse.click(10, 10) 
+            pass
+        except Exception:
+            pass
 
     @staticmethod
     async def _extract_amazon_price(page: Page) -> str:

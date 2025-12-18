@@ -1,17 +1,23 @@
-# Task: Fix Screenshot Update in Tracking
+# Task: Remove Obscuring Windows from Product Screenshots
 
 ## Context
-The user reports that forcing an update in the "Suivi" (Tracking) section does not update the screenshot as expected.
+
+The user has reported that screenshots in the "suivi produits" (product tracking) section still contain windows (popups, overlays) that obscure the content. A specific example provided shows a "Stock Inconnu" and "Calendrier de l'Avent" popup on a B&M website.
 
 ## Current Focus
-Investigating the "force update" mechanism and why the screenshot is not refreshing.
+
+Investigating the scraping and screenshot logic to handle these popups.
 
 ## Master Plan
-- [x] Investigate the "force update" API endpoint and backend logic.
-- [x] Check how screenshots are captured and saved in `tracking_scraper_service.py` or similar.
-- [x] Verify if the frontend is correctly requesting the update and displaying the new image.
-- [x] Fix the issue preventing the screenshot from updating.
-- [x] Verify the fix (Code review confirms relative paths are now consistent across the app).
+
+- [x] Explore codebase to locate scraping and screenshot logic <!-- id: 0 -->
+- [x] Identify specific handling for B&M or generic popup closing <!-- id: 1 -->
+- [x] Implement fix to close popups before screenshot <!-- id: 2 -->
+- [/] Verify fix (Requires App Rebuild) <!-- id: 3 -->
 
 ## Progress Log
-- Created `task.md`.
+
+- Initialized task.md
+- Created implementation plan to expand popup selectors.
+- Updated `browserless_service.py` with expanded selectors and retry logic.
+- Attempted local verification but failed due to environment restrictions.
