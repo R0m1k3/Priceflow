@@ -96,3 +96,55 @@ class GifiParser(BaseParser):
                 
         logger.info(f"GifiParser found {len(results)} results")
         return results
+
+    def parse_product_details(self, html: str, product_url: str) -> dict:
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # 1. Price extraction
+        price = None
+        # Specific Gifi product page price selectors
+        price_el = soup.select_one(".prices .price .value, .product-price .price .value, .price-sales .value")
+        if price_el:
+            price = self.parse_price_text(price_el.get_text())
+            
+        if price is None:
+            # Fallback to schema.org data if present
+            import json
+            scripts = soup.find_all("script", type="application/ld+json")
+            for script in scripts:
+                if script.string:
+                    try:
+                        data = json.loads(script.string)
+                        if isinstance(data, dict):
+                            if data.get("@type") == "Product" and "offers" in data:
+                                offers = data["offers"]
+                                if isinstance(offers, list) and offers:
+                                    offers = offers[0]
+                                if "price" in offers:
+                                    price = float(offers["price"])
+                                    break
+                            elif data.get("@type") == "Offer" and "price" in data:
+                                price = float(data["price"])
+                                break
+                    except:
+                        pass
+                        
+        if price is None:
+             # Text fallback
+             price_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(?:€|EUR)', soup.get_text(), re.IGNORECASE)
+             if price_match:
+                 price = self.parse_price_text(price_match.group(0))
+
+        # 2. Stock extraction
+        in_stock = True # specific availability check might be complex, default true if page loads
+        
+        # Check for "Out of stock" messages
+        exhausted_el = soup.select_one(".availability-msg.exhausted, .availability-msg.out-of-stock")
+        if exhausted_el:
+            in_stock = False
+            
+        return {
+            "price": price,
+            "in_stock": in_stock,
+            "currency": "EUR"
+        }
