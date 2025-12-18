@@ -180,17 +180,21 @@ class AmazonScraperService:
 
     @staticmethod
     async def _create_context(browser: Browser) -> BrowserContext:
-        """Create browser context with stealth settings"""
+        """Create browser context with dynamic stealth settings"""
+        from app.core.search_config import get_random_stealth_config
+        
+        stealth_config = get_random_stealth_config()
+        ua = stealth_config["ua"]
+        ch = stealth_config["ch"]
+        platform = stealth_config["platform"]
+        
+        logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
+        
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
+            user_agent=ua,
             locale="fr-FR",
             timezone_id="Europe/Paris",
-            # Additional stealth parameters
             extra_http_headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -198,22 +202,24 @@ class AmazonScraperService:
                 "DNT": "1",
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
+                "Sec-Ch-Ua": ch,
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": platform,
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
                 "Cache-Control": "max-age=0",
+                "Referer": "https://www.google.fr/",
             },
         )
 
-        # Comprehensive stealth mode
+        # Comprehensive stealth mode injector
         await context.add_init_script("""
-            // Remove webdriver property
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
+            // Reset webdriver
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             
-            // Add chrome property
+            // Re-mock chrome object
             window.chrome = {
                 runtime: {},
                 loadTimes: function() {},
@@ -221,42 +227,45 @@ class AmazonScraperService:
                 app: {}
             };
             
-            // Override permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
-            
-            // Add plugins
+            // Consistent plugins
             Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
+                get: () => [
+                    { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' }
+                ]
             });
             
-            // Add languages
+            // Languages
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['fr-FR', 'fr', 'en-US', 'en']
             });
             
-            // Override platform
-            Object.defineProperty(navigator, 'platform', {
-                get: () => 'Win32'
-            });
-            
-            // Mock battery API
-            Object.defineProperty(navigator, 'getBattery', {
-                get: () => () => Promise.resolve({
-                    charging: true,
-                    chargingTime: 0,
-                    dischargingTime: Infinity,
-                    level: 1
-                })
-            });
+            // Device Memory (randomized)
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
         """)
 
         await context.route("**/*", lambda route: route.continue_())
         return context
+
+    @staticmethod
+    async def _simulate_human_behavior(page: Page):
+        """Perform subtle human-like interactions"""
+        import random
+        try:
+            # Random mouse movements
+            for _ in range(3):
+                x = random.randint(100, 800)
+                y = random.randint(100, 600)
+                await page.mouse.move(x, y, steps=10)
+                await asyncio.sleep(random.uniform(0.1, 0.3))
+            
+            # Subtle scroll
+            await page.evaluate("window.scrollBy(0, window.innerHeight / 4)")
+            await asyncio.sleep(random.uniform(0.5, 1.0))
+            await page.evaluate("window.scrollBy(0, -window.innerHeight / 5)")
+        except Exception as e:
+            logger.warning(f"Failed to simulate human behavior: {e}")
 
     @staticmethod
     async def _handle_popups(page: Page):
@@ -306,35 +315,44 @@ class AmazonScraperService:
             try:
                 # CRITICAL: Load Amazon homepage FIRST in same context to establish session
                 logger.info("🏠 Loading Amazon homepage to establish session/cookies...")
-                await page.goto("https://www.amazon.fr", wait_until="domcontentloaded", timeout=30000)
+                await page.goto("https://www.amazon.fr", wait_until="networkidle", timeout=30000)
                 logger.info("✅ Homepage loaded")
 
                 # Handle homepage popups
                 await cls._handle_popups(page)
+                
+                # Simulate human behavior on homepage
+                await cls._simulate_human_behavior(page)
 
                 # Small delay
-                await page.wait_for_timeout(2000)
+                await asyncio.sleep(random.uniform(1.0, 3.0))
 
                 # NOW navigate to search in SAME context (cookies preserved)
                 logger.info(f"🔍 Navigating to search: {search_url}")
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
                 logger.info("Page loaded (domcontentloaded)")
 
-                # Wait for network idle
+                # Wait for content or block
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
-                    logger.info("Network idle reached")
-                except PlaywrightTimeoutError:
-                    logger.info("Network idle timed out (non-critical)")
-
-                # Handle popups
-                await cls._handle_popups(page)
-
-                # Wait a bit for content
-                await page.wait_for_timeout(2000)
+                    await page.wait_for_selector('div[data-component-type="s-search-result"], .s-result-list', timeout=10000)
+                    logger.info("✅ Search results detected")
+                    await cls._simulate_human_behavior(page)
+                except Exception:
+                    logger.warning("🕒 Search results not found immediately, checking for blocks...")
 
                 # Get HTML
                 html_content = await page.content()
+                
+                # Proactive block detection
+                if "Type the characters you see in this image" in html_content or "Saisissez les caractères que vous voyez" in html_content:
+                    logger.error("🚫 CAPTCHA / Bot detection triggered")
+                    return []
+                
+                if "Identifiez-vous" in html_content and "commander" not in html_content:
+                    logger.warning("⚠️ Redirected to login wall")
+                    # Try one more time with a different behavior or just fail
+                    return []
+
                 logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
 
                 if len(html_content) < 10000:

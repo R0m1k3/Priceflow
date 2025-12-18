@@ -56,3 +56,23 @@ class BMStoresParser(BaseParser):
                 
         logger.info(f"BMStoresParser found {len(results)} results")
         return results
+
+    def parse_product_details(self, html: str, product_url: str) -> dict:
+        """
+        Extract price and stock from B&M product page
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        details = {"price": None, "in_stock": True}
+        
+        # 1. Look for the main price (avoid suggested products prices)
+        # B&M uses .current-price .price on detail pages
+        price_el = soup.select_one(".product-prices .current-price .price, .product-price-and-shipping .price, [itemprop='price']")
+        if price_el:
+            details["price"] = self.parse_price_text(price_el.get_text())
+            
+        # 2. Check stock
+        stock_text = soup.get_text().lower()
+        if "épuisé" in stock_text or "indisponible" in stock_text:
+            details["in_stock"] = False
+            
+        return details

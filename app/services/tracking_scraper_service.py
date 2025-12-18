@@ -168,6 +168,36 @@ class ScraperService:
 
                 await ScraperService._handle_popups(page)
 
+                # FORCER LE MAGASIN NANCY POUR B&M STORES
+                if "bmstores.fr" in url:
+                    try:
+                        logger.info("B&M Stores detected: checking store selection (Nancy)...")
+                        # Check if store is already selected or if modal is needed
+                        store_btn = page.locator(".mod-shops .btn-shop, .js-show-shops")
+                        if await store_btn.count() > 0:
+                            logger.info("Opening store selector...")
+                            await store_btn.first.click(timeout=2000)
+                            await page.wait_for_timeout(1000)
+                            
+                            # Type Nancy in the search input
+                            search_input = page.locator("#search_mag")
+                            if await search_input.count() > 0:
+                                await search_input.fill("Nancy")
+                                await page.keyboard.press("Enter")
+                                await page.wait_for_timeout(1500)
+                                
+                                # Select the first Nancy store (Nancy Essey or Nancy Centre)
+                                select_btn = page.locator(".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')")
+                                if await select_btn.count() > 0:
+                                    logger.info("Selecting Nancy store...")
+                                    await select_btn.first.click()
+                                    await page.wait_for_timeout(2000)
+                                    # Refresh page or wait for update
+                                    await page.reload(wait_until="domcontentloaded")
+                                    await page.wait_for_timeout(1000)
+                    except Exception as e:
+                        logger.warning(f"Failed to force B&M store Nancy: {e}")
+
                 if selector:
                     await ScraperService._wait_for_selector(page, selector)
                 else:
