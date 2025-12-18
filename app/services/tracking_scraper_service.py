@@ -130,10 +130,10 @@ class ScraperService:
         item_id: int | None = None,
         config: ScrapeConfig | None = None,
         return_html: bool = False,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[str | None, str, str]:
         """
         Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text_or_html)
+        Returns a tuple: (screenshot_path, page_text_or_html, final_url)
         """
         if config is None:
             config = ScrapeConfig()
@@ -145,14 +145,16 @@ class ScraperService:
         # Ensure browser is connected and healthy
         if not await ScraperService._ensure_browser_connected():
             logger.error("Failed to establish browser connection")
-            return None, ""
+            return None, "", url
 
         try:
-            context = await ScraperService._create_context(ScraperService._browser)
+            context = await ScraperService._create_context(ScraperService._browser, url)
             page = await context.new_page()
 
             try:
                 await ScraperService._navigate_and_wait(page, url, timeout)
+                final_url = page.url
+                
                 await ScraperService._handle_popups(page)
 
                 if selector:
@@ -170,14 +172,14 @@ class ScraperService:
                 
                 screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
-                return screenshot_path, content_data
+                return screenshot_path, content_data, final_url
 
             finally:
                 await context.close()
 
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
-            return None, ""
+            return None, "", url
 
     @staticmethod
     async def _connect_browser(p) -> Browser:
@@ -185,8 +187,13 @@ class ScraperService:
         return await p.chromium.connect_over_cdp(BROWSERLESS_URL)
 
     @staticmethod
-    async def _create_context(browser: Browser) -> BrowserContext:
-        """Create context with stealth and locale (aligned with ImprovedSearchService)"""
+    async def _create_context(browser: Browser, url: str) -> BrowserContext:
+        """Create context with advanced stealth and headers (specifically for Amazon)"""
+        # Determine base domain for referer
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}/"
+
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=(
@@ -196,12 +203,43 @@ class ScraperService:
             ),
             locale="fr-FR",
             timezone_id="Europe/Paris",
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Cache-Control": "max-age=0",
+                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+                "Referer": base_domain if "amazon" in url else "https://www.google.com/"
+            }
         )
 
-        # Stealth mode
+        # Advanced Stealth mode
         await context.add_init_script("""
+            // Redefine webdriver
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            
+            // Masquerade plugins
+            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            
+            // Languages
+            Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
+
+            // Chrome runtime
             window.chrome = { runtime: {} };
+
+            // Overwrite permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
         """)
 
         await context.route("**/*", lambda route: route.continue_())
