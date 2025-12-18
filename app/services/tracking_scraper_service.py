@@ -228,20 +228,75 @@ class ScraperService:
 
     @staticmethod
     async def _handle_popups(page: Page):
-        logger.info("Attempting to close popups...")
-        for popup_selector in POPUP_SELECTORS:
+        """Aggressive multi-pass popup and overlay removal"""
+        logger.info("Starting aggressive popup removal...")
+        
+        # 1. Multi-pass clicking (some popups appear after others are closed)
+        for i in range(2):
+            logger.debug(f"Popup removal pass {i+1}")
+            for selector in POPUP_SELECTORS:
+                try:
+                    locators = page.locator(selector)
+                    count = await locators.count()
+                    if count > 0:
+                        for j in range(count):
+                            target = locators.nth(j)
+                            if await target.is_visible():
+                                logger.info(f"Closing popup: {selector}")
+                                await target.click(timeout=1000)
+                                await page.wait_for_timeout(500)
+                except Exception:
+                    pass
+            
+            # Hammer Escape key
             try:
-                if await page.locator(popup_selector).count() > 0:
-                    logger.info(f"Found popup close button: {popup_selector}")
-                    await page.locator(popup_selector).first.click(timeout=2000)
-                    await page.wait_for_timeout(1000)
-            except Exception:
-                pass
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(200)
+            except: pass
 
-        try:
-            await page.keyboard.press("Escape")
-        except Exception:
-            pass
+        # 2. Javascript cleanup (Hide pesky overlays and CMPs that won't close)
+        logger.info("Injecting CSS/JS cleanup for persistent overlays...")
+        await page.evaluate("""
+            () => {
+                const selectorsToHide = [
+                    '#didomi-host', '.didomi-popup-container', '[id*="didomi"]',
+                    '#onetrust-banner-sdk', '#onetrust-consent-sdk',
+                    '.cookie-banner', '.cookie-consent', '.qc-cmp2-container',
+                    '.modal-backdrop', '.modal-overlay', '.fade.show'
+                ];
+                
+                // Hide specific IDs/classes
+                selectorsToHide.forEach(s => {
+                    const el = document.querySelector(s);
+                    if (el) el.style.display = 'none';
+                });
+
+                // Clear overlays (fixed/absolute elements with high z-index that cover too much)
+                const all = document.getElementsByTagName("*");
+                for (let i = 0, max = all.length; i < max; i++) {
+                    const el = all[i];
+                    const style = window.getComputedStyle(el);
+                    if (style.position === 'fixed' || style.position === 'absolute') {
+                        const zIndex = parseInt(style.zIndex);
+                        if (zIndex > 100) {
+                            // Check if it's potentially a popup (covers a lot of area or has modal classes)
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5) {
+                                console.log('Hiding potential popup:', el);
+                                el.style.setProperty('display', 'none', 'important');
+                            }
+                        }
+                    }
+                }
+                
+                // Unlock scroll if it was locked by a modal
+                document.body.style.overflow = 'auto';
+                document.documentElement.style.overflow = 'auto';
+            }
+        """)
+        
+        # Wait for any transitions
+        await page.wait_for_timeout(1000)
 
     @staticmethod
     async def _wait_for_selector(page: Page, selector: str):
