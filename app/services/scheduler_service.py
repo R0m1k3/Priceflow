@@ -107,12 +107,18 @@ async def process_item_check(item_id: int):
         # Use independent ScraperService for tracking
         from app.services.tracking_scraper_service import ScraperService
         
-        screenshot_path, html_content = await ScraperService.scrape_item(
+        screenshot_path, html_content, final_url = await ScraperService.scrape_item(
             url=item_data["url"],
             selector=item_data["selector"],
             item_id=item_id,
             return_html=True
         )
+
+        # Detect Amazon login wall/redirection
+        if "amazon" in item_data["url"] and ("signin" in final_url or "captcha" in final_url):
+            logger.warning(f"Amazon Bot Detection triggered for item {item_id}. URL redirected to: {final_url}")
+            await loop.run_in_executor(None, _update_db_error, item_id, "Amazon Bot Detection: Redirected to login/captcha")
+            return
 
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")
