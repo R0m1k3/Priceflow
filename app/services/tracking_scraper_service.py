@@ -130,10 +130,10 @@ class ScraperService:
         item_id: int | None = None,
         config: ScrapeConfig | None = None,
         return_html: bool = False,
-    ) -> tuple[str | None, str, str]:
+    ) -> tuple[str | None, str, str, str]:
         """
         Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text_or_html, final_url)
+        Returns a tuple: (screenshot_path, page_text_or_html, final_url, page_title)
         """
         if config is None:
             config = ScrapeConfig()
@@ -145,16 +145,27 @@ class ScraperService:
         # Ensure browser is connected and healthy
         if not await ScraperService._ensure_browser_connected():
             logger.error("Failed to establish browser connection")
-            return None, "", url
+            return None, "", url, ""
 
         try:
             context = await ScraperService._create_context(ScraperService._browser, url)
             page = await context.new_page()
 
             try:
+                # Random delay to simulate human lead-in
+                import random
+                await asyncio.sleep(random.uniform(0.5, 2.0))
+                
                 await ScraperService._navigate_and_wait(page, url, timeout)
                 final_url = page.url
+                page_title = await page.title()
                 
+                # Humanize: scroll a bit and back
+                await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+                await page.evaluate("window.scrollBy(0, 100)")
+                await asyncio.sleep(0.5)
+                await page.evaluate("window.scrollBy(0, -100)")
+
                 await ScraperService._handle_popups(page)
 
                 if selector:
@@ -172,19 +183,20 @@ class ScraperService:
                 
                 screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
-                return screenshot_path, content_data, final_url
+                return screenshot_path, content_data, final_url, page_title
 
             finally:
                 await context.close()
 
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
-            return None, "", url
+            return None, "", url, ""
 
     @staticmethod
     async def _connect_browser(p) -> Browser:
         logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-        return await p.chromium.connect_over_cdp(BROWSERLESS_URL)
+        # Note: Added timeout for connection
+        return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=30000)
 
     @staticmethod
     async def _create_context(browser: Browser, url: str) -> BrowserContext:
