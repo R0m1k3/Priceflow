@@ -269,7 +269,9 @@ class ScraperService:
         os.makedirs(screenshot_dir, exist_ok=True)
 
         if item_id:
-            filename = f"{screenshot_dir}/item_{item_id}.png"
+            # Use timestamp to ensure unique filenames (fixes caching issues)
+            timestamp = int(datetime.now().timestamp())
+            filename = f"{screenshot_dir}/item_{item_id}_{timestamp}.png"
         else:
             url_part = url.split("//")[-1].replace("/", "_")
             timestamp = datetime.now().timestamp()
