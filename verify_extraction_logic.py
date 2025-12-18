@@ -118,7 +118,9 @@ async def verify_extraction_logic():
         "CRITICAL",
         "Ignore \"Prix au litre\"",
         "B&M STORES Specific",
-        "Extract as DECIMAL NUMBER"
+        "Extract as DECIMAL NUMBER",
+        "ALWAYS select the TTC price",
+        "Ignore \"HT\""
     ]
     
     all_passed = True

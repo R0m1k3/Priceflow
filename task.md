@@ -37,3 +37,4 @@ Improving price extraction reliability for B&M Stores and others.
 - Improved AI prompt to ignore unit prices (like "Prix au litre").
 - Enhanced text extraction to remove menu/footer noise.
 - Verified logic with `verify_extraction_logic.py` (simulated).
+- **Fixed HT vs TTC issue**: AI was extracting 1.15€ (HT) instead of 1.38€ (TTC). Updated prompt to prioritize "Taxe incluse"/TTC prices.
