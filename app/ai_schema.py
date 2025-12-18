@@ -142,8 +142,11 @@ EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this
 - Extract as DECIMAL NUMBER: If you see "3.99", return 3.99
 - Ignore crossed-out/barré prices (old prices)
 - **CRITICAL:** Ignore "Prix au litre", "Prix au kg", "P.U.", or unit prices usually shown in smaller text/parentheses (e.g., "4.60 € / L").
-- If multiple prices, take the current/main price (not the original, not the unit price)
-- **B&M STORES Specific:** The main price is often large and bold (e.g. "1.15€"), while unit price is small (e.g. "4.60 €/L"). ALWAYS take the main price.
+- **CRITICAL:** If you see both HT (Hors Taxe) and TTC (Toutes Taxes Comprises) prices, **ALWAYS select the TTC price**.
+- Look for labels like "Taxe incluse", "TTC", "Prix payé". Ignore "HT" or "Hors Taxe".
+- Example: If text has "1.15 € HT" and "1.38 € TTC", return 1.38 (NOT 1.15).
+- If multiple prices, take the current/main price (not the original, not the unit price, not the HT price)
+- **B&M STORES Specific:** The main price is often large and bold (e.g. "1.38€"), while unit price is small. ALWAYS take the main price (TTC). Ignore hidden HT prices (e.g. 1.15€).
 
 **CRITICAL - Common mistakes to avoid:**
 - "3.99 €" means 3.99 (NOT 399.00, NOT 3990.00)
