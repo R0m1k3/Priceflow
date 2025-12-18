@@ -32,6 +32,11 @@ POPUP_SELECTORS = [
     "span.a-button-inner > input.a-button-input[type='submit']",
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
+    # Didomi / Gifi
+    "#didomi-notice-agree-button",
+    "button[id='didomi-notice-agree-button']",
+    "span:has-text('Accepter & Fermer')",
+    "button:has-text('Accepter & Fermer')",
 ]
 
 
