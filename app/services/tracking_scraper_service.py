@@ -416,9 +416,40 @@ class ScraperService:
 
         try:
             logger.info(f"Extracting text (limit: {text_length} chars)...")
-            raw_text = await page.inner_text("body")
-            page_text = raw_text[:text_length]
-            logger.info(f"Extracted {len(page_text)} characters")
+            
+            # Smart extraction: remove noise (nav, footer, scripts) before getting text
+            clean_text = await page.evaluate("""
+                () => {
+                    // Clone body to not affect the visual page
+                    const clone = document.body.cloneNode(true);
+                    
+                    // Remove noise selectors
+                    const noiseSelectors = [
+                        'nav', 'header', 'footer', 'script', 'style', 'noscript', 'iframe',
+                        '.cookie-banner', '.popup', '#menu', '.menu', '.sidebar',
+                        '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]'
+                    ];
+                    
+                    noiseSelectors.forEach(selector => {
+                        const elements = clone.querySelectorAll(selector);
+                        elements.forEach(el => el.remove());
+                    });
+                    
+                    return clone.innerText;
+                }
+            """)
+            
+            # Fallback if cleaning removed everything (unlikely but safe)
+            if not clean_text or len(clean_text) < 100:
+                logger.warning("Cleaned text too short, falling back to full body text")
+                clean_text = await page.inner_text("body")
+
+            # Collapse whitespace
+            import re
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+            page_text = clean_text[:text_length]
+            logger.info(f"Extracted {len(page_text)} chars")
             return page_text
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")

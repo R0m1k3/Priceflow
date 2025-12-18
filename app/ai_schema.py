@@ -141,7 +141,9 @@ EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this
 - Look for: "PRIX DÉTECTÉ:", price tags, "Prix:", "€", numbers near "Ajouter au panier"
 - Extract as DECIMAL NUMBER: If you see "3.99", return 3.99
 - Ignore crossed-out/barré prices (old prices)
-- If multiple prices, take the current/main price (not the original)
+- **CRITICAL:** Ignore "Prix au litre", "Prix au kg", "P.U.", or unit prices usually shown in smaller text/parentheses (e.g., "4.60 € / L").
+- If multiple prices, take the current/main price (not the original, not the unit price)
+- **B&M STORES Specific:** The main price is often large and bold (e.g. "1.15€"), while unit price is small (e.g. "4.60 €/L"). ALWAYS take the main price.
 
 **CRITICAL - Common mistakes to avoid:**
 - "3.99 €" means 3.99 (NOT 399.00, NOT 3990.00)
@@ -161,7 +163,7 @@ EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this
 - If unclear: set null and confidence < 0.5
 
 **STOCK:**
-- TRUE if: "Ajouter au panier", "Acheter", "En stock", "Disponible", "Add to Cart"
+- TRUE if: "Ajouter au panier", "Acheter", "En stock", "Disponible", "Add to Cart", "Retrait 2h", "Click & Collect"
 - FALSE if: "Rupture", "Indisponible", "Épuisé", "Out of Stock", "Notify Me"
 - NULL if unclear or not shown
 
