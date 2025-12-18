@@ -107,36 +107,91 @@ async def process_item_check(item_id: int):
         # Use independent ScraperService for tracking
         from app.services.tracking_scraper_service import ScraperService
         
-        screenshot_path, page_text = await ScraperService.scrape_item(
+        screenshot_path, html_content = await ScraperService.scrape_item(
             url=item_data["url"],
             selector=item_data["selector"],
-            item_id=item_id
+            item_id=item_id,
+            return_html=True
         )
-
-        
-        # Determine availability based on content presence
-        # If we got content, we assume available unless proven otherwise
-        is_available = bool(page_text and len(page_text) > 500)
-
-        # Update availability status in database
-        with database.SessionLocal() as session:
-            if item := session.query(models.Item).filter(models.Item.id == item_id).first():
-                item.is_available = is_available
-                if not is_available:
-                    logger.warning(f"Product {item_id} marked as unavailable")
-                    item.last_error = "Product no longer available (404 or not found)"
-                session.commit()
 
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")
-            
-        # NOTE: ScraperService already saves to screenshots/item_{item_id}.png
-        # so we don't need to copy it manually anymore.
 
-        if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=page_text)):
-            raise Exception("AI analysis failed")
+        # HYBRID EXTRACTION STRATEGY (Aligned with ImprovedSearchService)
+        # 1. Try specialized parser (if available) or JSON-LD
+        price = None
+        in_stock = True
+        
+        # Site-specific parser (Gifi)
+        from urllib.parse import urlparse
+        domain = urlparse(item_data["url"]).netloc
+        if "gifi.fr" in domain:
+            from app.services.parsers.gifi_parser import GifiParser
+            try:
+                parser = GifiParser()
+                details = parser.parse_product_details(html_content, item_data["url"])
+                if details.get("price") is not None:
+                    price = details["price"]
+                    in_stock = details.get("in_stock", True)
+                    logger.info(f"GifiParser found price: {price}€")
+            except Exception as e:
+                logger.debug(f"GifiParser failed: {e}")
 
-        extraction, metadata = ai_result
+        # Simple JSON-LD extract (if not found by specific parser)
+        if price is None:
+            import json
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_content, "html.parser")
+                scripts = soup.find_all("script", type="application/ld+json")
+                for script in scripts:
+                    if script.string:
+                        try:
+                            data = json.loads(script.string)
+                            if isinstance(data, list): data = data[0]
+                            if data.get("@type") == "Product" and "offers" in data:
+                                offers = data["offers"]
+                                if isinstance(offers, list) and offers: offers = offers[0]
+                                if "price" in offers:
+                                    price = float(str(offers["price"]).replace(',', '.'))
+                                    break
+                        except: pass
+            except Exception as e:
+                logger.debug(f"JSON-LD extraction failed: {e}")
+
+        # 2. Try AIPriceExtractor (Text AI - Gemma 3) - Very reliable for search
+        from app.services.ai_price_extractor import AIPriceExtractor
+        if price is None:
+            price = await AIPriceExtractor.extract_price(html_content, item_data["name"])
+            if price:
+                logger.info(f"AIPriceExtractor (Text) found price: {price}€")
+
+        # 3. Fallback/Verification with AIService (Vision AI - Gemini)
+        extraction = None
+        metadata = None
+        
+        if price is not None:
+            # Create a synthetic AI response if we already have a high-confidence price
+            extraction = AIExtractionResponse(
+                price=price,
+                in_stock=in_stock,
+                price_confidence=0.95,
+                in_stock_confidence=0.9,
+                source_type="text"
+            )
+            metadata = AIExtractionMetadata(
+                model_name="hybrid-text-parser",
+                provider="internal-hybrid",
+                prompt_version="hybrid-v2",
+                repair_used=False
+            )
+        else:
+            # Fallback to Vision AI if text extraction failed
+            # Use limited text context for Vision prompt to avoid token bloat
+            if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=html_content[:5000])):
+                raise Exception("AI analysis (Vision) failed")
+            extraction, metadata = ai_result
+
         thresholds = await loop.run_in_executor(None, _get_thresholds)
         old_price, old_stock = await loop.run_in_executor(
             None, _update_db_result, item_id, extraction, metadata, thresholds, screenshot_path

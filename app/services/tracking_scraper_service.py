@@ -37,6 +37,13 @@ POPUP_SELECTORS = [
     "button[id='didomi-notice-agree-button']",
     "span:has-text('Accepter & Fermer')",
     "button:has-text('Accepter & Fermer')",
+    # Common banners
+    "#sp-cc-accept",
+    "#onetrust-accept-btn-handler",
+    ".cookie-consent-accept",
+    "[data-action='accept-cookies']",
+    "button[id*='accept']",
+    "button[class*='accept']",
 ]
 
 
@@ -122,10 +129,11 @@ class ScraperService:
         selector: str | None = None,
         item_id: int | None = None,
         config: ScrapeConfig | None = None,
+        return_html: bool = False,
     ) -> tuple[str | None, str]:
         """
         Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text)
+        Returns a tuple: (screenshot_path, page_text_or_html)
         """
         if config is None:
             config = ScrapeConfig()
@@ -155,10 +163,14 @@ class ScraperService:
                 if config.smart_scroll:
                     await ScraperService._smart_scroll(page, scroll_pixels)
 
-                page_text = await ScraperService._extract_text(page, config.text_length)
+                if return_html:
+                    content_data = await page.content()
+                else:
+                    content_data = await ScraperService._extract_text(page, config.text_length)
+                
                 screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
-                return screenshot_path, page_text
+                return screenshot_path, content_data
 
             finally:
                 await context.close()
@@ -174,15 +186,24 @@ class ScraperService:
 
     @staticmethod
     async def _create_context(browser: Browser) -> BrowserContext:
+        """Create context with stealth and locale (aligned with ImprovedSearchService)"""
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
+            locale="fr-FR",
+            timezone_id="Europe/Paris",
         )
-        # Stealth mode / Ad blocking attempts
+
+        # Stealth mode
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            window.chrome = { runtime: {} };
+        """)
+
         await context.route("**/*", lambda route: route.continue_())
         return context
 
