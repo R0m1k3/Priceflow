@@ -15,26 +15,57 @@ logger = logging.getLogger(__name__)
 class ItemService:
     @staticmethod
     def get_items(db: Session):
+        import glob
         items = db.query(models.Item).all()
         result = []
         for item in items:
-            # Get latest price history with screenshot
-            latest_history = (
-                db.query(models.PriceHistory)
-                .filter(models.PriceHistory.item_id == item.id)
-                .filter(models.PriceHistory.screenshot_path.isnot(None))
-                .order_by(models.PriceHistory.timestamp.desc())
-                .first()
-            )
-            
+            # Strategy: Look for the latest screenshot file on disk
+            # Format: item_{id}_{timestamp}.png
             screenshot_url = None
-            if latest_history and latest_history.screenshot_path:
-                # Convert absolute path /app/screenshots/... to URL /screenshots/...
-                filename = os.path.basename(latest_history.screenshot_path)
-                screenshot_url = f"/screenshots/{filename}"
-            elif os.path.exists(f"screenshots/item_{item.id}.png"):
-                 # Fallback to legacy static file
-                 screenshot_url = f"/screenshots/item_{item.id}.png"
+            
+            try:
+                # Find all timestamped screenshots for this item
+                files = glob.glob(f"screenshots/item_{item.id}_*.png")
+                
+                if files:
+                    # Sort by timestamp valid in filename
+                    # We expect format item_ID_TIMESTAMP.png
+                    def get_timestamp(f):
+                        try:
+                            # Extract timestamp part: remove extension, split by _, take last part
+                            ts_str = os.path.splitext(f)[0].split('_')[-1]
+                            return float(ts_str)
+                        except (ValueError, IndexError):
+                            return 0.0
+
+                    latest_file = max(files, key=get_timestamp)
+                    screenshot_url = f"/screenshots/{os.path.basename(latest_file)}"
+                
+                # Primary fallback: Legacy static file
+                elif os.path.exists(f"screenshots/item_{item.id}.png"):
+                    screenshot_url = f"/screenshots/item_{item.id}.png"
+                
+                # Secondary fallback: use DB history if for some reason file scan missed but DB has record
+                # (This is less likely to be useful if we assume files exist, but good for safety)
+                if not screenshot_url:
+                    latest_history = (
+                        db.query(models.PriceHistory)
+                        .filter(models.PriceHistory.item_id == item.id)
+                        .filter(models.PriceHistory.screenshot_path.isnot(None))
+                        .order_by(models.PriceHistory.timestamp.desc())
+                        .first()
+                    )
+                    if latest_history and latest_history.screenshot_path:
+                         filename = os.path.basename(latest_history.screenshot_path)
+                         # Verify it exists
+                         if os.path.exists(f"screenshots/{filename}"):
+                             screenshot_url = f"/screenshots/{filename}"
+
+            except Exception as e:
+                logger.error(f"Error determining screenshot for item {item.id}: {e}")
+                # Ultimate fallback
+                if os.path.exists(f"screenshots/item_{item.id}.png"):
+                     screenshot_url = f"/screenshots/item_{item.id}.png"
 
             result.append({**item.__dict__, "screenshot_url": screenshot_url})
         return result
@@ -68,15 +99,18 @@ class ItemService:
 
     @staticmethod
     def delete_item(db: Session, item_id: int):
+        import glob
         item = db.query(models.Item).filter(models.Item.id == item_id).first()
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        if os.path.exists(f"screenshots/item_{item_id}.png"):
+        # Delete all associated screenshots (legacy and timestamped)
+        for file_path in glob.glob(f"screenshots/item_{item_id}*.png"):
             try:
-                os.remove(f"screenshots/item_{item_id}.png")
-            except OSError:
-                pass
+                os.remove(file_path)
+                logger.info(f"Deleted screenshot: {file_path}")
+            except OSError as e:
+                logger.warning(f"Failed to delete {file_path}: {e}")
 
         db.delete(item)
         db.commit()
