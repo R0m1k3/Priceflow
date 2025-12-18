@@ -172,20 +172,31 @@ class BrowserlessService:
 
     @staticmethod
     async def _create_context(browser: Browser, use_proxy: bool = False) -> BrowserContext:
-        """Create a new browser context with stealth settings."""
-        user_agent = get_random_user_agent()
+        """Create a new browser context with dynamic stealth settings."""
+        from app.core.search_config import get_random_stealth_config
+        
+        stealth_config = get_random_stealth_config()
+        ua = stealth_config["ua"]
+        ch = stealth_config["ch"]
+        platform = stealth_config["platform"]
+
+        logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
 
         options = {
             "viewport": {"width": 1920, "height": 1080},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "user_agent": ua,
             "locale": "fr-FR",
             "timezone_id": "Europe/Paris",
             "java_script_enabled": True,
             "bypass_csp": True,
             "extra_http_headers": {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Ch-Ua": ch,
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": platform,
                 "Upgrade-Insecure-Requests": "1",
+                "Referer": "https://www.google.fr/",
             },
         }
 
@@ -194,26 +205,35 @@ class BrowserlessService:
 
         context = await browser.new_context(**options)
         
-        # Inject stealth scripts
+        # Comprehensive stealth mode injector
         await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
+            // Reset webdriver
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            
+            // Re-mock chrome object
+            window.chrome = {
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
+            };
+            
+            // Consistent plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [
+                    { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' }
+                ]
             });
+            
+            // Languages
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['fr-FR', 'fr', 'en-US', 'en']
             });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-            window.chrome = { runtime: {} };
             
-            // Mock permissions
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-            );
+            // Device Memory (randomized)
+            Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
         """)
 
         await context.route("**/*", lambda route: route.continue_())
@@ -517,28 +537,37 @@ class BrowserlessService:
                 page = await context.new_page()
 
                 try:
+                    # Random human-like lead-in delay
+                    import random
+                    await asyncio.sleep(random.uniform(0.5, 2.0))
+                    
                     await cls._navigate_and_wait(page, url, 30000)
                     await cls._handle_popups(page)
 
-                    # Check for Amazon Captcha / Login Wall
+                    # Check for Amazon Captcha / Login Wall / Blocking
                     if "amazon" in url.lower():
                         content_check = await page.content()
-                        if (
+                        is_blocked = (
                             "Type the characters you see in this image" in content_check
                             or "Saisissez les caractères que vous voyez" in content_check
-                            or "Sign in or create an account" in content_check
-                            or "Identifiez-vous ou créez un compte" in content_check
-                        ):
-                            logger.warning(f"⚠️ Amazon Captcha/Login Wall detected (Attempt {attempt+1}/{retries})")
+                            or ("Sign in or create an account" in content_check and "orders" not in url.lower())
+                            or ("Identifiez-vous" in content_check and "commande" not in url.lower())
+                            or "api-services-support@amazon.com" in content_check
+                            or "service-unavailable" in content_check
+                        )
+                        
+                        if is_blocked:
+                            logger.warning(f"⚠️ Amazon Blocking/Login Wall detected (Attempt {attempt+1}/{retries})")
                             if attempt < retries - 1:
                                 await context.close()
-                                await asyncio.sleep(2 + attempt * 2) # Backoff
+                                # Exponential backoff with jitter
+                                await asyncio.sleep(2 * (attempt + 1) + random.uniform(0.5, 1.5))
                                 continue
                             else:
                                 logger.error("❌ Amazon blocked all attempts")
                                 return "", ""
 
-                    # Amazon-specific wait
+                    # Amazon-specific wait for price or content
                     if "amazon" in url.lower() and "/dp/" in url:
                         amazon_selectors = [".a-price .a-offscreen", "#corePriceDisplay_desktop_feature_div"]
                         for selector in amazon_selectors:

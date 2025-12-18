@@ -36,19 +36,42 @@ def get_amazon_proxies() -> list[dict]:
             })
     return proxies
 
-# === USER AGENTS ===
-USER_AGENT_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+# === USER AGENTS & STEALTH ===
+USER_AGENT_DATA = [
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"Windows"'
+    },
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "ch": '"Google Chrome";v="130", "Chromium";v="130", "Not_A Brand";v="99"',
+        "platform": '"Windows"'
+    },
+    {
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"macOS"'
+    },
+    {
+        "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"Linux"'
+    },
+    {
+        "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+        "ch": '"Microsoft Edge";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+        "platform": '"Windows"'
+    }
 ]
 
+def get_random_stealth_config() -> dict:
+    """Returns a random User-Agent and its corresponding Client Hints"""
+    return random.choice(USER_AGENT_DATA)
+
 def get_random_user_agent() -> str:
-    return random.choice(USER_AGENT_POOL)
+    """Legacy helper for backward compatibility"""
+    return get_random_stealth_config()["ua"]
 
 # === SITE CONFIGURATIONS ===
 SITE_CONFIGS = {

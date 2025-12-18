@@ -107,21 +107,32 @@ async def process_item_check(item_id: int):
         # Use independent ScraperService for tracking
         from app.services.tracking_scraper_service import ScraperService
         
-        screenshot_path, html_content, final_url = await ScraperService.scrape_item(
+        screenshot_path, html_content, final_url, page_title = await ScraperService.scrape_item(
             url=item_data["url"],
             selector=item_data["selector"],
             item_id=item_id,
             return_html=True
         )
 
-        # Detect Amazon login wall/redirection
-        if "amazon" in item_data["url"] and ("signin" in final_url or "captcha" in final_url):
-            logger.warning(f"Amazon Bot Detection triggered for item {item_id}. URL redirected to: {final_url}")
-            await loop.run_in_executor(None, _update_db_error, item_id, "Amazon Bot Detection: Redirected to login/captcha")
-            return
-
         if not screenshot_path:
             raise Exception("Failed to capture screenshot")
+
+        # Detect Amazon login wall/redirection/block
+        is_amazon = "amazon" in item_data["url"]
+        is_blocked = False
+        
+        if is_amazon:
+            login_terms = ["signin", "captcha", "s'identifier", "log in", "login"]
+            title_lower = page_title.lower()
+            if any(term in final_url.lower() for term in login_terms) or \
+               any(term in title_lower for term in login_terms) or \
+               "amazon.fr: s'identifier" in title_lower:
+                is_blocked = True
+        
+        if is_blocked:
+            logger.warning(f"Amazon Bot Detection triggered for item {item_id}. Title: {page_title}, URL: {final_url}")
+            await loop.run_in_executor(None, _update_db_error, item_id, f"Amazon Bot Detection: {page_title}")
+            return
 
         # HYBRID EXTRACTION STRATEGY (Aligned with ImprovedSearchService)
         # 1. Try specialized parser (if available) or JSON-LD
@@ -193,8 +204,10 @@ async def process_item_check(item_id: int):
             )
         else:
             # Fallback to Vision AI if text extraction failed
-            # Use limited text context for Vision prompt to avoid token bloat
-            if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=html_content[:5000])):
+            # Clean text properly before sending to AI
+            from app.utils.text import clean_text
+            cleaned_html = clean_text(html_content)
+            if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=cleaned_html[:10000])):
                 raise Exception("AI analysis (Vision) failed")
             extraction, metadata = ai_result
 

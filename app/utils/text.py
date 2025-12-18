@@ -8,21 +8,24 @@ SNIPPET_CONTEXT_WINDOW = 100
 
 def clean_text(text: str) -> str:
     """
-    Cleans the text by removing code blocks, HTML tags, and excessive whitespace.
+    Cleans the text by removing script/style content, code blocks, HTML tags, and excessive whitespace.
     """
     if not text:
         return ""
 
-    # Remove code blocks (```...```)
+    # 1. Remove script and style elements entirely (including content)
+    text = re.sub(r'<(script|style|header|footer|nav)[\s\S]*?>[\s\S]*?<\/\1>', '', text, flags=re.IGNORECASE)
+
+    # 2. Remove other HTML tags (basic) but keep content
+    text = re.sub(r"<[^>]+>", " ", text)
+
+    # 3. Remove code blocks (```...```)
     text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
 
-    # Remove HTML tags (basic)
-    text = re.sub(r"<[^>]+>", "", text)
-
-    # Remove non-printable characters (keep newlines and tabs)
+    # 4. Remove non-printable characters (keep newlines and tabs)
     text = re.sub(r"[^\x20-\x7E\n\t]", "", text)
 
-    # Collapse excessive whitespace
+    # 5. Collapse excessive whitespace
     text = re.sub(r"\s+", " ", text).strip()
 
     return text

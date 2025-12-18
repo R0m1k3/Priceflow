@@ -130,10 +130,10 @@ class ScraperService:
         item_id: int | None = None,
         config: ScrapeConfig | None = None,
         return_html: bool = False,
-    ) -> tuple[str | None, str, str]:
+    ) -> tuple[str | None, str, str, str]:
         """
         Scrapes the given URL using Browserless and Playwright.
-        Returns a tuple: (screenshot_path, page_text_or_html, final_url)
+        Returns a tuple: (screenshot_path, page_text_or_html, final_url, page_title)
         """
         if config is None:
             config = ScrapeConfig()
@@ -145,17 +145,58 @@ class ScraperService:
         # Ensure browser is connected and healthy
         if not await ScraperService._ensure_browser_connected():
             logger.error("Failed to establish browser connection")
-            return None, "", url
+            return None, "", url, ""
 
         try:
             context = await ScraperService._create_context(ScraperService._browser, url)
             page = await context.new_page()
 
             try:
+                # Random delay to simulate human lead-in
+                import random
+                await asyncio.sleep(random.uniform(0.5, 2.0))
+                
                 await ScraperService._navigate_and_wait(page, url, timeout)
                 final_url = page.url
+                page_title = await page.title()
                 
+                # Humanize: scroll a bit and back
+                await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+                await page.evaluate("window.scrollBy(0, 100)")
+                await asyncio.sleep(0.5)
+                await page.evaluate("window.scrollBy(0, -100)")
+
                 await ScraperService._handle_popups(page)
+
+                # FORCER LE MAGASIN NANCY POUR B&M STORES
+                if "bmstores.fr" in url:
+                    try:
+                        logger.info("B&M Stores detected: checking store selection (Nancy)...")
+                        # Check if store is already selected or if modal is needed
+                        store_btn = page.locator(".mod-shops .btn-shop, .js-show-shops")
+                        if await store_btn.count() > 0:
+                            logger.info("Opening store selector...")
+                            await store_btn.first.click(timeout=2000)
+                            await page.wait_for_timeout(1000)
+                            
+                            # Type Nancy in the search input
+                            search_input = page.locator("#search_mag")
+                            if await search_input.count() > 0:
+                                await search_input.fill("Nancy")
+                                await page.keyboard.press("Enter")
+                                await page.wait_for_timeout(1500)
+                                
+                                # Select the first Nancy store (Nancy Essey or Nancy Centre)
+                                select_btn = page.locator(".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')")
+                                if await select_btn.count() > 0:
+                                    logger.info("Selecting Nancy store...")
+                                    await select_btn.first.click()
+                                    await page.wait_for_timeout(2000)
+                                    # Refresh page or wait for update
+                                    await page.reload(wait_until="domcontentloaded")
+                                    await page.wait_for_timeout(1000)
+                    except Exception as e:
+                        logger.warning(f"Failed to force B&M store Nancy: {e}")
 
                 if selector:
                     await ScraperService._wait_for_selector(page, selector)
@@ -172,19 +213,20 @@ class ScraperService:
                 
                 screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
-                return screenshot_path, content_data, final_url
+                return screenshot_path, content_data, final_url, page_title
 
             finally:
                 await context.close()
 
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
-            return None, "", url
+            return None, "", url, ""
 
     @staticmethod
     async def _connect_browser(p) -> Browser:
         logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-        return await p.chromium.connect_over_cdp(BROWSERLESS_URL)
+        # Note: Added timeout for connection
+        return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=30000)
 
     @staticmethod
     async def _create_context(browser: Browser, url: str) -> BrowserContext:
@@ -374,9 +416,40 @@ class ScraperService:
 
         try:
             logger.info(f"Extracting text (limit: {text_length} chars)...")
-            raw_text = await page.inner_text("body")
-            page_text = raw_text[:text_length]
-            logger.info(f"Extracted {len(page_text)} characters")
+            
+            # Smart extraction: remove noise (nav, footer, scripts) before getting text
+            clean_text = await page.evaluate("""
+                () => {
+                    // Clone body to not affect the visual page
+                    const clone = document.body.cloneNode(true);
+                    
+                    // Remove noise selectors
+                    const noiseSelectors = [
+                        'nav', 'header', 'footer', 'script', 'style', 'noscript', 'iframe',
+                        '.cookie-banner', '.popup', '#menu', '.menu', '.sidebar',
+                        '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]'
+                    ];
+                    
+                    noiseSelectors.forEach(selector => {
+                        const elements = clone.querySelectorAll(selector);
+                        elements.forEach(el => el.remove());
+                    });
+                    
+                    return clone.innerText;
+                }
+            """)
+            
+            # Fallback if cleaning removed everything (unlikely but safe)
+            if not clean_text or len(clean_text) < 100:
+                logger.warning("Cleaned text too short, falling back to full body text")
+                clean_text = await page.inner_text("body")
+
+            # Collapse whitespace
+            import re
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+            page_text = clean_text[:text_length]
+            logger.info(f"Extracted {len(page_text)} chars")
             return page_text
         except Exception as e:
             logger.error(f"Text extraction failed: {e}")
