@@ -1,38 +1,24 @@
-# Walkthrough: Vision-First Price Extraction
+# Walkthrough: Price Extraction & Catalog Fixes
 
-In response to issues where the AI was being misled by hidden text (like unit prices or old prices in HTML), we have implemented a **Vision-Priority Strategy**.
+## 1. Vision Priority Strategy
 
-## Changes Implemented
+**Problem**: The AI was prioritizing text data (often hidden/outdated) over the visual price on the screenshot, extracting incorrect prices (e.g. 0.99€ instead of 1.27€).
 
-### 1. Updated AI System Prompt (`app/ai_schema.py`)
+**Solution**:
 
-We completely rewrote the `EXTRACTION_PROMPT_TEMPLATE` to enforce the following rules:
+- **Prompt Engineering**: Rewrote the system prompt in `ai_schema.py` to explicitly declare the **IMAGE AS THE SOURCE OF TRUTH**.
+- **Logic Fix**: Disabled the `AIPriceExtractor` (Text-only AI) in `scheduler_service.py` which was short-circuiting the logic before the Vision AI could run.
 
-- **Source of Truth = Image**: explicit instruction that the screenshot takes precedence over any text.
-- **Conflict Resolution**: "IF IMAGE AND TEXT CONFLICT, TRUST THE IMAGE."
-- **Visual Focus Rules**:
-  - Look for the largest/boldest price.
-  - Ignore small, styling-less text (often unit prices).
-  - Ignore crossed-out text.
+## 2. Catalog Scraper Fix
 
-### Verification
+**Problem**: Catalogs were not updating because the `browserless` service was failing (likely blocked or network issues), preventing the scraper from loading `cataloguemate.fr`.
 
-We verified the new prompt generation using `verify_vision_priority.py`.
+**Solution**:
 
-**Generated Prompt Preview:**
+- **HTTP Fallback**: Modified `cataloguemate_scraper.py` to use a robust fallback mechanism.
+  - First attempts to use the secure Browserless browser.
+  - If that fails, it instantly falls back to a standard `httpx` HTTP request, which is often sufficient for static catalog sites.
 
-```text
-You are a Vision-First Price Extraction Agent.
-Your Goal: Extract the main product price exactly as a human sees it on the screen.
+## 3. Cleanup
 
-**SOURCE OF TRUTH = IMAGE**
-- The image provided is the **Absolute Truth**.
-- The text provided below is scraped HTML content which may contain hidden/old prices.
-- **IF IMAGE AND TEXT CONFLICT, TRUST THE IMAGE.**
-```
-
-## How to Test
-
-1. Go to "Suivis Prix".
-2. Force refresh an item that was previously incorrect (e.g., B&M item showing unit price).
-3. The AI should now ignore the "hidden" unit price text and read the main price tag from the image.
+- Removed 20+ temporary debug/verification scripts (`debug_*.py`, `verify_*.py`) from the root directory to keep the production environment clean.
