@@ -36,6 +36,7 @@ COMMON_POPUP_SELECTORS = [
 
 class SearchResult:
     """Search result data class"""
+
     def __init__(
         self,
         url: str,
@@ -177,8 +178,6 @@ class ImprovedSearchService:
             except Exception:
                 pass
 
-
-
     @staticmethod
     def _parse_results(html: str, site_key: str, base_url: str, query: str) -> list[SearchResult]:
         """
@@ -193,7 +192,9 @@ class ImprovedSearchService:
         query_words = [w.lower() for w in query.split() if len(w) > 2]
 
         # Select product links
-        logger.debug(f"Parsing content for {site_key} (length: {len(html)}) with selector: {config['product_selector']}")
+        logger.debug(
+            f"Parsing content for {site_key} (length: {len(html)}) with selector: {config['product_selector']}"
+        )
         links = soup.select(config["product_selector"])
         logger.debug(f"Found {len(links)} raw items for {site_key}")
 
@@ -205,9 +206,9 @@ class ImprovedSearchService:
             container = item
             if site_key == "centrakor.com":
                 logger.debug(f"  Processing Centrakor item: {item.name}, classes: {item.get('class')}")
-            
+
             # If selector targets the container (div.product-card), we need to find the link inside
-            if item.name != 'a':
+            if item.name != "a":
                 # Try to find the link using product_link_selector if available
                 if "product_link_selector" in config:
                     found_link = item.select_one(config["product_link_selector"])
@@ -215,7 +216,7 @@ class ImprovedSearchService:
                         link = found_link
                     else:
                         # Fallback: find first 'a' tag
-                        found_link = item.find('a')
+                        found_link = item.find("a")
                         if found_link:
                             link = found_link
                         else:
@@ -223,7 +224,7 @@ class ImprovedSearchService:
                             continue
                 else:
                     # No link selector specified, try to find first 'a'
-                    found_link = item.find('a')
+                    found_link = item.find("a")
                     if found_link:
                         link = found_link
                     else:
@@ -232,7 +233,7 @@ class ImprovedSearchService:
             else:
                 # Item is already a link
                 link = item
-            
+
             href = link.get("href")
             if not href:
                 logger.debug(f"  ⚠️ No href in link for {site_key}")
@@ -268,22 +269,22 @@ class ImprovedSearchService:
             if "product_image_selector" in config:
                 # Search in the original container first - get ALL matches
                 img_els = container.select(config["product_image_selector"])
-                
-                # Filter and find first valid image  
+
+                # Filter and find first valid image
                 for img_el in img_els:
                     # Try multiple attributes in order of priority
                     candidate_url = (
-                        img_el.get("src") or
-                        img_el.get("data-src") or
-                        img_el.get("data-lazy-src") or
-                        img_el.get("data-original")
+                        img_el.get("src")
+                        or img_el.get("data-src")
+                        or img_el.get("data-lazy-src")
+                        or img_el.get("data-original")
                     )
-                    
+
                     # Handle srcset (use first URL)
                     if not candidate_url and img_el.get("srcset"):
                         srcset = img_el.get("srcset")
                         candidate_url = srcset.split(",")[0].split()[0]
-                    
+
                     # Skip invalid images (pictos, icons, etc.)
                     if candidate_url:
                         # SPECIAL: No filtering for Centrakor (debugging)
@@ -293,29 +294,32 @@ class ImprovedSearchService:
                                 logger.debug(f"  ⏭️ Skipping placeholder: {candidate_url[:50]}")
                                 continue
                             # Filter only tiny pictos
-                            if 'picto' in candidate_url.lower() and ('width=60' in candidate_url or 'height=80' in candidate_url):
+                            if "picto" in candidate_url.lower() and (
+                                "width=60" in candidate_url or "height=80" in candidate_url
+                            ):
                                 logger.debug(f"  ⏭️ Skipping tiny picto: {candidate_url[:50]}")
                                 continue
                             image_url = candidate_url
                             logger.debug(f"  🖼️ Centrakor image: {image_url[:70]}")
                             break
-                        
+
                         # Normal filtering for other sites
                         # Filter out obvious pictos and small icons
-                        if any(keyword in candidate_url.lower() for keyword in ['picto', 'icon', 'logo', 'badge']):
+                        if any(keyword in candidate_url.lower() for keyword in ["picto", "icon", "logo", "badge"]):
                             logger.debug(f"  ⏭️ Skipping picto/icon: {candidate_url[:50]}")
                             continue
                         # Filter out VERY small images (less than 100px)
                         import re
-                        width_match = re.search(r'width=(\d+)', candidate_url)
-                        height_match = re.search(r'height=(\d+)', candidate_url)
+
+                        width_match = re.search(r"width=(\d+)", candidate_url)
+                        height_match = re.search(r"height=(\d+)", candidate_url)
                         if width_match and height_match:
                             width = int(width_match.group(1))
                             height = int(height_match.group(1))
                             if width < 100 and height < 100:
                                 logger.debug(f"  ⏭️ Skipping small image ({width}x{height}): {candidate_url[:50]}")
                                 continue
-                        
+
                         # This is a valid product image
                         image_url = candidate_url
                         logger.debug(f"  🖼️ Image found via product_image_selector: {image_url[:50]}...")
@@ -326,17 +330,14 @@ class ImprovedSearchService:
                 img = link.find("img")
                 if img:
                     image_url = (
-                        img.get("src") or
-                        img.get("data-src") or
-                        img.get("data-lazy-src") or
-                        img.get("data-original")
+                        img.get("src") or img.get("data-src") or img.get("data-lazy-src") or img.get("data-original")
                     )
-                    
+
                     # Handle srcset
                     if not image_url and img.get("srcset"):
                         srcset = img.get("srcset")
                         image_url = srcset.split(",")[0].split()[0]
-                    
+
                     if image_url:
                         logger.debug(f"  🖼️ Image found via link.find('img'): {image_url[:50]}...")
 
@@ -348,28 +349,30 @@ class ImprovedSearchService:
                     if source and source.get("srcset"):
                         srcset = source.get("srcset")
                         image_url = srcset.split(",")[0].split()[0]
-                    
+
                     if not image_url:
                         img_in_picture = picture.find("img")
                         if img_in_picture:
                             image_url = img_in_picture.get("src") or img_in_picture.get("data-src")
-                    
+
                     if image_url:
                         logger.debug(f"  🖼️ Image found via <picture>: {image_url[:50]}...")
 
             # Clean up and validate image URL
             if image_url:
                 # Remove data URIs, 1x1 pixels, placeholders
-                if (image_url.startswith("data:") or 
-                    "1x1" in image_url or 
-                    "placeholder" in image_url.lower() or
-                    image_url.strip() == ""):
+                if (
+                    image_url.startswith("data:")
+                    or "1x1" in image_url
+                    or "placeholder" in image_url.lower()
+                    or image_url.strip() == ""
+                ):
                     logger.debug(f"  ⏭️ Skipping invalid image: {image_url[:50]}")
                     image_url = None
                 elif not image_url.startswith("http"):
                     image_url = urljoin(base_url, image_url)
                     logger.debug(f"  🔗 Made image URL absolute: {image_url[:80]}...")
-            
+
             if not image_url:
                 logger.warning(f"  ⚠️ No image found for: {title[:50]}")
 
@@ -378,8 +381,9 @@ class ImprovedSearchService:
             if site_key == "gifi.fr":
                 # Gifi: Extract price from product tile HTML
                 import re
+
                 container_html = str(container)
-                price_match = re.search(r'(\d+)[,.](\d+)\s*€', container_html)
+                price_match = re.search(r"(\d+)[,.](\d+)\s*€", container_html)
                 if price_match:
                     euros = int(price_match.group(1))
                     cents = int(price_match.group(2))
@@ -387,14 +391,16 @@ class ImprovedSearchService:
                     logger.debug(f"  💰 Extracted price from search: {product_price}€")
 
             # Create result
-            results.append(SearchResult(
-                url=full_url,
-                title=title,
-                snippet=f"Product from {config['name']}",
-                source=config["name"],
-                price=product_price,  # Set price if extracted from search
-                image_url=image_url
-            ))
+            results.append(
+                SearchResult(
+                    url=full_url,
+                    title=title,
+                    snippet=f"Product from {config['name']}",
+                    source=config["name"],
+                    price=product_price,  # Set price if extracted from search
+                    image_url=image_url,
+                )
+            )
 
         logger.debug(f"Parsed {len(results)} results from HTML")
         return results
@@ -406,25 +412,28 @@ class ImprovedSearchService:
             # SPECIAL CASE: L'Incroyable - Price is in the title
             if "lincroyable.fr" in result.url:
                 import re
+
                 # Extract price from title (e.g., "34€99" or "59€99")
-                price_match = re.search(r'(\d+)€(\d+)', result.title)
+                # Extract price from title (e.g., "34€99" or "59€99")
+                # Fix: Use non-greedy regex and ensure only 2 decimals
+                price_match = re.search(r"(\d+)€(\d{2})(?!\d)", result.title)
                 if price_match:
                     # Convert to float (e.g., "34€99" -> 34.99)
                     price_euros = int(price_match.group(1))
                     price_cents = int(price_match.group(2))
                     result.price = float(f"{price_euros}.{price_cents}")
-                    
+
                     # Clean title by removing price
-                    result.title = re.sub(r'\d+€\d+', '', result.title).strip()
+                    result.title = re.sub(r"\d+€\d+", "", result.title).strip()
                     logger.debug(f"L'Incroyable - Extracted price {result.price}€ from title")
-                    
+
                     return result
-            
+
             # SPECIAL CASE: Gifi - Price extracted from search, no need to visit page
             if "gifi.fr" in result.url and result.price is not None:
                 logger.debug(f"Gifi - Price already extracted from search: {result.price}€")
                 return result
-            
+
             page = await context.new_page()
             try:
                 logger.debug(f"Scraping details for: {result.title[:50]}...")
@@ -469,7 +478,7 @@ class ImprovedSearchService:
     async def _extract_price(page: Page) -> float | None:
         """Extract price using Hybrid Strategy: JSON-LD -> AI -> Strict CSS -> Loose CSS"""
         import re
-        
+
         # STRATEGY 1: JSON-LD (Most reliable)
         try:
             json_ld_scripts = await page.query_selector_all('script[type="application/ld+json"]')
@@ -477,19 +486,19 @@ class ImprovedSearchService:
                 try:
                     content = await script.inner_text()
                     data = json.loads(content)
-                    
+
                     # Handle list of objects
                     if isinstance(data, list):
                         data = data[0] if data else {}
-                        
+
                     # Check for Product type
-                    if data.get('@type') == 'Product':
-                        offers = data.get('offers')
+                    if data.get("@type") == "Product":
+                        offers = data.get("offers")
                         if isinstance(offers, list):
                             offers = offers[0]
-                        
-                        if offers and 'price' in offers:
-                            price = float(offers['price'])
+
+                        if offers and "price" in offers:
+                            price = float(offers["price"])
                             logger.debug(f"  ✅ Found price via JSON-LD: {price}€")
                             return price
                 except:
@@ -503,7 +512,7 @@ class ImprovedSearchService:
             # We log info but don't block if it fails
             html_content = await page.content()
             title = await page.title()
-            
+
             ai_price = await AIPriceExtractor.extract_price(html_content, title)
             if ai_price:
                 logger.info(f"  🤖 AI found price: {ai_price}€")
@@ -512,26 +521,26 @@ class ImprovedSearchService:
             logger.error(f"  AI extraction failed: {e}")
 
         # STRATEGY 3: Strict CSS Selectors (High Confidence)
-        # These selectors usually point to the main product price. 
+        # These selectors usually point to the main product price.
         # If found, we trust them and return immediately.
         strict_selectors = [
             '[itemprop="price"]',  # Schema.org standard
-            '.current-price-value',
-            '.product-price .price',
+            ".current-price-value",
+            ".product-price .price",
             'meta[property="product:price:amount"]',
-            'meta[name="twitter:data1"]', # Sometimes used for price
+            'meta[name="twitter:data1"]',  # Sometimes used for price
         ]
-        
+
         for selector in strict_selectors:
             try:
                 # Check meta tags first
-                if selector.startswith('meta'):
+                if selector.startswith("meta"):
                     element = await page.query_selector(selector)
                     if element:
-                        content = await element.get_attribute('content')
+                        content = await element.get_attribute("content")
                         if content:
                             try:
-                                price_val = float(content.strip().replace(',', '.'))
+                                price_val = float(content.strip().replace(",", "."))
                                 logger.debug(f"  ✅ Found price via Meta Tag {selector}: {price_val}€")
                                 return price_val
                             except:
@@ -544,12 +553,12 @@ class ImprovedSearchService:
                     # Skip hidden
                     if not await elem.is_visible():
                         continue
-                        
+
                     price_text = await elem.inner_text()
                     if price_text:
-                        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
-                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
-                        match = re.search(r'(\d+\.?\d*)', cleaned)
+                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
+                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
+                        match = re.search(r"(\d+\.?\d*)", cleaned)
                         if match:
                             try:
                                 price_val = float(match.group(1))
@@ -563,44 +572,55 @@ class ImprovedSearchService:
 
         # STRATEGY 4: Loose CSS Selectors (Fallback - Lowest Price Logic)
         # Used when strict selectors fail. We collect ALL prices and pick the lowest.
-        
+
         # PRIORITY 1: Selectors for sale/promotional prices
         sale_price_selectors = [
-            '.price-current',
-            '.prix-actuel',
-            '.sale-price',
-            '.promo-price',
+            ".price-current",
+            ".prix-actuel",
+            ".sale-price",
+            ".promo-price",
             '[class*="promo"]',
             '[class*="sale"]',
             '[class*="discount"]',
         ]
-        
+
         # PRIORITY 2: Standard price selectors
         price_selectors = [
-            '.price',
+            ".price",
             '[data-testid="price"]',
-            '.product-price',
-            '.a-price .a-offscreen',
-            '.a-price-whole',
-            'span[class*="price"]',
+            ".product-price",
+            ".a-price .a-offscreen",
+            ".a-price-whole",
+            # REMOVED: 'span[class*="price"]' - Too broad, picks up 'price-tax-excluded' (HT)
         ]
-        
+
+        # Blacklist words that indicate installments or taxes
+        FORBIDDEN_WORDS = ["mois", "fois", "x", "ht", "hors tax", "eco-part", "sans"]
+
         # Try sale prices first
         for selector in sale_price_selectors:
             try:
                 elements = await page.query_selector_all(selector)
                 for elem in elements:
                     # Skip if element is strikethrough (old price)
-                    parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
-                    if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
+                    parent_html = await elem.evaluate("el => el.parentElement.outerHTML")
+                    if (
+                        "text-decoration: line-through" in parent_html
+                        or "text-decoration-line: line-through" in parent_html
+                    ):
                         continue
-                    
+
                     price_text = await elem.inner_text()
                     if price_text:
-                        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
-                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
-                        
-                        match = re.search(r'(\d+\.?\d*)', cleaned)
+                        text_lower = price_text.lower()
+                        # Filter out forbidden words
+                        if any(w in text_lower for w in FORBIDDEN_WORDS):
+                            continue
+
+                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
+                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
+
+                        match = re.search(r"(\d+\.?\d*)", cleaned)
                         if match:
                             try:
                                 price_val = float(match.group(1))
@@ -611,32 +631,34 @@ class ImprovedSearchService:
                                 continue
             except Exception:
                 continue
-        
-        
+
         # Fallback to standard price selectors
         all_prices = []
-        
+
         for selector in price_selectors:
             try:
                 elements = await page.query_selector_all(selector)
                 for elem in elements:
                     # Skip if element is strikethrough (old price)
                     try:
-                        parent_html = await elem.evaluate('el => el.parentElement.outerHTML')
-                        if 'text-decoration: line-through' in parent_html or 'text-decoration-line: line-through' in parent_html:
+                        parent_html = await elem.evaluate("el => el.parentElement.outerHTML")
+                        if (
+                            "text-decoration: line-through" in parent_html
+                            or "text-decoration-line: line-through" in parent_html
+                        ):
                             continue
-                        elem_style = await elem.evaluate('el => window.getComputedStyle(el).textDecoration')
-                        if 'line-through' in elem_style:
+                        elem_style = await elem.evaluate("el => window.getComputedStyle(el).textDecoration")
+                        if "line-through" in elem_style:
                             continue
                     except:
                         pass
-                    
+
                     price_text = await elem.inner_text()
                     if price_text:
-                        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
-                        cleaned = cleaned.replace(' ', '').replace('\xa0', '').replace(',', '.')
-                        
-                        match = re.search(r'(\d+\.?\d*)', cleaned)
+                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
+                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
+
+                        match = re.search(r"(\d+\.?\d*)", cleaned)
                         if match:
                             try:
                                 price_val = float(match.group(1))
@@ -648,7 +670,7 @@ class ImprovedSearchService:
             except Exception as e:
                 logger.debug(f"  Error with selector {selector}: {e}")
                 continue
-        
+
         # Return the LOWEST price found
         if all_prices:
             lowest_price = min(all_prices)
@@ -668,7 +690,7 @@ class ImprovedSearchService:
             "out of stock",
             "unavailable",
             "épuisé",
-            "non disponible"
+            "non disponible",
         ]
 
         try:
@@ -692,9 +714,6 @@ class ImprovedSearchService:
 
         return None  # Unknown
 
-
-
-
     @classmethod
     async def search_site_generator(cls, site_key: str, query: str) -> AsyncGenerator[SearchResult, None]:
         """Search a single site and yield results as they are scraped"""
@@ -712,13 +731,13 @@ class ImprovedSearchService:
 
         try:
             context = await cls._create_context(cls._browser)
-            
+
             try:
                 page = await context.new_page()
-                
+
                 # Navigate
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
-                
+
                 # Wait for selector
                 wait_selector = config.get("wait_selector") or config.get("product_selector")
                 try:
@@ -729,36 +748,37 @@ class ImprovedSearchService:
 
                 # Get content
                 content = await page.content()
-                await page.close() # Close search page to free resources
-                
+                await page.close()  # Close search page to free resources
+
                 # Parse results (Phase 1)
                 base_url = search_url.split("/search")[0]
                 if "amazon" in site_key:
                     base_url = "https://www.amazon.fr"
-                    
+
                 initial_results = cls._parse_results(content, site_key, base_url, query)
-                
+
                 if not initial_results:
                     logger.warning(f"No results found for {site_key}")
                     # Dump HTML for debugging
                     import os
+
                     dump_dir = "/app/debug_dumps"
                     os.makedirs(dump_dir, exist_ok=True)
                     dump_path = f"{dump_dir}/{site_key.replace('.', '_')}_no_results.html"
-                    with open(dump_path, 'w', encoding='utf-8') as f:
+                    with open(dump_path, "w", encoding="utf-8") as f:
                         f.write(content)
                     logger.warning(f"HTML dumped to {dump_path} for inspection")
                     return
 
                 # Phase 2: Scrape details (Streaming)
                 semaphore = asyncio.Semaphore(3)
-                
+
                 async def scrape_wrapper(res):
                     async with semaphore:
                         return await cls._scrape_item_details(res, context)
 
                 tasks = [scrape_wrapper(r) for r in initial_results]
-                
+
                 for future in asyncio.as_completed(tasks):
                     enriched_res = await future
                     if enriched_res:
@@ -787,6 +807,7 @@ class ImprovedSearchService:
 # ==========================================
 # COMPATIBILITY LAYER FOR API ROUTERS
 # ==========================================
+
 
 async def search_products(
     query: str,
@@ -818,9 +839,11 @@ async def search_products(
     site_keys = []
     for site in active_sites:
         matched_key = None
-        
+
         # Normalize domain for comparison (remove www., lowercase, etc.)
-        site_domain_normalized = site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
+        site_domain_normalized = (
+            site.domain.lower().replace("www.", "").replace("http://", "").replace("https://", "").strip("/")
+        )
 
         # Try multiple matching strategies:
         for key in SITE_CONFIGS.keys():
@@ -855,11 +878,13 @@ async def search_products(
                     matched_key = key
                     logger.info(f"✅ Mapped {site.name} ({site.domain}) → {key} (normalized contains)")
                     break
-        
+
         if matched_key:
             site_keys.append(matched_key)
         else:
-            logger.warning(f"❌ No config found for {site.name} (domain: {site.domain}, normalized: {site_domain_normalized})")
+            logger.warning(
+                f"❌ No config found for {site.name} (domain: {site.domain}, normalized: {site_domain_normalized})"
+            )
 
     # 3. Execute searches and stream results
     generators = [ImprovedSearchService.search_site_generator(key, query) for key in site_keys]
