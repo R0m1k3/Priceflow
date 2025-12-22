@@ -21,6 +21,10 @@ from sqlalchemy.orm import Session
 from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
 from app.services.browserless_service import browserless_service
 
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://www.cataloguemate.fr"
+
 async def _fetch_with_fallback(url: str) -> str:
     """Fetch content using Browserless first, then fallback to HTTPX."""
     # 1. Try Browserless
