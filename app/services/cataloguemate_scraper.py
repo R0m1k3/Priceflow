@@ -8,20 +8,38 @@ Refactored to use BrowserlessService for robust containerized scraping.
 
 import asyncio
 import logging
-import re
-import hashlib
-from datetime import datetime, timedelta
-from typing import Any, Optional
+import httpx
+import random
 
-from bs4 import BeautifulSoup
-from sqlalchemy.orm import Session
+async def _fetch_with_fallback(url: str) -> str:
+    """Fetch content using Browserless first, then fallback to HTTPX."""
+    # 1. Try Browserless
+    try:
+        _, html_content = await browserless_service.get_page_content(url)
+        if html_content and len(html_content) > 500:
+            return html_content
+    except Exception as e:
+        logger.warning(f"Browserless fetch failed for {url}: {e}")
 
-from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
-from app.services.browserless_service import browserless_service
-
-logger = logging.getLogger(__name__)
-
-BASE_URL = "https://www.cataloguemate.fr"
+    # 2. Fallback to HTTPX
+    logger.info(f"Using HTTPX fallback for {url}...")
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        }
+        async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code == 200:
+                logger.info(f"HTTPX fetch successful ({len(response.text)} chars)")
+                return response.text
+            else:
+                logger.error(f"HTTPX failed with status {response.status_code}")
+    except Exception as e:
+        logger.error(f"HTTPX fallback failed: {e}")
+    
+    return ""
 
 async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
     """
@@ -40,8 +58,8 @@ async def scrape_catalog_list(enseigne: Enseigne) -> list[dict[str, Any]]:
     url = f"{BASE_URL}/offres/paris/{slug}/"
     logger.info(f"Scraping catalog list from: {url}")
 
-    # Use browserless service to get content
-    _, html_content = await browserless_service.get_page_content(url)
+    # Use robust fetch with fallback
+    html_content = await _fetch_with_fallback(url)
     
     if not html_content:
         logger.error(f"Failed to fetch list {url}")
@@ -108,10 +126,9 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
     page_num = 1
     max_pages = 100 # Default safety limit
     
-    # IMPORTANT: Pagination links only appear on page 2+, not on page 1
     # So we fetch page 2 first to detect the max pages
     page_2_url = f"{catalog_url}?page=2"
-    _, page_2_html = await browserless_service.get_page_content(page_2_url)
+    page_2_html = await _fetch_with_fallback(page_2_url)
     
     if page_2_html:
         soup = BeautifulSoup(page_2_html, 'html.parser')
@@ -162,7 +179,7 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
         if page_num == 2 and page_2_html:
             html_content = page_2_html
         else:
-            _, html_content = await browserless_service.get_page_content(current_url)
+            html_content = await _fetch_with_fallback(current_url)
         
         if not html_content:
             logger.warning(f"Failed to fetch page {page_num}")
