@@ -34,40 +34,32 @@ router = APIRouter(prefix="/api/catalogues", tags=["catalogues"])
 
 # === Enseignes Endpoints ===
 
+
 @router.get("/enseignes", response_model=list[EnseigneResponse])
 async def get_enseignes(
     db: Session = Depends(get_db),
 ):
     """Get all active enseignes with catalog counts"""
-    enseignes = (
-        db.query(Enseigne)
-        .filter(Enseigne.is_active == True)
-        .order_by(Enseigne.ordre_affichage)
-        .all()
-    )
-    
+    enseignes = db.query(Enseigne).filter(Enseigne.is_active == True).order_by(Enseigne.ordre_affichage).all()
+
     # Add catalog counts
     result = []
     for enseigne in enseignes:
         count = (
             db.query(func.count(Catalogue.id))
-            .filter(
-                and_(
-                    Catalogue.enseigne_id == enseigne.id,
-                    Catalogue.statut == "actif"
-                )
-            )
+            .filter(and_(Catalogue.enseigne_id == enseigne.id, Catalogue.statut == "actif"))
             .scalar()
         )
-        
+
         enseigne_data = EnseigneResponse.model_validate(enseigne)
         enseigne_data.catalogues_actifs_count = count
         result.append(enseigne_data)
-    
+
     return result
 
 
 # === Catalogues Endpoints ===
+
 
 @router.get("", response_model=CataloguesPaginatedResponse)
 async def get_catalogues(
@@ -83,10 +75,10 @@ async def get_catalogues(
     db: Session = Depends(get_db),
 ):
     """Get catalogues with filters and pagination"""
-    
+
     # Build query
     query = db.query(Catalogue)
-    
+
     # Filter by enseignes
     if enseigne_ids:
         try:
@@ -94,64 +86,58 @@ async def get_catalogues(
             query = query.filter(Catalogue.enseigne_id.in_(ids))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid enseigne_ids format")
-    
+
     # Filter by status
     if statut and statut != "tous":
         query = query.filter(Catalogue.statut == statut)
-    
+
     # Filter by dates
     if date_debut_min:
         query = query.filter(Catalogue.date_debut >= date_debut_min)
     if date_fin_max:
         query = query.filter(Catalogue.date_fin <= date_fin_max)
-    
+
     # Search in titles
     if recherche:
         query = query.filter(Catalogue.titre.ilike(f"%{recherche}%"))
-    
+
     # Sort
     sort_column = {
         "date_debut": Catalogue.date_debut,
         "date_fin": Catalogue.date_fin,
         "enseigne": Catalogue.enseigne_id,
     }.get(sort, Catalogue.date_debut)
-    
+
     if order == "desc":
         query = query.order_by(sort_column.desc())
     else:
         query = query.order_by(sort_column.asc())
-    
+
     # Count total
     total = query.count()
-    
+
     # Paginate
     offset = (page - 1) * limit
     catalogues = query.offset(offset).limit(limit).all()
-    
+
     # Build response
     data = []
     for catalogue in catalogues:
         cat_response = CatalogueListResponse.model_validate(catalogue)
         data.append(cat_response)
-    
+
     pagination = PaginationMeta(
         total=total,
         page=page,
         limit=limit,
         pages_total=(total + limit - 1) // limit,
     )
-    
+
     # Get last scraping time
-    last_scraping = (
-        db.query(ScrapingLog)
-        .order_by(ScrapingLog.date_execution.desc())
-        .first()
-    )
-    
-    metadata = {
-        "derniere_mise_a_jour": last_scraping.date_execution if last_scraping else None
-    }
-    
+    last_scraping = db.query(ScrapingLog).order_by(ScrapingLog.date_execution.desc()).first()
+
+    metadata = {"derniere_mise_a_jour": last_scraping.date_execution if last_scraping else None}
+
     return CataloguesPaginatedResponse(
         data=data,
         pagination=pagination,
@@ -166,10 +152,10 @@ async def get_catalogue_detail(
 ):
     """Get detailed information for a specific catalogue"""
     catalogue = db.query(Catalogue).filter(Catalogue.id == catalogue_id).first()
-    
+
     if not catalogue:
         raise HTTPException(status_code=404, detail="Catalogue not found")
-    
+
     return CatalogueDetailResponse.model_validate(catalogue)
 
 
@@ -180,21 +166,22 @@ async def get_catalogue_pages(
 ):
     """Get all pages for a specific catalogue"""
     catalogue = db.query(Catalogue).filter(Catalogue.id == catalogue_id).first()
-    
+
     if not catalogue:
         raise HTTPException(status_code=404, detail="Catalogue not found")
-    
+
     pages = (
         db.query(CataloguePage)
         .filter(CataloguePage.catalogue_id == catalogue_id)
         .order_by(CataloguePage.numero_page)
         .all()
     )
-    
+
     return [CataloguePageResponse.model_validate(page) for page in pages]
 
 
 # === Admin Endpoints ===
+
 
 @router.get("/admin/stats", response_model=ScrapingStatsResponse)
 async def get_scraping_stats(
@@ -203,25 +190,17 @@ async def get_scraping_stats(
 ):
     """Get scraping statistics"""
     total_catalogues = db.query(func.count(Catalogue.id)).scalar()
-    
+
     # Catalogues par enseigne
     catalogues_par_enseigne = {}
     enseignes = db.query(Enseigne).all()
     for enseigne in enseignes:
-        count = (
-            db.query(func.count(Catalogue.id))
-            .filter(Catalogue.enseigne_id == enseigne.id)
-            .scalar()
-        )
+        count = db.query(func.count(Catalogue.id)).filter(Catalogue.enseigne_id == enseigne.id).scalar()
         catalogues_par_enseigne[enseigne.nom] = count
-    
+
     # Last scraping
-    last_scraping = (
-        db.query(ScrapingLog)
-        .order_by(ScrapingLog.date_execution.desc())
-        .first()
-    )
-    
+    last_scraping = db.query(ScrapingLog).order_by(ScrapingLog.date_execution.desc()).first()
+
     return ScrapingStatsResponse(
         total_catalogues=total_catalogues,
         catalogues_par_enseigne=catalogues_par_enseigne,
@@ -237,13 +216,8 @@ async def get_scraping_logs(
     current_user: User = Depends(get_current_user),
 ):
     """Get scraping logs"""
-    logs = (
-        db.query(ScrapingLog)
-        .order_by(ScrapingLog.date_execution.desc())
-        .limit(limit)
-        .all()
-    )
-    
+    logs = db.query(ScrapingLog).order_by(ScrapingLog.date_execution.desc()).limit(limit).all()
+
     return [ScrapingLogResponse.model_validate(log) for log in logs]
 
 
@@ -258,24 +232,25 @@ async def trigger_scraping(
         enseigne = db.query(Enseigne).filter(Enseigne.id == enseigne_id).first()
         if not enseigne:
             raise HTTPException(status_code=404, detail="Enseigne not found")
-        
+
         # Use Cataloguemate scraper
         log = await scrape_enseigne(enseigne, db)
-        
+
         return {
             "message": f"Scraping completed for {enseigne.nom}",
             "catalogues_trouves": log.catalogues_trouves,
             "catalogues_nouveaux": log.catalogues_nouveaux,
             "status": log.statut,
-            "error": log.message_erreur
+            "error": log.message_erreur,
         }
     else:
         # Scrape all enseignes
         from app.services.cataloguemate_scraper import scrape_all_enseignes
+
         logs = await scrape_all_enseignes(db)
-        
+
         total_new = sum(log.catalogues_nouveaux for log in logs)
-        
+
         return {
             "message": f"Scraping completed for all enseignes. {len(logs)} processed.",
             "catalogues_nouveaux": total_new,
@@ -290,16 +265,33 @@ async def cleanup_catalogs(
     """Delete invalid catalogs (0 pages or generic titles)"""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+
     deleted_count = 0
-    
+
     # 1. Delete catalogs with 0 pages
     bad_catalogs = db.query(Catalogue).filter(Catalogue.nombre_pages == 0).all()
     for cat in bad_catalogs:
         db.delete(cat)
         deleted_count += 1
-    
-    # 2. Delete generic titles
+
+    # 2. Delete catalogs with generic icon images (failed scrapes)
+    # This addresses the user request: "effacer les images quand on supprime un catalogue"
+    # (interpreted as removing the bad data so it can be re-scraped cleanly)
+    bad_image_catalogs = db.query(Catalogue).all()
+    for cat in bad_image_catalogs:
+        if not cat.image_couverture_url:
+            continue
+
+        # Check for suspicious keywords in the image URL that indicate it's not a real catalog page
+        if any(
+            x in cat.image_couverture_url.lower()
+            for x in ["icon", "logo", "loader", "facebook", "twitter", "assets/img"]
+        ):
+            logger.info(f"Deleting catalog {cat.id} ('{cat.titre}') due to bad image: {cat.image_couverture_url}")
+            db.delete(cat)
+            deleted_count += 1
+
+    # 3. Delete generic titles
     generic_titles = [
         "Restez informé",
         "Catalogues Bazar",
@@ -307,9 +299,9 @@ async def cleanup_catalogs(
         "Voir les offres",
         "Téléchargez l'application",
         "Newsletter",
-        "BLACK FRIDAY"
+        "BLACK FRIDAY",
     ]
-    
+
     for title_part in generic_titles:
         generic_cats = db.query(Catalogue).filter(Catalogue.titre.ilike(f"%{title_part}%")).all()
         for cat in generic_cats:
@@ -317,10 +309,10 @@ async def cleanup_catalogs(
             if cat.nombre_pages < 2:
                 db.delete(cat)
                 deleted_count += 1
-    
+
     db.commit()
     logger.info(f"Cleanup: deleted {deleted_count} invalid catalogs")
-    
+
     return {"message": f"Cleanup complete. Deleted {deleted_count} invalid catalogs."}
 
 
@@ -333,16 +325,16 @@ async def delete_catalogue(
     """Delete a specific catalogue (admin only)"""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+
     catalogue = db.query(Catalogue).filter(Catalogue.id == catalogue_id).first()
     if not catalogue:
         raise HTTPException(status_code=404, detail="Catalogue not found")
-    
+
     # Pages are cascade-deleted automatically due to relationship
     db.delete(catalogue)
     db.commit()
     logger.info(f"Deleted catalogue {catalogue_id} ({catalogue.titre})")
-    
+
     return {"message": f"Catalogue '{catalogue.titre}' deleted successfully"}
 
 
@@ -354,23 +346,22 @@ async def purge_old_catalogues(
     """Purge catalogues expired more than 3 months ago (admin only)"""
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+
     from datetime import timedelta
+
     cutoff_date = datetime.now() - timedelta(days=90)
-    
-    old_catalogues = db.query(Catalogue).filter(
-        Catalogue.date_fin < cutoff_date
-    ).all()
-    
+
+    old_catalogues = db.query(Catalogue).filter(Catalogue.date_fin < cutoff_date).all()
+
     count = len(old_catalogues)
     for cat in old_catalogues:
         db.delete(cat)
-    
+
     db.commit()
     logger.info(f"Purged {count} catalogues with date_fin < {cutoff_date}")
-    
+
     return {
         "message": f"Purged {count} catalogues expired more than 3 months ago",
         "cutoff_date": cutoff_date.isoformat(),
-        "deleted_count": count
+        "deleted_count": count,
     }
