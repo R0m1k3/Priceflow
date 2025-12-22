@@ -2,16 +2,22 @@
 
 ## 🚀 Current Focus
 
-- [x] Analysing current hybrid (Text + Image) extraction logic
-- [x] Proposing "Vision First" strategy to owner
-- [ ] **Implementation Phase**:
-  - [ ] Update `ai_schema.py` STRICT Vision Definition.
-  - [ ] Refine Prompt with "IMAGE IS TRUTH" directive.
-- [ ] **Verification Phase**:
-  - [ ] Verify prompt generation.
+- [ ] Debug Catalog Scraper
+
+## 📋 Master Plan
+
+- [x] Analyze `verify_extraction_logic.py`, `ai_service.py`, `ai_schema.py`, `tracking_scraper_service.py`.
+- [x] Proposal Phase: Vision Priority accepted.
+- [ ] Implementation Phase:
+  - [x] Update `ai_schema.py`.
+  - [x] Fix `scheduler_service.py` (Disable conflicting Text AI).
+- [x] Verification Phase: Verified with `verify_vision_priority.py`.
+- [ ] **Catalog Issue**:
+  - [x] Reproduce failure (Confirmed Browserless issue via analysis).
+  - [x] Fix `cataloguemate_scraper.py` with HTTP fallback.
 
 ## 📝 Progress Log
 
-- **2025-12-22**: Initialized task. Confirmed current system is *already* sending images, but likely confusing the AI with conflicting text data.
-- **2025-12-22**: User selected **Option 2 (Vision Priority)**. Proceeding to rewrite AI System Prompt.
-- **2025-12-22**: **FIX**: Detected that `scheduler_service.py` was prioritizing a text-only extractor (0.99€ found in text) before checking the image. Disabled the text-only extractor to force Vision AI usage.
+- **2025-12-22**: Vision Priority implemented and verified.
+- **2025-12-22**: User reported Catalog issue. Logic identified as `cataloguemate.fr`.
+- **2025-12-22**: Initial debug script failed (missing dependencies). Creating v2 using internal services.
