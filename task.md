@@ -2,25 +2,26 @@
 
 ## 🚀 Current Focus
 
-- [ ] Debug Catalog Scraper
+- [ ] Fix Catalog Images (Generic/Missing icons)
 
 ## 📋 Master Plan
 
 - [x] Analyze `verify_extraction_logic.py`, `ai_service.py`, `ai_schema.py`, `tracking_scraper_service.py`.
 - [x] Proposal Phase: Vision Priority accepted.
-- [ ] Implementation Phase:
+- [x] Implementation Phase:
   - [x] Update `ai_schema.py`.
   - [x] Fix `scheduler_service.py` (Disable conflicting Text AI).
 - [x] Verification Phase: Verified with `verify_vision_priority.py`.
-- [ ] **Catalog Issue**:
-  - [x] Reproduce failure (Confirmed Browserless issue via analysis).
+- [x] **Catalog Retrieval Fix**:
+  - [x] Reproduce failure (Confirmed Browserless issue).
   - [x] Fix `cataloguemate_scraper.py` with HTTP fallback.
-
-- [x] **Cleanup**:
-  - [x] Deleted `debug_*.py` and `verify_*.py` files.
+  - [x] Cleanup debug files.
+- [ ] **Catalog Image Fix**:
+  - [x] Analyze page HTML for correct image selectors (Found `data-src`).
+  - [x] Refine `cataloguemate_scraper.py` image extraction logic.
 
 ## 📝 Progress Log
 
 - **2025-12-22**: Vision Priority implemented and verified.
-- **2025-12-22**: User reported Catalog issue. Logic identified as `cataloguemate.fr`.
-- **2025-12-22**: Initial debug script failed (missing dependencies). Creating v2 using internal services.
+- **2025-12-22**: Fixed Catalog Retrieval using HTTP fallback.
+- **2025-12-22**: User reports images are generic icons. Investigating image selectors.

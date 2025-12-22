@@ -207,11 +207,13 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
         
         all_imgs = soup.find_all('img')
         for img in all_imgs:
-            src = img.get('src')
+            # Check multiple attributes for the real image URL (lazy loading)
+            src = img.get('data-src') or img.get('data-original') or img.get('src')
+            
             if not src: continue
             
             # Skip common UI elements
-            if any(x in src.lower() for x in ['logo', 'icon', 'facebook', 'twitter', 'instagram']):
+            if any(x in src.lower() for x in ['logo', 'icon', 'facebook', 'twitter', 'instagram', 'loader']):
                 continue
                 
             # Calculate area if dimensions exist
@@ -226,7 +228,7 @@ async def scrape_catalog_pages(catalog_url: str) -> list[dict[str, Any]]:
             
             # Heuristic: Catalog pages are usually large vertical images
             # Check src for keywords
-            is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images', 'leaflet'])
+            is_likely_catalog = any(k in src.lower() for k in ['page', 'flyer', 'catalog', 'upload', 'images', 'leaflet', 'thumbor'])
             
             # Logic:
             # 1. If keyword match AND decent size -> Strong candidate
