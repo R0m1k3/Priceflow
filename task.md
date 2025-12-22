@@ -16,6 +16,9 @@
   - [x] Reproduce failure (Confirmed Browserless issue via analysis).
   - [x] Fix `cataloguemate_scraper.py` with HTTP fallback.
 
+- [x] **Cleanup**:
+  - [x] Deleted `debug_*.py` and `verify_*.py` files.
+
 ## 📝 Progress Log
 
 - **2025-12-22**: Vision Priority implemented and verified.
