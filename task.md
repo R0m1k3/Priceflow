@@ -2,9 +2,8 @@
 
 ## 🚀 Current Focus
 
+- [ ] Investigate Comparator Price Extraction (User reported false prices)
 - [x] Fix Catalog Images (Generic/Missing icons)
-- [x] Address "PDF vs Image" question
-- [x] Implement "Delete Images" (Cleanup bad data)
 
 ## 📋 Master Plan
 
@@ -27,6 +26,11 @@
   - [x] **Cleanup Bad Data**:
     - [x] Run cleanup endpoint.
   - [x] Verify fix with new scrape.
+- [/] **Comparator Price Fix**:
+  - [ ] Reproduce "False Price" issue with script.
+  - [ ] Audit `improved_search_service.py` extraction logic (Lowest Price vs AI).
+  - [ ] Implement robust price validation/filtering.
+  - [ ] Verify fix.
 
 ## 📝 Progress Log
 
@@ -34,3 +38,4 @@
 - **2025-12-22**: Fixed Catalog Retrieval using HTTP fallback.
 - **2025-12-22**: Investigating generic icon issue. Found images are served via Thumbor.
 - **2025-12-22**: **FIXED**: Scraper now targets Thumbor images. Wiped bad catalogs.
+- **2025-12-22**: User reported incorrect prices in Comparator. Investigating.
