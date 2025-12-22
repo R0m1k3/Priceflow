@@ -130,50 +130,39 @@ class AIExtractionMetadata(BaseModel):
 
 
 # Prompt template for schema-first extraction
-EXTRACTION_PROMPT_TEMPLATE = """Extract product price and stock status from this French e-commerce page.
+# Prompt template for Vision-First extraction
+EXTRACTION_PROMPT_TEMPLATE = """You are a Vision-First Price Extraction Agent.
+Your Goal: Extract the main product price exactly as a human sees it on the screen.
 
-**PRICE (IMPORTANT - French format):**
-- **FIRST**: Look for "PRIX DÉTECTÉ:" at the start of text - this is the extracted price
-- **The price has already been converted to English format for you**
-- French original: "3,99 €" → Already shown to you as: "3.99 €"
-- Just extract the number you see (e.g., "3.99" from "PRIX DÉTECTÉ: 3.99 €")
-- Currency symbol is usually € at the end
-- Look for: "PRIX DÉTECTÉ:", price tags, "Prix:", "€", numbers near "Ajouter au panier"
-- Extract as DECIMAL NUMBER: If you see "3.99", return 3.99
-- Ignore crossed-out/barré prices (old prices)
-- **CRITICAL:** Ignore "Prix au litre", "Prix au kg", "P.U.", or unit prices usually shown in smaller text/parentheses (e.g., "4.60 € / L").
-- **CRITICAL:** If you see both HT (Hors Taxe) and TTC (Toutes Taxes Comprises) prices, **ALWAYS select the TTC price**.
-- Look for labels like "Taxe incluse", "TTC", "Prix payé". Ignore "HT" or "Hors Taxe".
-- Example: If text has "1.15 € HT" and "1.38 € TTC", return 1.38 (NOT 1.15).
-- If multiple prices, take the current/main price (not the original, not the unit price, not the HT price)
-- **B&M STORES Specific:** The main price is often large and bold (e.g. "1.38€"), while unit price is small. ALWAYS take the main price (TTC). Ignore hidden HT prices (e.g. 1.15€).
+**SOURCE OF TRUTH = IMAGE**
+- The image provided is the **Absolute Truth**.
+- The text provided below is scraped HTML content which may contain hidden/old prices.
+- **IF IMAGE AND TEXT CONFLICT, TRUST THE IMAGE.**
+- Only use the text if the image is completely unreadable or missing the price.
 
-**CRITICAL - Common mistakes to avoid:**
-- "3.99 €" means 3.99 (NOT 399.00, NOT 3990.00)
-- "1.99 €" means 1.99 (NOT 199.00, NOT 1990.00)
-- "0.99 €" means 0.99 (NOT 99.00, NOT 990.00)
-- The decimal point separates euros from cents
-- Small prices (< 10€) are very common for everyday items
+**PRICE EXTRACTION RULES (French Format):**
+1. **Visual Focus**: Look for the largest, boldest price on the screen. This is usually the main product price.
+2. **Ignore Small Text**: Ignore "Prix au litre", "Prix au kg", or small unit prices (e.g., "(4.60 € / L)").
+3. **Ignore Strikethrough**: Do not extract crossed-out prices (old prices).
+4. **Ignore "HT"**: Always find the "TTC" (Tax Included) price. If you see "1.15 € HT" and "1.38 €", the visual price is 1.38.
+5. **Ignore "Suggestions"**: Do not extract prices from "Other customers bought" or "Recommended products" sections.
 
-- Examples of valid prices:
-  * "PRIX DÉTECTÉ: 1.99 €" -> 1.99 (NOT 199 or 1990)
-  * "PRIX DÉTECTÉ: 3.99 €" -> 3.99 (NOT 399 or 3990)
-  * "0.99 €" -> 0.99 (NOT 99)
-  * "89.99 €" -> 89.99 (NOT 8999)
-  * "1234.56 €" -> 1234.56
-- If you find ANY price with € symbol, extract it with confidence >= 0.8
-- If digits are unclear or blurry, reduce confidence to 0.5-0.7
-- If unclear: set null and confidence < 0.5
+**Output Format Cleaning:**
+- "3,99 €" -> 3.99
+- "1 234,56 €" -> 1234.56
+- "0.99 €" -> 0.99
 
-**STOCK:**
-- TRUE if: "Ajouter au panier", "Acheter", "En stock", "Disponible", "Add to Cart", "Retrait 2h", "Click & Collect"
-- FALSE if: "Rupture", "Indisponible", "Épuisé", "Out of Stock", "Notify Me"
-- NULL if unclear or not shown
+**STOCK STATUS RULES:**
+- Check the button color and text.
+- Green/Blue "Ajouter au panier" -> true
+- Grey/Red "Rupture", "Indisponible" -> false
+- If in doubt, look for "En stock" text.
 
-**CONFIDENCE (0.0 to 1.0):**
-- 0.9-1.0: Price clearly visible
-- 0.5-0.8: Price found but partially obscured or uncertain
-- Below 0.5: Cannot find price reliably
+**CONFIDENCE SCORE:**
+- 1.0: Price is clearly visible in the image and matches text.
+- 0.9: Price is clearly visible in the image, even if text is missing.
+- 0.5: Price found in Text ONLY (Image unclear).
+- 0.0: No price found.
 
 Respond ONLY with valid JSON:
 {{
