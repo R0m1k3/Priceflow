@@ -30,8 +30,8 @@ ImprovedSearchService._connect_browser = _connect_browser_local
 async def test_search():
     await ImprovedSearchService.initialize()
 
-    query = "Mange-debout"  # Common item on their site
-    target_site = "lincroyable.fr"
+    query = "nintendo switch"
+    target_site = "gifi.fr"
 
     print(f"Searching for: {query} on {target_site}")
 

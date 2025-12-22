@@ -409,26 +409,6 @@ class ImprovedSearchService:
     async def _scrape_item_details(cls, result: SearchResult, context: BrowserContext) -> SearchResult | None:
         """Scrape price and details for a single item using same context"""
         try:
-            # SPECIAL CASE: L'Incroyable - Price is in the title
-            if "lincroyable.fr" in result.url:
-                import re
-
-                # Extract price from title (e.g., "34€99" or "59€99")
-                # Extract price from title (e.g., "34€99" or "59€99")
-                # Fix: Use non-greedy regex and ensure only 2 decimals
-                price_match = re.search(r"(\d+)€(\d{2})(?!\d)", result.title)
-                if price_match:
-                    # Convert to float (e.g., "34€99" -> 34.99)
-                    price_euros = int(price_match.group(1))
-                    price_cents = int(price_match.group(2))
-                    result.price = float(f"{price_euros}.{price_cents}")
-
-                    # Clean title by removing price
-                    result.title = re.sub(r"\d+€\d+", "", result.title).strip()
-                    logger.debug(f"L'Incroyable - Extracted price {result.price}€ from title")
-
-                    return result
-
             # SPECIAL CASE: Gifi - Price extracted from search, no need to visit page
             if "gifi.fr" in result.url and result.price is not None:
                 logger.debug(f"Gifi - Price already extracted from search: {result.price}€")
