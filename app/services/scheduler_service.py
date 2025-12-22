@@ -177,11 +177,12 @@ async def process_item_check(item_id: int):
                 logger.debug(f"JSON-LD extraction failed: {e}")
 
         # 2. Try AIPriceExtractor (Text AI - Gemma 3) - Very reliable for search
-        from app.services.ai_price_extractor import AIPriceExtractor
-        if price is None:
-            price = await AIPriceExtractor.extract_price(html_content, item_data["name"])
-            if price:
-                logger.info(f"AIPriceExtractor (Text) found price: {price}€")
+        # DISABLED FOR VISION PRIORITY (User Request: Option 2)
+        # from app.services.ai_price_extractor import AIPriceExtractor
+        # if price is None:
+        #     price = await AIPriceExtractor.extract_price(html_content, item_data["name"])
+        #     if price:
+        #         logger.info(f"AIPriceExtractor (Text) found price: {price}€")
 
         # 3. Fallback/Verification with AIService (Vision AI - Gemini)
         extraction = None
