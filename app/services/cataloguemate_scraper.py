@@ -298,15 +298,47 @@ async def scrape_enseigne(enseigne: Enseigne, db: Session) -> ScrapingLog:
                 Catalogue.catalogue_url == cat_info['url']
             ).first()
             
+            # Check if existing catalog has valid images or needs repair
+            needs_repair = False
             if existing:
-                logger.info(f"Catalogue already exists by URL: {cat_info['title']} (ID: {existing.id})")
-                continue
-                
-            # 2. Scrape pages for new catalog
+                # Check if coverage image is a placeholder/loader
+                if any(x in existing.image_couverture_url.lower() for x in ['loader', 'icon', 'logo', 'facebook']):
+                    logger.info(f"Catalogue {existing.id} exists but has bad cover image ({existing.image_couverture_url}). Repairing...")
+                    needs_repair = True
+                else:
+                    logger.info(f"Catalogue already exists by URL: {cat_info['title']} (ID: {existing.id})")
+                    continue
+            
+            # 2. Scrape pages for new catalog (or repair)
             pages = await scrape_catalog_pages(cat_info['url'])
             
             if not pages:
                 continue
+            
+            if needs_repair and existing:
+                # Update existing catalog
+                existing.image_couverture_url = pages[0]['image_url']
+                existing.nombre_pages = len(pages)
+                # content_hash might change, let's update it
+                hash_input = f"{cat_info['title']}{pages[0]['image_url']}".encode('utf-8')
+                existing.content_hash = hashlib.sha256(hash_input).hexdigest()
+                
+                # Delete old pages
+                db.query(CataloguePage).filter(CataloguePage.catalogue_id == existing.id).delete()
+                
+                # Add new pages
+                for page_data in pages:
+                    new_page = CataloguePage(
+                        catalogue_id=existing.id,
+                        numero_page=page_data['page_number'],
+                        image_url=page_data['image_url'],
+                    )
+                    db.add(new_page)
+                
+                db.commit()
+                log.catalogues_mis_a_jour += 1
+                logger.info(f"Repaired catalog '{existing.titre}' with {len(pages)} pages")
+                continue # Done with this catalog
             
             # Generate content hash based on title and first image (stable identifier)
             hash_input = f"{cat_info['title']}{pages[0]['image_url']}".encode('utf-8')
