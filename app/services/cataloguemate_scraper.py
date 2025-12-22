@@ -10,6 +10,16 @@ import asyncio
 import logging
 import httpx
 import random
+import re
+import hashlib
+from datetime import datetime, timedelta
+from typing import Any, Optional
+
+from bs4 import BeautifulSoup
+from sqlalchemy.orm import Session
+
+from app.models import Enseigne, Catalogue, CataloguePage, ScrapingLog
+from app.services.browserless_service import browserless_service
 
 async def _fetch_with_fallback(url: str) -> str:
     """Fetch content using Browserless first, then fallback to HTTPX."""
