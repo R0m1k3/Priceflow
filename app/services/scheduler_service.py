@@ -220,28 +220,56 @@ async def process_item_check(item_id: int):
         # Check for notifications
         if item_data["notification_channel"] and extraction.price:
             channel = item_data["notification_channel"]
+            logger.info(f"📢 Notification check for item {item_id}: old_price={old_price}, new_price={extraction.price}, target_price={item_data['target_price']}")
             
-            # 1. Target Price Reached
-            if item_data["target_price"] and extraction.price <= item_data["target_price"]:
-                # Only notify if we haven't already notified for this price (or if price dropped further)
-                # For simplicity, we notify if current price <= target. 
-                # Ideally we should check if we already notified recently, but let's keep it simple.
-                if not old_price or old_price > item_data["target_price"]:
-                    await NotificationService.send_notification(
-                        channel,
-                        title=f"🎯 Prix cible atteint : {item_data['name']}",
-                        body=f"Le prix de {item_data['name']} est passé à {extraction.price}€ (Cible: {item_data['target_price']}€)\n{item_data['url']}"
-                    )
+            notification_sent = False
             
-            # 2. Price Drop
-            elif old_price and extraction.price < old_price:
-                drop_percent = (old_price - extraction.price) / old_price * 100
-                if drop_percent >= 5:  # Notify only for significant drops (> 5%)
+            # CASE 1: Target price is set -> notify only when target is reached
+            if item_data["target_price"]:
+                if extraction.price <= item_data["target_price"]:
+                    # Only notify if we haven't already notified for this price
+                    if not old_price or old_price > item_data["target_price"]:
+                        logger.info(f"✅ Target price reached for {item_data['name']}: {extraction.price}€ <= {item_data['target_price']}€")
+                        await NotificationService.send_notification(
+                            channel,
+                            title=f"🎯 Prix cible atteint : {item_data['name']}",
+                            body=f"Le prix de {item_data['name']} est passé à {extraction.price}€ (Cible: {item_data['target_price']}€)\n{item_data['url']}"
+                        )
+                        notification_sent = True
+                else:
+                    logger.info(f"ℹ️ Price {extraction.price}€ not yet at target {item_data['target_price']}€")
+            
+            # CASE 2: No target price -> notify on ANY price drop
+            else:
+                if old_price and extraction.price < old_price:
+                    drop_percent = (old_price - extraction.price) / old_price * 100
+                    logger.info(f"📉 Price drop detected for {item_data['name']}: {drop_percent:.1f}%")
                     await NotificationService.send_notification(
                         channel,
                         title=f"📉 Baisse de prix : {item_data['name']}",
                         body=f"Le prix de {item_data['name']} a baissé de {drop_percent:.1f}% !\nNouveau prix : {extraction.price}€ (Ancien: {old_price}€)\n{item_data['url']}"
                     )
+                    notification_sent = True
+                
+                # Also notify on significant price increases (>= 5%)
+                elif old_price and extraction.price > old_price:
+                    increase_percent = (extraction.price - old_price) / old_price * 100
+                    if increase_percent >= 5:
+                        logger.info(f"📈 Price increase detected for {item_data['name']}: {increase_percent:.1f}%")
+                        await NotificationService.send_notification(
+                            channel,
+                            title=f"📈 Hausse de prix : {item_data['name']}",
+                            body=f"Le prix de {item_data['name']} a augmenté de {increase_percent:.1f}%.\nNouveau prix : {extraction.price}€ (Ancien: {old_price}€)\n{item_data['url']}"
+                        )
+                        notification_sent = True
+            
+            if not notification_sent:
+                logger.info(f"ℹ️ No notification triggered for item {item_id} (no significant change)")
+        else:
+            if not item_data["notification_channel"]:
+                logger.debug(f"⚠️ Item {item_id} has no notification channel assigned.")
+            if not extraction.price:
+                logger.debug(f"⚠️ Item {item_id} has no extracted price.")
 
 
 
