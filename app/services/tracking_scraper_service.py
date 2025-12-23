@@ -23,7 +23,7 @@ POPUP_SELECTORS = [
     "button:has-text('No thanks')",
     "a:has-text('No, thanks')",
     "div[role='dialog'] button[aria-label='Close']",
-    # Amazon Interstitials (Added for robustness)
+    # Amazon Interstitials & Cookies
     "button:has-text('Continuer les achats')",
     "span:has-text('Continuer les achats')",
     "a:has-text('Continuer les achats')",
@@ -32,13 +32,17 @@ POPUP_SELECTORS = [
     "span.a-button-inner > input.a-button-input[type='submit']",
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
+    "#sp-cc-accept",
+    "#sp-cc-rejectall-link",
+    "button[data-action='a-popover-close']",
+    "[data-action='sp-cc-accept']",
+    "input[aria-labelledby='sp-cc-accept-label']",
     # Didomi / Gifi
     "#didomi-notice-agree-button",
     "button[id='didomi-notice-agree-button']",
     "span:has-text('Accepter & Fermer')",
     "button:has-text('Accepter & Fermer')",
     # Common banners
-    "#sp-cc-accept",
     "#onetrust-accept-btn-handler",
     ".cookie-consent-accept",
     "[data-action='accept-cookies']",
@@ -148,6 +152,10 @@ class ScraperService:
             return None, "", url, ""
 
         try:
+            # SPECIALIZED AMAZON HANDLING
+            if "amazon" in url:
+                return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html)
+
             context = await ScraperService._create_context(ScraperService._browser, url)
             page = await context.new_page()
 
@@ -221,6 +229,103 @@ class ScraperService:
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
             return None, "", url, ""
+
+    @staticmethod
+    async def _scrape_amazon_specific(
+        url: str,
+        item_id: int | None,
+        config: ScrapeConfig,
+        return_html: bool
+    ) -> tuple[str | None, str, str, str]:
+        """
+        Specialized scraping flow for Amazon to avoid bot detection and ensure good screenshots.
+        Strategy:
+        1. Emulate human visiting homepage first
+        2. Navigate to product
+        3. Aggressively handle popups
+        4. Wait for main image to be visible
+        """
+        logger.info(f"🛒 Starting specialized Amazon scrape for: {url}")
+        
+        # Determine base domain
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        
+        context = await ScraperService._create_context(ScraperService._browser, url)
+        page = await context.new_page()
+        
+        try:
+            # 1. Warm-up: Visit Homepage to get cookies/session
+            try:
+                logger.info(f"🏠 Visiting {base_domain} to establish authentic session...")
+                await page.goto(base_domain, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(2)
+                await ScraperService._handle_popups(page)
+            except Exception as e:
+                logger.warning(f"Homepage warm-up failed (continuing anyway): {e}")
+
+            # 2. Navigate to Product
+            logger.info(f"➡️ Navigating to product page: {url}")
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            
+            final_url = page.url
+            try:
+                page_title = await page.title()
+            except:
+                page_title = "Amazon Product"
+
+            # 3. Check for Bot Detection / CAPTCHA
+            content_check = await page.content()
+            if "Type the characters you see in this image" in content_check or "Saisissez les caractères que vous voyez" in content_check:
+                logger.error("🚫 Amazon CAPTCHA detected!")
+                # Attempt refresh once
+                logger.info("Retrying with refresh...")
+                await page.reload()
+                await asyncio.sleep(3)
+
+            # 4. Handle Popups & Location Selectors
+            await ScraperService._handle_popups(page)
+            
+            # Dismiss "Change Address" or specific Amazon location modals if any
+            try:
+                await page.evaluate("document.getElementById('nav-main')?.classList.remove('nav-progressive-attribute')")
+            except: pass
+
+            # 5. Wait for Main Image (Critical for screenshot)
+            logger.info("🖼️ Waiting for product image...")
+            try:
+                # Main image container on desktop
+                await page.wait_for_selector(
+                    "#imgTagWrapperId, #landingImage, #main-image-container, .imgTagWrapper", 
+                    timeout=10000
+                )
+            except Exception as e:
+                logger.warning(f"Could not find main image container: {e}")
+
+            # 6. Smart User Behavior (Scroll to trigger lazy loading)
+            if config.smart_scroll:
+                await ScraperService._smart_scroll(page, config.scroll_pixels)
+                # Scroll back up to header for good screenshot
+                await page.evaluate("window.scrollTo(0, 0)")
+                await asyncio.sleep(1)
+
+            # 7. Extract Data
+            if return_html:
+                content_data = await page.content()
+            else:
+                content_data = await ScraperService._extract_text(page, config.text_length)
+                
+            # 8. Screenshot
+            screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
+            
+            return screenshot_path, content_data, final_url, page_title
+
+        except Exception as e:
+            logger.error(f"❌ Amazon specific scrape failed: {e}")
+            return None, "", url, ""
+        finally:
+            await context.close()
 
     @staticmethod
     async def _connect_browser(p) -> Browser:
