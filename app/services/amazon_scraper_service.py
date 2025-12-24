@@ -352,7 +352,14 @@ class AmazonScraperService:
                 logger.warning(f"⏳ Attempt {attempt} failed, retrying in {delay}s with new identity...")
                 await asyncio.sleep(delay)
 
-        logger.error(f"❌ All {MAX_RETRY_ATTEMPTS} attempts failed for query: {query}")
+        if not products and proxies:
+            logger.warning("⚠️ All proxy attempts failed. Attempting fallback to direct connection...")
+            products = await cls._try_scrape(query, max_results, None, MAX_RETRY_ATTEMPTS + 1)
+            if products:
+                logger.info("✅ Successfully extracted products using direct connection fallback")
+                return products
+
+        logger.error(f"❌ All attempts failed for query: {query}")
         return []
 
     @classmethod
