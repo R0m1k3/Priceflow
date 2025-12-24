@@ -560,22 +560,39 @@ class AmazonScraperService:
                     await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
 
                 # Wait for search results to appear
+                search_detected = False
                 try:
                     await page.wait_for_selector(
                         'div[data-component-type="s-search-result"], .s-result-list', timeout=15000
                     )
                     logger.info("✅ Search results detected")
+                    search_detected = True
                 except Exception:
-                    logger.warning("🕒 Search results not found immediately, checking for blocks...")
+                    logger.warning("🕒 Search results not found immediately")
 
-                # CRITICAL FIX: Extract HTML IMMEDIATELY before Amazon's bot detection kicks in
-                # Do NOT wait for networkidle or add delays here - that gives Amazon time to detect us
-                html_content = await page.content()
+                # AGGRESSIVE STRATEGY: Try DOM extraction IMMEDIATELY, before Amazon's JS can inject login wall
+                if search_detected:
+                    logger.info("🚀 Attempting IMMEDIATE DOM extraction (racing against bot detection)...")
+                    products = await cls._extract_products_from_visible_dom(page, max_results)
+
+                    if products:
+                        logger.info(f"✅ IMMEDIATE extraction succeeded! Got {len(products)} products")
+                        return products
+                    else:
+                        logger.warning("⚠️ Immediate DOM extraction returned no products")
+
+                # If immediate extraction failed, check why
                 current_url = page.url
+                html_content = await page.content()
 
-                # Quick URL check for immediate redirects
+                # Quick URL check for redirects
                 if "ap/signin" in current_url or "ap/register" in current_url:
                     logger.warning(f"⚠️ Redirected to login page: {current_url}")
+                    try:
+                        await page.screenshot(path="/tmp/amazon_login_wall.png")
+                        logger.info("📸 Saved debug screenshot")
+                    except Exception:
+                        pass
                     return []
 
                 # Check for CAPTCHA
@@ -588,75 +605,45 @@ class AmazonScraperService:
 
                 # Check for login wall in content
                 if "Identifiez-vous" in html_content and "commander" not in html_content:
-                    # Double-check: maybe we grabbed content too early, try once more after a tiny wait
-                    await asyncio.sleep(0.5)
-                    html_content = await page.content()
+                    logger.warning("⚠️ Login wall detected in page content")
+                    try:
+                        await page.screenshot(path="/tmp/amazon_login_wall.png")
+                        logger.info("📸 Saved debug screenshot")
+                    except Exception:
+                        pass
+                    return []
 
-                    if "Identifiez-vous" in html_content and "commander" not in html_content:
-                        logger.warning("⚠️ Login wall detected in page content")
-                        try:
-                            debug_path = "/tmp/amazon_login_wall.png"
-                            await page.screenshot(path=debug_path)
-                            logger.info(f"📸 Saved debug screenshot to {debug_path}")
-                        except Exception:
-                            pass
-                        return []
-
-                logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
+                # If we got here without products and no obvious blocks, try BeautifulSoup as last resort
+                logger.info(f"📄 Page content: {len(html_content)} bytes - trying BeautifulSoup...")
 
                 if len(html_content) < 10000:
-                    logger.warning(f"⚠️ Page too small ({len(html_content)} bytes) - trying DOM fallback")
-                    # Try DOM fallback before giving up
-                    products = await cls._extract_products_from_visible_dom(page, max_results)
-                    if products:
-                        return products
-                    logger.error("❌ DOM fallback also failed")
+                    logger.error(f"❌ Page too small ({len(html_content)} bytes)")
                     return []
 
                 # Parse with BeautifulSoup
                 soup = BeautifulSoup(html_content, "html.parser")
-
-                # Find product cards
                 product_cards = soup.find_all("div", {"data-component-type": "s-search-result"})
 
                 if not product_cards:
-                    # Try alternative selector
                     product_cards = soup.find_all("div", {"data-asin": True, "data-index": True})
 
                 if not product_cards:
-                    logger.warning("⚠️ No products found in HTML - trying DOM fallback")
-                    # Check for blocks first
-                    if "503" in html_content or "robot" in html_content.lower():
-                        logger.error("🚫 Amazon blocked request (503/robot)")
-                        return []
-                    # Try DOM fallback
-                    products = await cls._extract_products_from_visible_dom(page, max_results)
-                    if products:
-                        return products
+                    logger.warning("⚠️ No products found in HTML")
                     return []
 
                 logger.info(f"📦 Found {len(product_cards)} product cards")
 
-                # Extract products
                 for idx, card in enumerate(product_cards):
                     if len(products) >= max_results:
                         break
-
                     try:
                         product = cls._extract_product(card, idx)
                         if product:
                             products.append(product)
-                            logger.debug(f"  ✓ [{len(products)}] {product.title[:50]}... - {product.price}€")
                     except Exception as e:
                         logger.error(f"Error parsing card {idx}: {e}")
-                        continue
 
-                # If BeautifulSoup extracted nothing useful, try DOM fallback
-                if not products:
-                    logger.warning("⚠️ BeautifulSoup extraction returned no products - trying DOM fallback")
-                    products = await cls._extract_products_from_visible_dom(page, max_results)
-
-                logger.info(f"✅ Successfully extracted {len(products)} products")
+                logger.info(f"✅ Extracted {len(products)} products")
 
             finally:
                 await context.close()
