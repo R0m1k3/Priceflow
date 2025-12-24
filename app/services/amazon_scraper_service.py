@@ -25,13 +25,23 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 AMAZON_FR_BASE_URL = "https://www.amazon.fr"
 AMAZON_FR_SEARCH_URL = "https://www.amazon.fr/s?k={query}"
 
-# Cookie/popup selectors for Amazon
+# Retry configuration for login wall avoidance
+MAX_RETRY_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 2.0
+
+# Cookie/popup selectors for Amazon (extended list)
 AMAZON_POPUP_SELECTORS = [
-    "#sp-cc-accept",  # Cookie banner
-    "#sp-cc-rejectall-link",
+    "#sp-cc-accept",  # Cookie banner - accept
+    "#sp-cc-rejectall-link",  # Cookie banner - reject all
+    "#sp-cc-rejectall-make-promise-link",  # Alternative reject
     "button[data-action='a-popover-close']",
     "[data-action='sp-cc-accept']",
     "input[aria-labelledby='sp-cc-accept-label']",
+    "button:has-text('Accepter')",
+    "button:has-text('Refuser')",
+    "button:has-text('Continuer')",
+    ".a-button-close",  # Generic Amazon close button
+    "[data-action='a-modal-close']",
 ]
 
 
@@ -184,18 +194,21 @@ class AmazonScraperService:
         return await p.chromium.connect_over_cdp(BROWSERLESS_URL)
 
     @staticmethod
-    async def _create_context(browser: Browser) -> BrowserContext:
-        """Create browser context with dynamic stealth settings"""
+    async def _create_context(browser: Browser, proxy: dict | None = None, attempt: int = 1) -> BrowserContext:
+        """Create browser context with dynamic stealth settings and optional proxy"""
         from app.core.search_config import get_random_stealth_config
 
         stealth_config = get_random_stealth_config()
+        logger.info(f"🎲 Attempt {attempt}: Creating context with new identity")
         ua = stealth_config["ua"]
         ch = stealth_config["ch"]
         platform = stealth_config["platform"]
 
         logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
+        if proxy:
+            logger.info(f"🌐 Using proxy: {proxy.get('server', 'unknown')}")
 
-        context = await browser.new_context(
+        context_options = dict(
             viewport={"width": 1920, "height": 1080},
             user_agent=ua,
             locale="fr-FR",
@@ -218,6 +231,12 @@ class AmazonScraperService:
                 "Referer": "https://www.google.fr/",
             },
         )
+
+        # Add proxy if provided
+        if proxy:
+            context_options["proxy"] = proxy
+
+        context = await browser.new_context(**context_options)
 
         # Comprehensive stealth mode injector
         await context.add_init_script("""
@@ -292,7 +311,7 @@ class AmazonScraperService:
     @classmethod
     async def scrape_search(cls, query: str, max_results: int = 50) -> list[AmazonProduct]:
         """
-        Scrape Amazon France search results
+        Scrape Amazon France search results with retry mechanism
 
         Args:
             query: Search query
@@ -301,6 +320,8 @@ class AmazonScraperService:
         Returns:
             List of AmazonProduct objects
         """
+        from app.core.search_config import get_amazon_proxies
+
         search_url = AMAZON_FR_SEARCH_URL.format(query=quote_plus(query))
         logger.info(f"🔍 Searching Amazon France: {query}")
         logger.info(f"📍 URL: {search_url}")
@@ -310,10 +331,38 @@ class AmazonScraperService:
             logger.error("Failed to establish browser connection")
             return []
 
+        # Get available proxies for rotation
+        proxies = get_amazon_proxies()
+
+        # Retry loop with identity rotation
+        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+            logger.info(f"🔄 Attempt {attempt}/{MAX_RETRY_ATTEMPTS}")
+
+            # Select proxy for this attempt (cycle through or None if empty)
+            proxy = proxies[(attempt - 1) % len(proxies)] if proxies else None
+
+            products = await cls._try_scrape(query, max_results, proxy, attempt)
+
+            if products:
+                logger.info(f"✅ Successfully extracted {len(products)} products on attempt {attempt}")
+                return products
+
+            if attempt < MAX_RETRY_ATTEMPTS:
+                delay = RETRY_DELAY_SECONDS * attempt  # Exponential backoff
+                logger.warning(f"⏳ Attempt {attempt} failed, retrying in {delay}s with new identity...")
+                await asyncio.sleep(delay)
+
+        logger.error(f"❌ All {MAX_RETRY_ATTEMPTS} attempts failed for query: {query}")
+        return []
+
+    @classmethod
+    async def _try_scrape(cls, query: str, max_results: int, proxy: dict | None, attempt: int) -> list[AmazonProduct]:
+        """Single scrape attempt with given identity"""
+        search_url = AMAZON_FR_SEARCH_URL.format(query=quote_plus(query))
         products = []
 
         try:
-            context = await cls._create_context(cls._browser)
+            context = await cls._create_context(cls._browser, proxy=proxy, attempt=attempt)
             page = await context.new_page()
 
             try:
@@ -370,9 +419,37 @@ class AmazonScraperService:
                         'div[data-component-type="s-search-result"], .s-result-list', timeout=10000
                     )
                     logger.info("✅ Search results detected")
+
+                    # CRITICAL: Wait for page to fully stabilize before extraction
+                    # Amazon's JS may redirect after initial content loads
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+
+                    # Check if URL has changed (login redirect)
+                    current_url = page.url
+                    if "ap/signin" in current_url or "ap/register" in current_url:
+                        logger.warning(f"⚠️ Redirected to login page: {current_url}")
+                        return []
+
+                    # Wait for network to be idle (no pending requests)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass  # Timeout is acceptable, we just want to give it a chance
+
+                    # Simulate more human behavior to appear natural
                     await cls._simulate_human_behavior(page)
+
+                    # Another small delay before extraction
+                    await asyncio.sleep(random.uniform(1.0, 2.0))
+
                 except Exception:
                     logger.warning("🕒 Search results not found immediately, checking for blocks...")
+
+                # Re-check URL before extraction
+                current_url = page.url
+                if "ap/signin" in current_url or "ap/register" in current_url:
+                    logger.warning(f"⚠️ Redirected to login page before extraction: {current_url}")
+                    return []
 
                 # Get HTML
                 html_content = await page.content()
@@ -387,7 +464,13 @@ class AmazonScraperService:
 
                 if "Identifiez-vous" in html_content and "commander" not in html_content:
                     logger.warning("⚠️ Redirected to login wall")
-                    # Try one more time with a different behavior or just fail
+                    # Save screenshot for debugging
+                    try:
+                        debug_path = "/tmp/amazon_login_wall.png"
+                        await page.screenshot(path=debug_path)
+                        logger.info(f"📸 Saved debug screenshot to {debug_path}")
+                    except Exception:
+                        pass
                     return []
 
                 logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
