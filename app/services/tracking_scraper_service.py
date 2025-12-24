@@ -275,7 +275,7 @@ class ScraperService:
             except:
                 page_title = "Amazon Product"
 
-            # 3. Check for Bot Detection / CAPTCHA
+            # 3. Check for Bot Detection / CAPTCHA / Login
             content_check = await page.content()
             if "Type the characters you see in this image" in content_check or "Saisissez les caractères que vous voyez" in content_check:
                 logger.error("🚫 Amazon CAPTCHA detected!")
@@ -283,6 +283,15 @@ class ScraperService:
                 logger.info("Retrying with refresh...")
                 await page.reload()
                 await asyncio.sleep(3)
+                # Re-check
+                content_check = await page.content()
+                if "Type the characters you see in this image" in content_check:
+                     return None, "CAPTCHA_DETECTED", final_url, page_title
+
+            if "Identifiez-vous" in content_check or "ap_signin" in content_check:
+                logger.error("🚫 Amazon Login Redirect detected!")
+                return None, "LOGIN_REQUIRED", final_url, page_title
+
 
             # 4. Handle Popups & Location Selectors
             await ScraperService._handle_popups(page)
