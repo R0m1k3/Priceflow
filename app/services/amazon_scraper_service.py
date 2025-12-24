@@ -318,6 +318,16 @@ class AmazonScraperService:
         products = []
 
         try:
+            # First, save a debug screenshot and HTML for analysis
+            try:
+                await page.screenshot(path="/tmp/amazon_dom_debug.png")
+                html = await page.content()
+                with open("/tmp/amazon_dom_debug.html", "w", encoding="utf-8") as f:
+                    f.write(html)
+                logger.info("📸 Saved debug screenshot and HTML to /tmp/amazon_dom_debug.*")
+            except Exception as e:
+                logger.warning(f"Could not save debug files: {e}")
+
             # Find all product cards using Playwright locators
             product_cards = page.locator('div[data-component-type="s-search-result"]')
             count = await product_cards.count()
@@ -336,27 +346,46 @@ class AmazonScraperService:
                     # Get ASIN
                     asin = await card.get_attribute("data-asin")
                     if not asin:
+                        logger.debug(f"  Card {idx}: No ASIN, skipping")
                         continue
+
+                    # Log card outer HTML for debugging (first 200 chars)
+                    try:
+                        outer_html = await card.evaluate("el => el.outerHTML")
+                        logger.debug(f"  Card {idx} ASIN={asin}: {outer_html[:200]}...")
+                    except Exception:
+                        pass
 
                     # Check if sponsored
                     sponsored = await card.locator('[data-component-type="sp-sponsored-result"]').count() > 0
 
                     # Get title - try multiple selectors
                     title = None
-                    for selector in ["h2 a span", "h2 span", "h2.s-line-clamp-2 span"]:
+                    for selector in ["h2 a span", "h2 span", "h2.s-line-clamp-2 span", "h2"]:
                         title_elem = card.locator(selector).first
                         if await title_elem.count() > 0:
-                            title = await title_elem.inner_text()
-                            if title:
-                                title = title.strip()
-                                break
+                            try:
+                                title = await title_elem.inner_text()
+                                if title:
+                                    title = title.strip()
+                                    break
+                            except Exception:
+                                pass
 
                     if not title:
+                        # Try to get any text content from the card
+                        try:
+                            all_text = await card.inner_text()
+                            logger.debug(f"  Card {idx}: No h2 title. Card text preview: {all_text[:100]}...")
+                        except Exception:
+                            pass
                         continue
+
+                    logger.debug(f"  Card {idx}: Found title = {title[:50]}...")
 
                     # Get URL
                     url = None
-                    link_elem = card.locator("h2 a").first
+                    link_elem = card.locator("h2 a, a[href*='/dp/']").first
                     if await link_elem.count() > 0:
                         href = await link_elem.get_attribute("href")
                         if href and href != "#":
@@ -366,17 +395,26 @@ class AmazonScraperService:
                                 url = href
 
                     if not url:
+                        logger.debug(f"  Card {idx}: No valid URL found")
                         continue
+
+                    logger.debug(f"  Card {idx}: Found URL = {url[:60]}...")
 
                     # Get price - try multiple selectors
                     price = None
-                    for selector in [".a-price .a-offscreen", ".a-price-whole", "span.a-price span.a-offscreen"]:
+                    for selector in [
+                        ".a-price .a-offscreen",
+                        ".a-price-whole",
+                        "span.a-price span.a-offscreen",
+                        ".a-price",
+                    ]:
                         price_elem = card.locator(selector).first
                         if await price_elem.count() > 0:
                             try:
                                 price_text = await price_elem.inner_text()
                                 price = parse_amazon_price(price_text)
                                 if price:
+                                    logger.debug(f"  Card {idx}: Found price = {price}€")
                                     break
                             except Exception:
                                 pass
@@ -393,12 +431,17 @@ class AmazonScraperService:
 
                     # Get rating
                     rating = None
-                    for selector in ['[aria-label*="étoile"]', '[aria-label*="star"]']:
+                    for selector in ['[aria-label*="étoile"]', '[aria-label*="star"]', "i.a-icon-star span"]:
                         rating_elem = card.locator(selector).first
                         if await rating_elem.count() > 0:
                             try:
                                 aria_label = await rating_elem.get_attribute("aria-label")
-                                rating = parse_rating(aria_label or "")
+                                if aria_label:
+                                    rating = parse_rating(aria_label)
+                                else:
+                                    # Try inner text
+                                    rating_text = await rating_elem.inner_text()
+                                    rating = parse_rating(rating_text)
                                 if rating:
                                     break
                             except Exception:
@@ -406,7 +449,7 @@ class AmazonScraperService:
 
                     # Get reviews count
                     reviews_count = None
-                    reviews_elem = card.locator("span.s-underline-text").first
+                    reviews_elem = card.locator("span.s-underline-text, span[aria-label*='évaluation']").first
                     if await reviews_elem.count() > 0:
                         try:
                             reviews_text = await reviews_elem.inner_text()
@@ -416,7 +459,7 @@ class AmazonScraperService:
 
                     # Get image URL
                     image_url = None
-                    img_elem = card.locator("img.s-image").first
+                    img_elem = card.locator("img.s-image, img").first
                     if await img_elem.count() > 0:
                         image_url = await img_elem.get_attribute("src")
 
@@ -439,7 +482,7 @@ class AmazonScraperService:
                         sponsored=sponsored,
                     )
                     products.append(product)
-                    logger.debug(f"  ✓ DOM [{len(products)}] {title[:40]}... - {price}€")
+                    logger.info(f"  ✓ DOM [{len(products)}] {title[:40]}... - {price}€")
 
                 except Exception as e:
                     logger.warning(f"Error extracting product {idx} from DOM: {e}")
