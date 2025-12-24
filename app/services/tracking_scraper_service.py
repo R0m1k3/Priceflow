@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -29,7 +30,8 @@ POPUP_SELECTORS = [
     "a:has-text('Continuer les achats')",
     "input[value='Continuer les achats']",
     "input[value='Continue shopping']",
-    "span.a-button-inner > input.a-button-input[type='submit']",
+    "input[value='Continue shopping']",
+
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
     "#sp-cc-accept",
@@ -50,6 +52,16 @@ POPUP_SELECTORS = [
     "button[class*='accept']",
 ]
 
+
+
+# Random User-Agents to alternate fingerprint
+AMAZON_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+]
 
 @dataclass
 class ScrapeConfig:
@@ -275,8 +287,23 @@ class ScraperService:
             except:
                 page_title = "Amazon Product"
 
-            # 3. Check for Bot Detection / CAPTCHA / Login
+            # 3. Check for Hard Redirects (URL-based)
+            if "/ap/signin" in page.url:
+                 logger.error("🚫 Amazon Login Redirect detected (URL)!")
+                 return None, "LOGIN_REQUIRED", final_url, page_title
+
+            # 4. Handle Popups & Location Selectors
+            await ScraperService._handle_popups(page)
+            
+            # Dismiss "Change Address" or specific Amazon location modals if any
+            try:
+                await page.evaluate("document.getElementById('nav-main')?.classList.remove('nav-progressive-attribute')")
+            except: pass
+
+            # 5. Check for Bot Detection / CAPTCHA / Login (Content-based)
+            # We do this AFTER popup removal because sometimes "Identifiez-vous" is in a dismissible modal
             content_check = await page.content()
+            
             if "Type the characters you see in this image" in content_check or "Saisissez les caractères que vous voyez" in content_check:
                 logger.error("🚫 Amazon CAPTCHA detected!")
                 # Attempt refresh once
@@ -289,19 +316,41 @@ class ScraperService:
                      return None, "CAPTCHA_DETECTED", final_url, page_title
 
             if "Identifiez-vous" in content_check or "ap_signin" in content_check:
-                logger.error("🚫 Amazon Login Redirect detected!")
-                return None, "LOGIN_REQUIRED", final_url, page_title
+                # Double check: is it a modal we missed? Try one last specific closure
+                try:
+                    close_btn = page.locator("button[data-action='a-popover-close'], .a-popover-close")
+                    if await close_btn.count() > 0 and await close_btn.first.is_visible():
+                        logger.info("Found login modal close button, clicking...")
+                        await close_btn.first.click()
+                        await page.wait_for_timeout(1000)
+                        content_check = await page.content() # Refresh content
+                except: pass
 
+                if "Identifiez-vous" in content_check or "ap_signin" in content_check:
+                    # Retry once for Login wall too
+                    logger.info("⚠️ Amazon Login/Auth detected. Retrying with refresh...")
+                    await page.reload()
+                    await asyncio.sleep(3)
+                    content_check = await page.content()
 
-            # 4. Handle Popups & Location Selectors
-            await ScraperService._handle_popups(page)
-            
-            # Dismiss "Change Address" or specific Amazon location modals if any
-            try:
-                await page.evaluate("document.getElementById('nav-main')?.classList.remove('nav-progressive-attribute')")
-            except: pass
+                    if "Identifiez-vous" in content_check or "ap_signin" in content_check:
+                        # Final Check: Do we have a product title?
+                        # If we have a title, it's just a popup we missed/hid. Proceed.
+                        # If NO title, it's a hard redirect/gate. Fail.
+                        try:
+                            title_check = page.locator("#productTitle, #title")
+                            if await title_check.count() > 0:
+                                 logger.info("⚠️ Login prompt detected but Product Title found. Ignoring/Hiding modal...")
+                                 # Attempt to brute-force remove the modal overlay again just in case
+                                 await page.evaluate("document.querySelectorAll('.a-popover-modal, .a-modal-scroller').forEach(e => e.remove())")
+                            else:
+                                 logger.error("🚫 Amazon Login Prompt detected (Blocking)!")
+                                 return None, "LOGIN_REQUIRED", final_url, page_title
+                        except:
+                            logger.error("🚫 Amazon Login Prompt detected (Error Checking Title)!")
+                            return None, "LOGIN_REQUIRED", final_url, page_title
 
-            # 5. Wait for Main Image (Critical for screenshot)
+            # 6. Wait for Main Image (Critical for screenshot)
             logger.info("🖼️ Waiting for product image...")
             try:
                 # Main image container on desktop
@@ -350,13 +399,15 @@ class ScraperService:
         parsed = urlparse(url)
         base_domain = f"{parsed.scheme}://{parsed.netloc}/"
 
+        if "amazon" in url:
+             ua = random.choice(AMAZON_USER_AGENTS)
+             logger.info(f"🎭 Using rotated User-Agent: {ua}")
+        else:
+             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
+            user_agent=ua,
             locale="fr-FR",
             timezone_id="Europe/Paris",
             extra_http_headers={
@@ -456,7 +507,8 @@ class ScraperService:
                     '#didomi-host', '.didomi-popup-container', '[id*="didomi"]',
                     '#onetrust-banner-sdk', '#onetrust-consent-sdk',
                     '.cookie-banner', '.cookie-consent', '.qc-cmp2-container',
-                    '.modal-backdrop', '.modal-overlay', '.fade.show'
+                    '.modal-backdrop', '.modal-overlay', '.fade.show',
+                    '.a-popover-modal', '.a-modal-scroller'
                 ];
                 
                 // Hide specific IDs/classes
