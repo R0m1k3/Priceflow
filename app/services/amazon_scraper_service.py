@@ -39,8 +39,10 @@ AMAZON_POPUP_SELECTORS = [
 # PYDANTIC SCHEMAS
 # ============================================================================
 
+
 class AmazonProduct(BaseModel):
     """Schema for Amazon product extraction"""
+
     title: str = Field(description="Product title")
     url: str = Field(description="Product URL")
     price: float | None = Field(default=None, description="Price in EUR")
@@ -57,16 +59,17 @@ class AmazonProduct(BaseModel):
 # PARSING HELPERS
 # ============================================================================
 
+
 def parse_amazon_price(price_text: str) -> float | None:
     """Parse Amazon price formats"""
     if not price_text:
         return None
 
-    cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
-    cleaned = cleaned.replace(' ', '').replace('\xa0', '')
-    cleaned = cleaned.replace(',', '.')
+    cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
+    cleaned = cleaned.replace(" ", "").replace("\xa0", "")
+    cleaned = cleaned.replace(",", ".")
 
-    match = re.search(r'(\d+\.?\d*)', cleaned)
+    match = re.search(r"(\d+\.?\d*)", cleaned)
     if match:
         try:
             return float(match.group(1))
@@ -80,10 +83,10 @@ def parse_rating(rating_text: str) -> float | None:
     if not rating_text:
         return None
 
-    match = re.search(r'(\d+[,.]\d+)', rating_text)
+    match = re.search(r"(\d+[,.]\d+)", rating_text)
     if match:
         try:
-            return float(match.group(1).replace(',', '.'))
+            return float(match.group(1).replace(",", "."))
         except ValueError:
             return None
     return None
@@ -94,8 +97,8 @@ def parse_reviews_count(reviews_text: str) -> int | None:
     if not reviews_text:
         return None
 
-    cleaned = re.sub(r'[^\d\s]', '', reviews_text)
-    cleaned = cleaned.replace(' ', '').replace('\xa0', '')
+    cleaned = re.sub(r"[^\d\s]", "", reviews_text)
+    cleaned = cleaned.replace(" ", "").replace("\xa0", "")
 
     try:
         return int(cleaned)
@@ -106,6 +109,7 @@ def parse_reviews_count(reviews_text: str) -> int | None:
 # ============================================================================
 # AMAZON SCRAPER SERVICE
 # ============================================================================
+
 
 class AmazonScraperService:
     """Persistent browser service for Amazon scraping"""
@@ -183,14 +187,14 @@ class AmazonScraperService:
     async def _create_context(browser: Browser) -> BrowserContext:
         """Create browser context with dynamic stealth settings"""
         from app.core.search_config import get_random_stealth_config
-        
+
         stealth_config = get_random_stealth_config()
         ua = stealth_config["ua"]
         ch = stealth_config["ch"]
         platform = stealth_config["platform"]
-        
+
         logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
-        
+
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=ua,
@@ -259,7 +263,7 @@ class AmazonScraperService:
                 y = random.randint(100, 600)
                 await page.mouse.move(x, y, steps=10)
                 await asyncio.sleep(random.uniform(0.1, 0.3))
-            
+
             # Subtle scroll
             await page.evaluate("window.scrollBy(0, window.innerHeight / 4)")
             await asyncio.sleep(random.uniform(0.5, 1.0))
@@ -320,21 +324,51 @@ class AmazonScraperService:
 
                 # Handle homepage popups
                 await cls._handle_popups(page)
-                
+
                 # Simulate human behavior on homepage
                 await cls._simulate_human_behavior(page)
 
                 # Small delay
                 await asyncio.sleep(random.uniform(1.0, 3.0))
 
-                # NOW navigate to search in SAME context (cookies preserved)
-                logger.info(f"🔍 Navigating to search: {search_url}")
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                # NOW interact with the search bar naturally
+                try:
+                    logger.info(f"⌨️ Typing search query: {query}")
+                    search_input_selector = "#twotabsearchtextbox"
+
+                    # Wait for input to be visible and editable
+                    await page.wait_for_selector(search_input_selector, state="visible", timeout=10000)
+                    search_input = page.locator(search_input_selector)
+
+                    # Click and clear first
+                    await search_input.click()
+                    await search_input.fill("")
+
+                    # Type slowly like a human
+                    await search_input.type(query, delay=100)
+
+                    await asyncio.sleep(random.uniform(0.5, 1.5))
+
+                    # Click search button
+                    submit_selector = "#nav-search-submit-button"
+                    await page.wait_for_selector(submit_selector, state="visible", timeout=5000)
+                    await page.click(submit_selector)
+
+                    logger.info("🖱️ Clicked search button, waiting for results...")
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Search bar interaction failed: {e}. Fallback to direct URL.")
+                    # Fallback to direct navigation
+                    logger.info(f"🔍 Navigating to search: {search_url}")
+                    await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+
                 logger.info("Page loaded (domcontentloaded)")
 
                 # Wait for content or block
                 try:
-                    await page.wait_for_selector('div[data-component-type="s-search-result"], .s-result-list', timeout=10000)
+                    await page.wait_for_selector(
+                        'div[data-component-type="s-search-result"], .s-result-list', timeout=10000
+                    )
                     logger.info("✅ Search results detected")
                     await cls._simulate_human_behavior(page)
                 except Exception:
@@ -342,12 +376,15 @@ class AmazonScraperService:
 
                 # Get HTML
                 html_content = await page.content()
-                
+
                 # Proactive block detection
-                if "Type the characters you see in this image" in html_content or "Saisissez les caractères que vous voyez" in html_content:
+                if (
+                    "Type the characters you see in this image" in html_content
+                    or "Saisissez les caractères que vous voyez" in html_content
+                ):
                     logger.error("🚫 CAPTCHA / Bot detection triggered")
                     return []
-                
+
                 if "Identifiez-vous" in html_content and "commander" not in html_content:
                     logger.warning("⚠️ Redirected to login wall")
                     # Try one more time with a different behavior or just fail
@@ -360,19 +397,19 @@ class AmazonScraperService:
                     return []
 
                 # Parse with BeautifulSoup
-                soup = BeautifulSoup(html_content, 'html.parser')
+                soup = BeautifulSoup(html_content, "html.parser")
 
                 # Find product cards
-                product_cards = soup.find_all('div', {'data-component-type': 's-search-result'})
+                product_cards = soup.find_all("div", {"data-component-type": "s-search-result"})
 
                 if not product_cards:
                     # Try alternative
-                    product_cards = soup.find_all('div', {'data-asin': True, 'data-index': True})
+                    product_cards = soup.find_all("div", {"data-asin": True, "data-index": True})
 
                 if not product_cards:
                     logger.warning("⚠️ No products found")
                     # Check for blocks
-                    if '503' in html_content or 'robot' in html_content.lower():
+                    if "503" in html_content or "robot" in html_content.lower():
                         logger.error("🚫 Amazon blocked request")
                     return []
 
@@ -407,7 +444,7 @@ class AmazonScraperService:
     def _extract_product(card, idx: int) -> AmazonProduct | None:
         """Extract product data from card"""
         # ASIN
-        asin = card.get('data-asin', '')
+        asin = card.get("data-asin", "")
         if not asin:
             logger.debug(f"  ⏭️ Card {idx}: No ASIN")
             return None
@@ -417,7 +454,7 @@ class AmazonScraperService:
 
         # Title
         title = None
-        for selector in ['h2 a span', 'h2 span', 'h2.s-line-clamp-2 span']:
+        for selector in ["h2 a span", "h2 span", "h2.s-line-clamp-2 span"]:
             elem = card.select_one(selector)
             if elem:
                 title = elem.get_text(strip=True)
@@ -428,33 +465,35 @@ class AmazonScraperService:
             logger.debug(f"  ⏭️ Card {idx}: No title")
             return None
 
-       # URL
-        link_elem = card.select_one('h2 a') or card.select_one('a.s-link-style')
+        # URL
+        link_elem = card.select_one("h2 a") or card.select_one("a.s-link-style")
         if not link_elem:
             logger.debug(f"  ⏭️ Card {idx}: No link element")
             return None
 
-        href = link_elem.get('href', '')
-        
+        href = link_elem.get("href", "")
+
         # CRITICAL: Validate href is not empty or just '#'
-        if not href or href == '#' or href.strip() == '':
+        if not href or href == "#" or href.strip() == "":
             logger.warning(f"  ⏭️ Card {idx}: Invalid href '{href}' for {title[:30] if title else 'unknown'}")
             return None
-        
+
         # Build absolute URL
-        if href.startswith('/'):
+        if href.startswith("/"):
             product_url = f"{AMAZON_FR_BASE_URL}{href}"
-        elif href.startswith('http'):
+        elif href.startswith("http"):
             product_url = href
         else:
-            logger.warning(f"  ⏭️ Card {idx}: Unexpected href format '{href[:50]}' for {title[:30] if title else 'unknown'}")
+            logger.warning(
+                f"  ⏭️ Card {idx}: Unexpected href format '{href[:50]}' for {title[:30] if title else 'unknown'}"
+            )
             return None
-        
+
         logger.debug(f"  ✓ Card {idx}: URL = {product_url[:80]}...")
 
         # Price
         price = None
-        for selector in ['.a-price .a-offscreen', '.a-price-whole', 'span.a-price span.a-offscreen']:
+        for selector in [".a-price .a-offscreen", ".a-price-whole", "span.a-price span.a-offscreen"]:
             elem = card.select_one(selector)
             if elem:
                 price = parse_amazon_price(elem.get_text(strip=True))
@@ -463,7 +502,7 @@ class AmazonScraperService:
 
         # Original price
         original_price = None
-        elem = card.select_one('.a-price.a-text-price .a-offscreen')
+        elem = card.select_one(".a-price.a-text-price .a-offscreen")
         if elem:
             original_price = parse_amazon_price(elem.get_text(strip=True))
 
@@ -472,13 +511,13 @@ class AmazonScraperService:
         for selector in ['[aria-label*="étoile"]', '[aria-label*="star"]']:
             elem = card.select_one(selector)
             if elem:
-                rating = parse_rating(elem.get('aria-label', ''))
+                rating = parse_rating(elem.get("aria-label", ""))
                 if rating:
                     break
 
         # Reviews
         reviews_count = None
-        for selector in ['[aria-label*="étoile"] + span', 'span.s-underline-text']:
+        for selector in ['[aria-label*="étoile"] + span', "span.s-underline-text"]:
             elem = card.select_one(selector)
             if elem:
                 reviews_count = parse_reviews_count(elem.get_text(strip=True))
@@ -487,15 +526,15 @@ class AmazonScraperService:
 
         # Image
         image_url = None
-        for selector in ['img.s-image', 'img']:
+        for selector in ["img.s-image", "img"]:
             elem = card.select_one(selector)
             if elem:
-                image_url = elem.get('src') or elem.get('data-src')
+                image_url = elem.get("src") or elem.get("data-src")
                 if image_url:
                     break
 
         # Prime
-        prime = bool(card.select_one('[aria-label*="Prime"]') or card.select_one('i.a-icon-prime'))
+        prime = bool(card.select_one('[aria-label*="Prime"]') or card.select_one("i.a-icon-prime"))
 
         # Stock
         in_stock = True

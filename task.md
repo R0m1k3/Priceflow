@@ -4,6 +4,7 @@
 
 - [ ] Investigate Comparator Price Extraction (User reported false prices)
 - [x] Fix Catalog Images (Generic/Missing icons)
+- [/] **Amazon Login Wall Fix** (Redirected by User)
 
 ## 📋 Master Plan
 
@@ -38,4 +39,5 @@
 - **2025-12-22**: Fixed Catalog Retrieval using HTTP fallback.
 - **2025-12-22**: Investigating generic icon issue. Found images are served via Thumbor.
 - **2025-12-22**: **FIXED**: Scraper now targets Thumbor images. Wiped bad catalogs.
-- **2025-12-22**: User reported incorrect prices in Comparator. Investigating.
+- **2025-12-24**: User prioritized Amazon Login Wall fix.
+- **2025-12-24**: Reproduction script `test_amazon_scraper.py` patched to use local browser. Verifying issue.
