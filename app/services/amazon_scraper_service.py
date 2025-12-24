@@ -309,6 +309,150 @@ class AmazonScraperService:
             pass
 
     @classmethod
+    async def _extract_products_from_visible_dom(cls, page: Page, max_results: int) -> list["AmazonProduct"]:
+        """
+        FALLBACK: Extract products using Playwright's visible DOM methods.
+        This works even when HTML parsing fails because it reads directly from rendered elements.
+        """
+        logger.info("🔄 Attempting fallback extraction from visible DOM...")
+        products = []
+
+        try:
+            # Find all product cards using Playwright locators
+            product_cards = page.locator('div[data-component-type="s-search-result"]')
+            count = await product_cards.count()
+
+            if count == 0:
+                # Try alternative selector
+                product_cards = page.locator("div[data-asin][data-index]")
+                count = await product_cards.count()
+
+            logger.info(f"📦 Found {count} visible product cards")
+
+            for idx in range(min(count, max_results)):
+                try:
+                    card = product_cards.nth(idx)
+
+                    # Get ASIN
+                    asin = await card.get_attribute("data-asin")
+                    if not asin:
+                        continue
+
+                    # Check if sponsored
+                    sponsored = await card.locator('[data-component-type="sp-sponsored-result"]').count() > 0
+
+                    # Get title - try multiple selectors
+                    title = None
+                    for selector in ["h2 a span", "h2 span", "h2.s-line-clamp-2 span"]:
+                        title_elem = card.locator(selector).first
+                        if await title_elem.count() > 0:
+                            title = await title_elem.inner_text()
+                            if title:
+                                title = title.strip()
+                                break
+
+                    if not title:
+                        continue
+
+                    # Get URL
+                    url = None
+                    link_elem = card.locator("h2 a").first
+                    if await link_elem.count() > 0:
+                        href = await link_elem.get_attribute("href")
+                        if href and href != "#":
+                            if href.startswith("/"):
+                                url = f"{AMAZON_FR_BASE_URL}{href}"
+                            elif href.startswith("http"):
+                                url = href
+
+                    if not url:
+                        continue
+
+                    # Get price - try multiple selectors
+                    price = None
+                    for selector in [".a-price .a-offscreen", ".a-price-whole", "span.a-price span.a-offscreen"]:
+                        price_elem = card.locator(selector).first
+                        if await price_elem.count() > 0:
+                            try:
+                                price_text = await price_elem.inner_text()
+                                price = parse_amazon_price(price_text)
+                                if price:
+                                    break
+                            except Exception:
+                                pass
+
+                    # Get original price
+                    original_price = None
+                    orig_price_elem = card.locator(".a-price.a-text-price .a-offscreen").first
+                    if await orig_price_elem.count() > 0:
+                        try:
+                            orig_text = await orig_price_elem.inner_text()
+                            original_price = parse_amazon_price(orig_text)
+                        except Exception:
+                            pass
+
+                    # Get rating
+                    rating = None
+                    for selector in ['[aria-label*="étoile"]', '[aria-label*="star"]']:
+                        rating_elem = card.locator(selector).first
+                        if await rating_elem.count() > 0:
+                            try:
+                                aria_label = await rating_elem.get_attribute("aria-label")
+                                rating = parse_rating(aria_label or "")
+                                if rating:
+                                    break
+                            except Exception:
+                                pass
+
+                    # Get reviews count
+                    reviews_count = None
+                    reviews_elem = card.locator("span.s-underline-text").first
+                    if await reviews_elem.count() > 0:
+                        try:
+                            reviews_text = await reviews_elem.inner_text()
+                            reviews_count = parse_reviews_count(reviews_text)
+                        except Exception:
+                            pass
+
+                    # Get image URL
+                    image_url = None
+                    img_elem = card.locator("img.s-image").first
+                    if await img_elem.count() > 0:
+                        image_url = await img_elem.get_attribute("src")
+
+                    # Check Prime
+                    prime = await card.locator('[aria-label*="Prime"], i.a-icon-prime').count() > 0
+
+                    # Check stock
+                    in_stock = await card.locator('[aria-label*="Indisponible"]').count() == 0
+
+                    product = AmazonProduct(
+                        title=title,
+                        url=url,
+                        price=price,
+                        original_price=original_price,
+                        rating=rating,
+                        reviews_count=reviews_count,
+                        image_url=image_url,
+                        in_stock=in_stock,
+                        prime=prime,
+                        sponsored=sponsored,
+                    )
+                    products.append(product)
+                    logger.debug(f"  ✓ DOM [{len(products)}] {title[:40]}... - {price}€")
+
+                except Exception as e:
+                    logger.warning(f"Error extracting product {idx} from DOM: {e}")
+                    continue
+
+            logger.info(f"✅ DOM fallback extracted {len(products)} products")
+
+        except Exception as e:
+            logger.error(f"❌ DOM fallback extraction failed: {e}")
+
+        return products
+
+    @classmethod
     async def scrape_search(cls, query: str, max_results: int = 50) -> list[AmazonProduct]:
         """
         Scrape Amazon France search results with retry mechanism
@@ -364,7 +508,7 @@ class AmazonScraperService:
 
     @classmethod
     async def _try_scrape(cls, query: str, max_results: int, proxy: dict | None, attempt: int) -> list[AmazonProduct]:
-        """Single scrape attempt with given identity"""
+        """Single scrape attempt with given identity - OPTIMIZED for immediate extraction"""
         search_url = AMAZON_FR_SEARCH_URL.format(query=quote_plus(query))
         products = []
 
@@ -375,17 +519,14 @@ class AmazonScraperService:
             try:
                 # CRITICAL: Load Amazon homepage FIRST in same context to establish session
                 logger.info("🏠 Loading Amazon homepage to establish session/cookies...")
-                await page.goto("https://www.amazon.fr", wait_until="networkidle", timeout=30000)
+                await page.goto("https://www.amazon.fr", wait_until="domcontentloaded", timeout=30000)
                 logger.info("✅ Homepage loaded")
 
-                # Handle homepage popups
+                # Handle homepage popups quickly
                 await cls._handle_popups(page)
 
-                # Simulate human behavior on homepage
-                await cls._simulate_human_behavior(page)
-
-                # Small delay
-                await asyncio.sleep(random.uniform(1.0, 3.0))
+                # Minimal delay - just enough to seem human
+                await asyncio.sleep(random.uniform(0.5, 1.0))
 
                 # NOW interact with the search bar naturally
                 try:
@@ -400,10 +541,10 @@ class AmazonScraperService:
                     await search_input.click()
                     await search_input.fill("")
 
-                    # Type slowly like a human
-                    await search_input.type(query, delay=100)
+                    # Type with moderate speed (not too slow, not instant)
+                    await search_input.type(query, delay=50)
 
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
+                    await asyncio.sleep(random.uniform(0.2, 0.5))
 
                     # Click search button
                     submit_selector = "#nav-search-submit-button"
@@ -418,50 +559,26 @@ class AmazonScraperService:
                     logger.info(f"🔍 Navigating to search: {search_url}")
                     await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
 
-                logger.info("Page loaded (domcontentloaded)")
-
-                # Wait for content or block
+                # Wait for search results to appear
                 try:
                     await page.wait_for_selector(
-                        'div[data-component-type="s-search-result"], .s-result-list', timeout=10000
+                        'div[data-component-type="s-search-result"], .s-result-list', timeout=15000
                     )
                     logger.info("✅ Search results detected")
-
-                    # CRITICAL: Wait for page to fully stabilize before extraction
-                    # Amazon's JS may redirect after initial content loads
-                    await asyncio.sleep(random.uniform(2.0, 4.0))
-
-                    # Check if URL has changed (login redirect)
-                    current_url = page.url
-                    if "ap/signin" in current_url or "ap/register" in current_url:
-                        logger.warning(f"⚠️ Redirected to login page: {current_url}")
-                        return []
-
-                    # Wait for network to be idle (no pending requests)
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=5000)
-                    except Exception:
-                        pass  # Timeout is acceptable, we just want to give it a chance
-
-                    # Simulate more human behavior to appear natural
-                    await cls._simulate_human_behavior(page)
-
-                    # Another small delay before extraction
-                    await asyncio.sleep(random.uniform(1.0, 2.0))
-
                 except Exception:
                     logger.warning("🕒 Search results not found immediately, checking for blocks...")
 
-                # Re-check URL before extraction
+                # CRITICAL FIX: Extract HTML IMMEDIATELY before Amazon's bot detection kicks in
+                # Do NOT wait for networkidle or add delays here - that gives Amazon time to detect us
+                html_content = await page.content()
                 current_url = page.url
+
+                # Quick URL check for immediate redirects
                 if "ap/signin" in current_url or "ap/register" in current_url:
-                    logger.warning(f"⚠️ Redirected to login page before extraction: {current_url}")
+                    logger.warning(f"⚠️ Redirected to login page: {current_url}")
                     return []
 
-                # Get HTML
-                html_content = await page.content()
-
-                # Proactive block detection
+                # Check for CAPTCHA
                 if (
                     "Type the characters you see in this image" in html_content
                     or "Saisissez les caractères que vous voyez" in html_content
@@ -469,21 +586,31 @@ class AmazonScraperService:
                     logger.error("🚫 CAPTCHA / Bot detection triggered")
                     return []
 
+                # Check for login wall in content
                 if "Identifiez-vous" in html_content and "commander" not in html_content:
-                    logger.warning("⚠️ Redirected to login wall")
-                    # Save screenshot for debugging
-                    try:
-                        debug_path = "/tmp/amazon_login_wall.png"
-                        await page.screenshot(path=debug_path)
-                        logger.info(f"📸 Saved debug screenshot to {debug_path}")
-                    except Exception:
-                        pass
-                    return []
+                    # Double-check: maybe we grabbed content too early, try once more after a tiny wait
+                    await asyncio.sleep(0.5)
+                    html_content = await page.content()
+
+                    if "Identifiez-vous" in html_content and "commander" not in html_content:
+                        logger.warning("⚠️ Login wall detected in page content")
+                        try:
+                            debug_path = "/tmp/amazon_login_wall.png"
+                            await page.screenshot(path=debug_path)
+                            logger.info(f"📸 Saved debug screenshot to {debug_path}")
+                        except Exception:
+                            pass
+                        return []
 
                 logger.info(f"✅ Page content extracted ({len(html_content)} bytes)")
 
                 if len(html_content) < 10000:
-                    logger.error(f"❌ Page too small - likely blocked")
+                    logger.warning(f"⚠️ Page too small ({len(html_content)} bytes) - trying DOM fallback")
+                    # Try DOM fallback before giving up
+                    products = await cls._extract_products_from_visible_dom(page, max_results)
+                    if products:
+                        return products
+                    logger.error("❌ DOM fallback also failed")
                     return []
 
                 # Parse with BeautifulSoup
@@ -493,14 +620,19 @@ class AmazonScraperService:
                 product_cards = soup.find_all("div", {"data-component-type": "s-search-result"})
 
                 if not product_cards:
-                    # Try alternative
+                    # Try alternative selector
                     product_cards = soup.find_all("div", {"data-asin": True, "data-index": True})
 
                 if not product_cards:
-                    logger.warning("⚠️ No products found")
-                    # Check for blocks
+                    logger.warning("⚠️ No products found in HTML - trying DOM fallback")
+                    # Check for blocks first
                     if "503" in html_content or "robot" in html_content.lower():
-                        logger.error("🚫 Amazon blocked request")
+                        logger.error("🚫 Amazon blocked request (503/robot)")
+                        return []
+                    # Try DOM fallback
+                    products = await cls._extract_products_from_visible_dom(page, max_results)
+                    if products:
+                        return products
                     return []
 
                 logger.info(f"📦 Found {len(product_cards)} product cards")
@@ -518,6 +650,11 @@ class AmazonScraperService:
                     except Exception as e:
                         logger.error(f"Error parsing card {idx}: {e}")
                         continue
+
+                # If BeautifulSoup extracted nothing useful, try DOM fallback
+                if not products:
+                    logger.warning("⚠️ BeautifulSoup extraction returned no products - trying DOM fallback")
+                    products = await cls._extract_products_from_visible_dom(page, max_results)
 
                 logger.info(f"✅ Successfully extracted {len(products)} products")
 
