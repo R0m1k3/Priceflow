@@ -10,18 +10,10 @@ BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
 DEBUG_DUMPS_DIR = "/app/debug_dumps"
 
 # === PROXY CONFIGURATION ===
-AMAZON_PROXY_LIST_RAW = [
-    "142.111.48.253:7030:jasuwwjr:elbsx170nmnl",
-    "31.59.20.176:6754:jasuwwjr:elbsx170nmnl",
-    "23.95.150.145:6114:jasuwwjr:elbsx170nmnl",
-    "198.23.239.134:6540:jasuwwjr:elbsx170nmnl",
-    "107.172.163.27:6543:jasuwwjr:elbsx170nmnl",
-    "198.105.121.200:6462:jasuwwjr:elbsx170nmnl",
-    "64.137.96.74:6641:jasuwwjr:elbsx170nmnl",
-    "84.247.60.125:6095:jasuwwjr:elbsx170nmnl",
-    "216.10.27.159:6837:jasuwwjr:elbsx170nmnl",
-    "142.111.67.146:5611:jasuwwjr:elbsx170nmnl",
-]
+# NOTE: All free proxies tested are non-functional. Direct connections will be used.
+# Add working proxies here when available.
+AMAZON_PROXY_LIST_RAW = []
+
 
 def get_amazon_proxies() -> list[dict]:
     """Convert raw proxy list to Playwright format"""
@@ -29,49 +21,51 @@ def get_amazon_proxies() -> list[dict]:
     for proxy in AMAZON_PROXY_LIST_RAW:
         parts = proxy.split(":")
         if len(parts) == 4:
-            proxies.append({
-                "server": f"http://{parts[0]}:{parts[1]}",
-                "username": parts[2],
-                "password": parts[3]
-            })
+            proxies.append({"server": f"http://{parts[0]}:{parts[1]}", "username": parts[2], "password": parts[3]})
+        elif len(parts) == 2:
+            proxies.append({"server": f"http://{parts[0]}:{parts[1]}"})
     return proxies
+
 
 # === USER AGENTS & STEALTH ===
 USER_AGENT_DATA = [
     {
         "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        "platform": '"Windows"'
+        "platform": '"Windows"',
     },
     {
         "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         "ch": '"Google Chrome";v="130", "Chromium";v="130", "Not_A Brand";v="99"',
-        "platform": '"Windows"'
+        "platform": '"Windows"',
     },
     {
         "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        "platform": '"macOS"'
+        "platform": '"macOS"',
     },
     {
         "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "ch": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        "platform": '"Linux"'
+        "platform": '"Linux"',
     },
     {
         "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
         "ch": '"Microsoft Edge";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-        "platform": '"Windows"'
-    }
+        "platform": '"Windows"',
+    },
 ]
+
 
 def get_random_stealth_config() -> dict:
     """Returns a random User-Agent and its corresponding Client Hints"""
     return random.choice(USER_AGENT_DATA)
 
+
 def get_random_user_agent() -> str:
     """Legacy helper for backward compatibility"""
     return get_random_stealth_config()["ua"]
+
 
 # === SITE CONFIGURATIONS ===
 SITE_CONFIGS = {
@@ -240,7 +234,7 @@ COOKIE_ACCEPT_SELECTORS = [
     ".modal-close",
     ".close-modal",
     ".popup-close",
-   "button[aria-label='Close']",
+    "button[aria-label='Close']",
     "button[aria-label='Fermer']",
     ".js-modal-close",
     "div[class*='popup'] button[class*='close']",
