@@ -6,6 +6,7 @@ Based on ScraperService pattern for better session management and anti-detection
 import asyncio
 import logging
 import os
+import random
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -251,7 +252,6 @@ class AmazonScraperService:
     @staticmethod
     async def _simulate_human_behavior(page: Page):
         """Perform subtle human-like interactions"""
-        import random
         try:
             # Random mouse movements
             for _ in range(3):
