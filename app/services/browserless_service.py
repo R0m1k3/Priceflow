@@ -50,7 +50,6 @@ POPUP_SELECTORS = [
     "button:has-text('Accepter')",
     "input[aria-labelledby='sp-cc-accept-label']",
     "#nav-flyout-prime button",
-    
     # Amazon Interstitials (Soft blocks)
     "button:has-text('Continuer les achats')",
     "span:has-text('Continuer les achats')",
@@ -60,7 +59,6 @@ POPUP_SELECTORS = [
     "span.a-button-inner > input.a-button-input[type='submit']",
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
-
     # Generic & specific additions
     "[aria-modal='true'] button",
     "[class*='cookie'] button",
@@ -70,7 +68,6 @@ POPUP_SELECTORS = [
     "button:has-text('Fermer')",
     ".popin-close",
     ".js-modal-close",
-    
     # Specific targeted fix for "Stock Inconnu" / "Calendrier" type overlays if they use standard classes
     "[id*='advent'] button",
     "[class*='advent'] button",
@@ -107,10 +104,24 @@ class BrowserlessService:
     async def _initialize(cls):
         """Internal initialization logic (Assumes lock is held)."""
         if cls._browser is None:
-            logger.info("🚀 Initializing BrowserlessService shared browser...")
-            cls._playwright = await async_playwright().start()
-            cls._browser = await cls._connect_browser(cls._playwright)
-            logger.info("✅ BrowserlessService browser ready (persistent)")
+            try:
+                logger.info("🚀 Initializing BrowserlessService shared browser...")
+                cls._playwright = await async_playwright().start()
+                cls._browser = await cls._connect_browser(cls._playwright)
+                logger.info("✅ BrowserlessService browser ready (persistent)")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize BrowserlessService: {e}")
+                # Fallback to local browser if not already tried in _connect_browser
+                if cls._browser is None and cls._playwright:
+                    logger.warning("⚠️ Falling back to local browser instance...")
+                    try:
+                        cls._browser = await cls._playwright.chromium.launch(
+                            headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+                        )
+                        logger.info("✅ Local browser fallback ready")
+                    except Exception as local_e:
+                        logger.error(f"❌ Local browser fallback failed: {local_e}")
+                        raise local_e
 
     @classmethod
     async def shutdown(cls):
@@ -147,7 +158,7 @@ class BrowserlessService:
                 except Exception as e:
                     logger.error(f"❌ Browser connection test failed: {e}")
                     logger.info("🔄 Attempting to reconnect...")
-                    
+
                     # Clear the old browser
                     cls._browser = None
                     if cls._playwright:
@@ -156,7 +167,7 @@ class BrowserlessService:
                         except Exception:
                             pass
                         cls._playwright = None
-                    
+
                     # Reconnect
                     await cls._initialize()
                     return cls._browser is not None
@@ -167,14 +178,25 @@ class BrowserlessService:
     @staticmethod
     async def _connect_browser(p) -> Browser:
         """Connect to Browserless."""
-        logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
-        return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=60000)
+
+    @staticmethod
+    async def _connect_browser(p) -> Browser:
+        """Connect to Browserless or fallback to local."""
+        try:
+            logger.info(f"Connecting to Browserless at {BROWSERLESS_URL}")
+            return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=10000)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not connect to Browserless ({e}).")
+            logger.info("🔄 Launching local chromium instance as fallback...")
+            return await p.chromium.launch(
+                headless=True, args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            )
 
     @staticmethod
     async def _create_context(browser: Browser, use_proxy: bool = False) -> BrowserContext:
         """Create a new browser context with dynamic stealth settings."""
         from app.core.search_config import get_random_stealth_config
-        
+
         stealth_config = get_random_stealth_config()
         ua = stealth_config["ua"]
         ch = stealth_config["ch"]
@@ -204,7 +226,7 @@ class BrowserlessService:
             logger.info("Proxy support requested (not implemented in this version)")
 
         context = await browser.new_context(**options)
-        
+
         # Comprehensive stealth mode injector
         await context.add_init_script("""
             // Reset webdriver
@@ -283,30 +305,30 @@ class BrowserlessService:
         # Multiple passes to catch delayed popups (animations, etc.)
         for pass_idx in range(3):
             closed_something = False
-            
+
             # 1. Standard Selectors
             for selector in POPUP_SELECTORS:
                 if await try_close(selector):
                     closed_something = True
-                    await page.wait_for_timeout(500) # Wait for animation
-            
+                    await page.wait_for_timeout(500)  # Wait for animation
+
             # 2. Key presses (Escape)
             try:
                 await page.keyboard.press("Escape")
                 await page.wait_for_timeout(300)
             except Exception:
                 pass
-                
+
             # If we didn't find anything in this pass and it's not the first, break early
             if not closed_something and pass_idx > 0:
                 break
-                
-            await page.wait_for_timeout(1000) # Wait between passes
+
+            await page.wait_for_timeout(1000)  # Wait between passes
 
         # Final check: Force click typical overlay backdrops (risky but effective)
         try:
             # Click coordinates (top-right or top-left corner often safish to close modals)
-            # await page.mouse.click(10, 10) 
+            # await page.mouse.click(10, 10)
             pass
         except Exception:
             pass
@@ -326,18 +348,18 @@ class BrowserlessService:
             "#priceblock_dealprice",
             "#priceblock_saleprice",
         ]
-        
+
         for selector in main_price_selectors:
             try:
                 elements = page.locator(selector)
                 count = await elements.count()
-                
+
                 for i in range(count):
                     element = elements.nth(i)
-                    
+
                     if not await element.is_visible(timeout=1000):
                         continue
-                    
+
                     # Check if strikethrough (old price)
                     try:
                         text_decoration = await element.evaluate("el => window.getComputedStyle(el).textDecoration")
@@ -345,11 +367,11 @@ class BrowserlessService:
                             continue
                     except Exception:
                         pass
-                    
+
                     price_text = await element.inner_text(timeout=1000)
                     if price_text and price_text.strip():
-                        if re.search(r'\d+[.,]\d{2}', price_text):
-                            numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+                        if re.search(r"\d+[.,]\d{2}", price_text):
+                            numeric_match = re.search(r"(\d+)[.,](\d{2})", price_text)
                             if numeric_match:
                                 price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
                                 if 0.01 <= price_val <= 10000:
@@ -358,7 +380,7 @@ class BrowserlessService:
             except Exception as e:
                 logger.debug(f"Selector {selector} failed: {e}")
                 continue
-        
+
         # Priority 2: Buybox area
         try:
             buybox = page.locator("#buybox, #buybox_feature_div, #desktop_buybox")
@@ -366,8 +388,8 @@ class BrowserlessService:
                 price_elem = buybox.locator(".a-price .a-offscreen").first
                 if await price_elem.is_visible(timeout=1000):
                     price_text = await price_elem.inner_text()
-                    if price_text and re.search(r'\d+[.,]\d{2}', price_text):
-                        numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+                    if price_text and re.search(r"\d+[.,]\d{2}", price_text):
+                        numeric_match = re.search(r"(\d+)[.,](\d{2})", price_text)
                         if numeric_match:
                             price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
                             if 0.01 <= price_val <= 10000:
@@ -375,21 +397,21 @@ class BrowserlessService:
                                 return price_text.strip()
         except Exception:
             pass
-        
+
         # Priority 3: Whole + Fraction
         try:
             price_container = page.locator("#corePriceDisplay_desktop_feature_div, #corePrice_desktop, #price")
             whole_elem = price_container.locator("span.a-price-whole").first
             fraction_elem = price_container.locator("span.a-price-fraction").first
-            
+
             whole = await whole_elem.inner_text(timeout=1000)
             fraction = await fraction_elem.inner_text(timeout=1000)
-            
+
             if whole and fraction:
-                whole = whole.rstrip('.,')
+                whole = whole.rstrip(".,")
                 price_text = f"{whole},{fraction}"
-                
-                numeric_match = re.search(r'(\d+)[.,](\d{2})', price_text)
+
+                numeric_match = re.search(r"(\d+)[.,](\d{2})", price_text)
                 if numeric_match:
                     price_val = float(f"{numeric_match.group(1)}.{numeric_match.group(2)}")
                     if 0.01 <= price_val <= 10000:
@@ -397,7 +419,7 @@ class BrowserlessService:
                         return price_text
         except Exception:
             pass
-        
+
         logger.warning("⚠️ Could not extract Amazon price with any method")
         return ""
 
@@ -437,7 +459,7 @@ class BrowserlessService:
         found_prices = []
 
         # Strict French price regex
-        strict_price_regex = re.compile(r'(\d{1,4}(?:\s?\d{3})*[.,]\d{2})\s*€?')
+        strict_price_regex = re.compile(r"(\d{1,4}(?:\s?\d{3})*[.,]\d{2})\s*€?")
 
         for selector in all_selectors:
             try:
@@ -447,7 +469,7 @@ class BrowserlessService:
                 for i in range(min(count, 3)):
                     try:
                         element = elements.nth(i)
-                        
+
                         if not await element.is_visible(timeout=1000):
                             continue
 
@@ -467,11 +489,11 @@ class BrowserlessService:
                         price_match = strict_price_regex.search(price_text)
                         if price_match:
                             matched_price = price_match.group(0)
-                            
-                            numeric_text = matched_price.replace('€', '').replace(' ', '').replace(',', '.')
+
+                            numeric_text = matched_price.replace("€", "").replace(" ", "").replace(",", ".")
                             try:
                                 price_val = float(numeric_text)
-                                
+
                                 if 0.01 <= price_val <= 100000:
                                     found_prices.append((selector, matched_price))
                                     logger.info(f"💰 Valid price via {selector}: {matched_price} ({price_val}€)")
@@ -500,7 +522,7 @@ class BrowserlessService:
 
         # Fallback: Strict regex in body text
         try:
-            all_text = await page.inner_text('body')
+            all_text = await page.inner_text("body")
             price_matches = strict_price_regex.findall(all_text)
             if price_matches:
                 first_match = price_matches[0]
@@ -519,11 +541,11 @@ class BrowserlessService:
         use_proxy: bool = False,
         wait_selector: str | None = None,
         extract_text: bool = False,
-        retries: int = 3
+        retries: int = 3,
     ) -> tuple[str, str]:
         """
         Fetch page content with persistent browser.
-        
+
         Returns:
             tuple[content, screenshot_path]: Content (HTML or text) and screenshot path
         """
@@ -539,8 +561,9 @@ class BrowserlessService:
                 try:
                     # Random human-like lead-in delay
                     import random
+
                     await asyncio.sleep(random.uniform(0.5, 2.0))
-                    
+
                     await cls._navigate_and_wait(page, url, 30000)
                     await cls._handle_popups(page)
 
@@ -555,9 +578,9 @@ class BrowserlessService:
                             or "api-services-support@amazon.com" in content_check
                             or "service-unavailable" in content_check
                         )
-                        
+
                         if is_blocked:
-                            logger.warning(f"⚠️ Amazon Blocking/Login Wall detected (Attempt {attempt+1}/{retries})")
+                            logger.warning(f"⚠️ Amazon Blocking/Login Wall detected (Attempt {attempt + 1}/{retries})")
                             if attempt < retries - 1:
                                 await context.close()
                                 # Exponential backoff with jitter
@@ -577,7 +600,7 @@ class BrowserlessService:
                                 break
                             except Exception:
                                 continue
-                    
+
                     # Generic wait selector
                     if wait_selector:
                         try:
@@ -589,13 +612,13 @@ class BrowserlessService:
 
                     # Extract content
                     if extract_text:
-                        content = await page.inner_text('body')
+                        content = await page.inner_text("body")
                         logger.info(f"📄 Extracted {len(content)} chars of visible text")
 
                         # Normalize French prices
-                        content = re.sub(r'(\d+)€(\d{2})\b', r'\1.\2 €', content)
-                        content = re.sub(r'(\d+),(\d{2})\s*€', r'\1.\2 €', content)
-                        content = re.sub(r'(\d+)\s(\d{3})', r'\1\2', content)
+                        content = re.sub(r"(\d+)€(\d{2})\b", r"\1.\2 €", content)
+                        content = re.sub(r"(\d+),(\d{2})\s*€", r"\1.\2 €", content)
+                        content = re.sub(r"(\d+)\s(\d{3})", r"\1\2", content)
 
                         # Extract price
                         extracted_price = ""
@@ -605,8 +628,8 @@ class BrowserlessService:
                             extracted_price = await cls._extract_generic_price(page)
 
                         if extracted_price:
-                            normalized_price = re.sub(r'(\d+),(\d{2})', r'\1.\2', extracted_price)
-                            normalized_price = normalized_price.replace(' ', '')
+                            normalized_price = re.sub(r"(\d+),(\d{2})", r"\1.\2", extracted_price)
+                            normalized_price = normalized_price.replace(" ", "")
                             content = f"PRIX DÉTECTÉ: {normalized_price}\n\n{content}"
                             logger.info(f"💰 Prepended price: {normalized_price}")
                         else:
@@ -651,10 +674,10 @@ class BrowserlessService:
                     await context.close()
 
             except Exception as e:
-                logger.error(f"❌ Error scraping {url} (Attempt {attempt+1}): {e}")
+                logger.error(f"❌ Error scraping {url} (Attempt {attempt + 1}): {e}")
                 if attempt == retries - 1:
                     return "", ""
-        
+
         return "", ""
 
     @classmethod
@@ -673,10 +696,7 @@ class BrowserlessService:
             config = ScrapeConfig()
 
         # Call get_page_content with extract_text=True
-        page_text, screenshot_path = await cls.get_page_content(
-            url,
-            extract_text=True
-        )
+        page_text, screenshot_path = await cls.get_page_content(url, extract_text=True)
 
         return screenshot_path, page_text
 
