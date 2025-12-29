@@ -11,10 +11,14 @@ from app.services.browserless_service import browserless_service
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+
 async def inspect():
     url = "https://www.lincroyable.fr/recherche-query=iphone/"
     print(f"Inspecting {url}...")
-    
+
+    # Use host port for local debugging
+    os.environ["BROWSERLESS_URL"] = "ws://localhost:3012"
+
     await browserless_service.initialize()
     try:
         content, _ = await browserless_service.get_page_content(url, wait_selector="body")
@@ -23,6 +27,7 @@ async def inspect():
         print("HTML dumped to lincroyable_dump.html")
     finally:
         await browserless_service.shutdown()
+
 
 if __name__ == "__main__":
     asyncio.run(inspect())
