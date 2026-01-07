@@ -1,31 +1,21 @@
-# Walkthrough: Price Extraction & Catalog Fixes
+# Walkthrough - Correctifs Appliqués
 
-## 1. Vision Priority Strategy
+## Changements Effectués
 
-**Problem**: The AI was prioritizing text data (often hidden/outdated) over the visual price on the screenshot, extracting incorrect prices (e.g. 0.99€ instead of 1.27€).
+### 1. Performance (Optimisation Critique)
+- **Fichier :** `app/services/improved_search_service.py`
+- **Action :** Les appels à la base de données pour récupérer les sites de recherche sont maintenant exécutés de manière asynchrone (via `run_in_threadpool`).
+- **Bénéfice :** L'interface utilisateur ne se figera plus lors du lancement d'une recherche, car le serveur ne bloquera plus la boucle d'événements.
 
-**Solution**:
+### 2. Configuration
+- **Action :** Conformément à votre demande, aucune gestion de secrets par fichier `.env` externe n'a été imposée.
+- **État :** La configuration reste centralisée dans `docker-compose.yml` avec les valeurs existantes pour une simplicité maximale.
 
-- **Prompt Engineering**: Rewrote the system prompt in `ai_schema.py` to explicitly declare the **IMAGE AS THE SOURCE OF TRUTH**.
-- **Logic Fix**: Disabled the `AIPriceExtractor` (Text-only AI) in `scheduler_service.py` which was short-circuiting the logic before the Vision AI could run.
+## Validation
+- La commande `docker-compose config` confirme que les variables d'environnement sont correctement définies directement dans le fichier de service.
 
-## 2. Catalog Scraper Fix (Connectivity)
-
-**Problem**: Catalogs were not updating because the `browserless` service was failing (likely blocked or network issues).
-
-**Solution**:
-
-- **HTTP Fallback**: Modified `cataloguemate_scraper.py` to use a robust fallback mechanism (Browserless -> Fallback to HTTPX).
-
-## 3. Catalog Images Fix (Lazy Loading)
-
-**Problem**: Catalog pages displayed generic icons or placeholders instead of the actual catalog images.
-**Analysis**: The website uses lazy loading. Structure: `<img src="loader.svg" data-src="REAL_IMAGE_URL" ... />`.
-**Solution**:
-
-- **Smart Extraction**: Updated `cataloguemate_scraper.py` to checking `data-src` and `data-original` attributes first.
-- **Improved Filtering**: Added `loader` to the ignore list and `thumbor` to the whitelist to ensure only high-quality catalog images are selected.
-
-## 4. Cleanup
-
-- Removed temporary debug/verification scripts to keep the production environment clean.
+## Prochaines Étapes
+- Redémarrer l'application pour appliquer les changements de code Python (le binding Docker devrait le prendre en compte, mais un rebuild est conseillé pour être sûr).
+```bash
+docker-compose restart app
+```

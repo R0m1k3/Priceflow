@@ -800,7 +800,15 @@ async def search_products(
     Yields SearchProgress events incrementally.
     """
     # 1. Get sites to search
-    sites = db.query(SearchSite).order_by(SearchSite.priority).all()
+    # 1. Get sites to search (Async DB Call)
+    from fastapi.concurrency import run_in_threadpool
+
+    def get_sites_sync():
+        sites = db.query(SearchSite).order_by(SearchSite.priority).all()
+        return sites
+
+    sites = await run_in_threadpool(get_sites_sync)
+
     if site_ids:
         sites = [s for s in sites if s.id in site_ids]
 
