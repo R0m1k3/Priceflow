@@ -6,8 +6,10 @@ import time
 from typing import Any, TypedDict
 
 from litellm import acompletion
+import litellm
 from pydantic import ValidationError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
 
 from app import models
 from app.ai_schema import (
@@ -20,6 +22,11 @@ from app.ai_schema import (
 from app.database import SessionLocal
 from app.utils.image import encode_image
 from app.utils.text import clean_text
+
+# Suppress Litellm verbose logging to avoid Pydantic serialization warnings
+litellm.suppress_debug_info = True
+litellm.set_verbose = False
+litellm.drop_params = True
 
 # Default configuration (can be overridden by DB settings)
 DEFAULT_PROVIDER = "ollama"
@@ -276,14 +283,16 @@ class AIService:
             f"(temp={config['temperature']}, max_tokens={config['max_tokens']}, "
             f"timeout={config['timeout']}s, key={sanitized_key})"
         )
-        
+
         try:
             response = await acompletion(**kwargs)
             content = response.choices[0].message.content
 
             # If content is empty and we used response_format, try again without it
             if not content and "response_format" in kwargs:
-                logger.warning(f"Model {config['model']} returned empty content with JSON mode. Retrying without response_format.")
+                logger.warning(
+                    f"Model {config['model']} returned empty content with JSON mode. Retrying without response_format."
+                )
                 del kwargs["response_format"]
                 response = await acompletion(**kwargs)
                 content = response.choices[0].message.content
@@ -291,7 +300,7 @@ class AIService:
         except Exception as e:
             # Check for BadRequestError (often due to unsupported parameters like response_format)
             is_bad_request = "BadRequestError" in str(type(e).__name__) or "400" in str(e)
-            
+
             if is_bad_request and "response_format" in kwargs:
                 logger.warning(
                     f"Model {config['model']} likely does not support JSON mode. "
@@ -348,7 +357,8 @@ class AIService:
 
                 # Extract all potential prices from text for debugging
                 import re
-                price_patterns = re.findall(r'\d+[,\.]\d{2}\s*€', cleaned_text)
+
+                price_patterns = re.findall(r"\d+[,\.]\d{2}\s*€", cleaned_text)
                 if price_patterns:
                     logger.info(f"Prices found in text: {price_patterns[:10]}")  # First 10 prices
                 else:
