@@ -1,33 +1,47 @@
-# Implementation Plan - Catalog Scraper Fix
+# Plan d'Implémentation - Correctifs de Sécurité et Performance
 
-## Problem
+Ce plan vise à résoudre les vulnérabilités critiques et les goulots d'étranglement de performance identifiés dans le rapport d'analyse technique.
 
-The catalog scraper (`cataloguemate_scraper.py`) fails to retrieve catalogs because the `browserless` service is likely being blocked or failing to connect (based on logs). However, the target site (`cataloguemate.fr`) is accessible via simple HTTP requests.
+## User Review Required
+
+> [!IMPORTANT]
+> **Action Utilisateur Requise :** Vous devrez créer un fichier `.env` à la racine du projet en copiant `.env.example` et en y insérant vos vrais secrets (API Keys, Mots de passe). Je ne peux pas connaître vos mots de passe sécurisés.
+
+> [!WARNING]
+> **Changement de Configuration :** Le fichier `docker-compose.yml` sera modifié pour ne plus contenir de secrets en clair. Le redémarrage des conteneurs sera nécessaire.
 
 ## Proposed Changes
 
-### 1. Modify `app/services/cataloguemate_scraper.py`
+### Configuration & Sécurité
 
-We will implement a fallback mechanism in `scrape_catalog_list`:
+#### [NEW] [.env.example](file:///c:/Users/Jacques/Git/Priceflow-1/.env.example)
+- Création d'un modèle de fichier d'environnement documentant toutes les variables requises.
 
-- **Primary Method**: Continue using `browserless_service.get_page_content`.
-- **Fallback Method**: If `browserless` returns no content or fails, use `httpx.AsyncClient` to fetch the HTML directly.
-- **Parsing**: Use `BeautifulSoup` to parse the HTML from either source.
+#### [MODIFY] [docker-compose.yml](file:///c:/Users/Jacques/Git/Priceflow-1/docker-compose.yml)
+- Remplacement des valeurs harcodées par `${VARIABLE}`.
+- Suppression de la clé API OpenRouter en clair.
+- Suppression du mot de passe DB en clair.
 
-#### [MODIFY] [cataloguemate_scraper.py](file:///c:/Users/Michael/VSCODE/Priceflow-1/app/services/cataloguemate_scraper.py)
+#### [MODIFY] [app/main.py](file:///c:/Users/Jacques/Git/Priceflow-1/app/main.py)
+- Restriction de la configuration CORS.
+- Chargement sécurisé de la configuration.
 
-- Import `httpx` and `random` (for user-agents).
-- In `scrape_catalog_list`, add a `try/except` block or check for empty content.
-- If content is missing, call a new helper or inline `httpx` request with standard headers.
+### Efficience & Performance
+
+#### [MODIFY] [app/services/improved_search_service.py](file:///c:/Users/Jacques/Git/Priceflow-1/app/services/improved_search_service.py)
+- **Problème :** Appels DB bloquants (`db.query`) dans une fonction `async`.
+- **Solution :** Mettre les appels DB dans un threadpool pour ne pas bloquer la boucle d'événements principale.
+- **Détail :** Utilisation de `fastapi.concurrency.run_in_threadpool` pour encapsuler les accès DB synchrones.
+
+#### [MODIFY] [app/routers/search.py](file:///c:/Users/Jacques/Git/Priceflow-1/app/routers/search.py)
+- Adaptation de l'appel au service pour gérer correctement l'asynchronisme.
 
 ## Verification Plan
 
-### Automated Verification
+### Automated Tests
+- Vérification que l'application démarre avec les variables d'environnement.
+- Test de charge léger sur l'endpoint de recherche pour confirmer que l'interface ne "gèle" pas pendant le chargement (grâce au fix async).
 
-Since we cannot run the full app locally (docker/dependencies issues), we will verify by code review and logic.
-
-### Manual Verification (User)
-
-1. User triggers the catalog update (via Admin or Scheduler).
-2. User checks logs to see if "Fallback to HTTP" message appears.
-3. User verifies that catalogs (e.g. B&M, Gifi) appear in the dashboard.
+### Manual Verification
+- Vérifier que `docker-compose config` n'affiche plus de secrets.
+- Vérifier les logs pour confirmer le chargement correct de la configuration.

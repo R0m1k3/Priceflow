@@ -13,7 +13,19 @@ from sqlalchemy import text
 
 from app.database import SessionLocal, engine
 from app.limiter import limiter
-from app.routers import auth, items, jobs, notifications, openrouter, search, search_sites, settings, debug, catalogues, amazon
+from app.routers import (
+    auth,
+    items,
+    jobs,
+    notifications,
+    openrouter,
+    search,
+    search_sites,
+    settings,
+    debug,
+    catalogues,
+    amazon,
+)
 from app.services.scheduler_service import scheduled_refresh, scheduler
 from app.services import auth_service, search_service, seed_enseignes
 from app.services.scheduler import start_scheduler as start_catalog_scheduler, stop_scheduler as stop_catalog_scheduler
@@ -33,12 +45,11 @@ def run_migrations():
     """Run database migrations for missing tables and columns"""
     with engine.connect() as conn:
         # 0. Create users table if it doesn't exist
-        result = conn.execute(text(
-            "SELECT 1 FROM information_schema.tables WHERE table_name = 'users'"
-        ))
+        result = conn.execute(text("SELECT 1 FROM information_schema.tables WHERE table_name = 'users'"))
         if not result.fetchone():
             logger.info("Creating users table...")
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE users (
                     id SERIAL PRIMARY KEY,
                     username VARCHAR(255) UNIQUE NOT NULL,
@@ -48,18 +59,18 @@ def run_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_login TIMESTAMP
                 )
-            """))
+            """)
+            )
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"))
             conn.commit()
             logger.info("users table created")
 
         # 1. Create search_sites table if it doesn't exist
-        result = conn.execute(text(
-            "SELECT 1 FROM information_schema.tables WHERE table_name = 'search_sites'"
-        ))
+        result = conn.execute(text("SELECT 1 FROM information_schema.tables WHERE table_name = 'search_sites'"))
         if not result.fetchone():
             logger.info("Creating search_sites table...")
-            conn.execute(text("""
+            conn.execute(
+                text("""
                 CREATE TABLE search_sites (
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(255) NOT NULL,
@@ -73,7 +84,8 @@ def run_migrations():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            """))
+            """)
+            )
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_search_sites_domain ON search_sites(domain)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_search_sites_is_active ON search_sites(is_active)"))
             conn.commit()
@@ -86,9 +98,11 @@ def run_migrations():
                 ("product_link_selector", "VARCHAR(512)"),
             ]
             for col_name, col_type in columns_to_add:
-                result = conn.execute(text(
-                    f"SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = '{col_name}'"
-                ))
+                result = conn.execute(
+                    text(
+                        f"SELECT 1 FROM information_schema.columns WHERE table_name = 'search_sites' AND column_name = '{col_name}'"
+                    )
+                )
                 if not result.fetchone():
                     logger.info(f"Adding {col_name} column to search_sites...")
                     conn.execute(text(f"ALTER TABLE search_sites ADD COLUMN {col_name} {col_type}"))
@@ -123,13 +137,13 @@ async def lifespan(app: FastAPI):
                 logger.info("Utilisateur admin par défaut créé (admin/admin)")
             else:
                 logger.info("Utilisateurs déjà initialisés")
-            
+
             # Seed enseignes for catalog module
             created_enseignes = seed_enseignes.seed_enseignes(db)
             if created_enseignes > 0:
                 logger.info(f"{created_enseignes} enseigne(s) de catalogues créée(s)")
             else:
-                 logger.info("Enseignes déjà initialisés")
+                logger.info("Enseignes déjà initialisés")
         finally:
             db.close()
     except Exception as e:
@@ -138,7 +152,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting smart scheduler (Heartbeat: 1 minute)")
     scheduler.add_job(scheduled_refresh, IntervalTrigger(minutes=1), id="refresh_job", replace_existing=True)
     scheduler.start()
-    
+
     # Start catalog scraping scheduler
     logger.info("Starting catalog scraping scheduler (6h and 18h daily)")
     start_catalog_scheduler()
@@ -173,7 +187,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
