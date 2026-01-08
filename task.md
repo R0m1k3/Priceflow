@@ -1,43 +1,24 @@
-# Task Board: Catalog Image Fix
+# Correction Statut Disponibilité Produit B&M
 
-## 🚀 Current Focus
+## Contexte
 
-- [ ] Investigate Comparator Price Extraction (User reported false prices)
-- [x] Fix Catalog Images (Generic/Missing icons)
-- [/] **Amazon Login Wall Fix** (Redirected by User)
+Le produit "Lot de 24 bougies blanches" sur bmstores.fr est affiché comme "Produit retiré du site" dans Priceflow alors qu'il est bien disponible sur le site (0,88€).
 
-## 📋 Master Plan
+## Master Plan
 
-- [x] Analyze `verify_extraction_logic.py`, `ai_service.py`, `ai_schema.py`, `tracking_scraper_service.py`.
-- [x] Proposal Phase: Vision Priority accepted.
-- [x] Implementation Phase:
-  - [x] Update `ai_schema.py`.
-  - [x] Fix `scheduler_service.py`.
-- [x] Verification Phase: Verified with `verify_vision_priority.py`.
-- [x] **Catalog Retrieval Fix**:
-  - [x] Reproduce failure (Confirmed Browserless issue).
-  - [x] Fix `cataloguemate_scraper.py` with HTTP fallback.
-  - [x] Cleanup debug files.
-- [x] **Catalog Image Fix**:
-  - [x] Analyze page HTML for correct image selectors (Found Thumbor URL).
-  - [x] **Check PDF availability** (Browser Task).
-  - [x] **Refine Scraper Logic**:
-    - [x] Update `cataloguemate_scraper.py` to grab `src` and prioritize Thumbor.
-    - [x] Update `routers/catalogues.py` to clean up bad images.
-  - [x] **Cleanup Bad Data**:
-    - [x] Run cleanup endpoint.
-  - [x] Verify fix with new scrape.
-- [/] **Comparator Price Fix**:
-  - [ ] Reproduce "False Price" issue with script.
-  - [ ] Audit `improved_search_service.py` extraction logic (Lowest Price vs AI).
-  - [ ] Implement robust price validation/filtering.
-  - [ ] Verify fix.
+- [x] Correction automatique du statut lors d'un refresh réussi
+  - [x] Modifier `_update_db_result` dans `scheduler_service.py` pour remettre `is_available = True` quand un prix est détecté
+- [x] Endpoint API pour correction manuelle
+  - [x] Ajouter un endpoint `PATCH /{item_id}/availability` dans `items.py` router
+  - [x] Permettre de modifier `is_available` via l'API
+- [x] Interface utilisateur
+  - [x] Ajouter `onMarkAvailable` prop dans `ItemCard.jsx`
+  - [x] Ajouter le handler `handleMarkAvailable` dans `Dashboard.jsx`
+  - [x] Afficher un bouton "Marquer comme disponible" dans l'overlay des produits indisponibles
 
-## 📝 Progress Log
+## Progress Log
 
-- **2025-12-22**: Vision Priority implemented and verified.
-- **2025-12-22**: Fixed Catalog Retrieval using HTTP fallback.
-- **2025-12-22**: Investigating generic icon issue. Found images are served via Thumbor.
-- **2025-12-22**: **FIXED**: Scraper now targets Thumbor images. Wiped bad catalogs.
-- **2025-12-24**: User prioritized Amazon Login Wall fix.
-- **2025-12-24**: Reproduction script `test_amazon_scraper.py` patched to use local browser. Verifying issue.
+- Diagnostic effectué : produit B&M bien disponible (0,88€) mais marqué indisponible dans la DB
+- Modifié `scheduler_service.py` : reset auto de `is_available` quand prix détecté
+- Ajouté endpoint API `PATCH /api/items/{id}/availability`
+- Ajouté bouton dans l'overlay frontend pour correction manuelle

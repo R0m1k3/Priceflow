@@ -39,7 +39,7 @@ def update_item_category(item_id: int, category: str | None = None, db: Session 
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     # Treat empty string as None
     item.category = category if category and category.strip() else None
     db.commit()
@@ -77,7 +77,7 @@ def get_price_history(item_id: int, db: Session = Depends(database.get_db)):
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    
+
     # Get price history sorted by timestamp descending (most recent first)
     price_history = (
         db.query(models.PriceHistory)
@@ -85,5 +85,24 @@ def get_price_history(item_id: int, db: Session = Depends(database.get_db)):
         .order_by(models.PriceHistory.timestamp.desc())
         .all()
     )
-    
+
     return price_history
+
+
+@router.patch("/{item_id}/availability")
+def update_item_availability(item_id: int, available: bool = True, db: Session = Depends(database.get_db)):
+    """Mark an item as available or unavailable manually"""
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item.is_available = available
+    # Also clear the error if marking as available
+    if available and item.last_error and "indisponible" in item.last_error.lower():
+        item.last_error = None
+    db.commit()
+    db.refresh(item)
+    return {
+        "message": f"Item marked as {'available' if available else 'unavailable'}",
+        "is_available": item.is_available,
+    }

@@ -57,6 +57,12 @@ def _update_db_result(
                 item.current_price = price
                 item.current_price_confidence = p_conf
 
+                # Auto-reset availability if price was successfully extracted
+                # A valid price proves the product is still available
+                if item.is_available is False:
+                    item.is_available = True
+                    logger.info(f"Item {item_id} marked as available again (price found: {price})")
+
             session.add(
                 models.PriceHistory(
                     item_id=item.id,
