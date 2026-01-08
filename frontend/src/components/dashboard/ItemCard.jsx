@@ -24,8 +24,16 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
 
     const stockStatus = getStockStatus(item.in_stock);
 
+    // Detect if product is no longer available on retailer site
+    const isProductUnavailable = item.is_available === false;
+
     return (
-        <Card className="group overflow-hidden transition-all duration-300 hover:shadow-md border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+        <Card className={cn(
+            "group overflow-hidden transition-all duration-300 hover:shadow-md",
+            isProductUnavailable
+                ? "border-orange-500 dark:border-orange-600 bg-orange-50/50 dark:bg-orange-950/20"
+                : "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+        )}>
             <div className="relative aspect-video overflow-hidden bg-zinc-100 dark:bg-zinc-950 cursor-zoom-in group/image" onClick={() => onZoom(item.screenshot_url)}>
                 {item.screenshot_url ? (
                     <>
@@ -61,6 +69,18 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
                 <div className={cn("absolute right-3 top-3 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide shadow-sm backdrop-blur-md", stockStatus.color)}>
                     {stockStatus.label}
                 </div>
+
+                {/* Product Unavailable Overlay */}
+                {isProductUnavailable && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
+                        <div className="flex flex-col items-center gap-2 text-center px-4">
+                            <AlertTriangle className="h-8 w-8 text-orange-500" />
+                            <span className="text-sm font-semibold text-white">
+                                Produit retiré du site
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <CardContent className="p-5 relative">

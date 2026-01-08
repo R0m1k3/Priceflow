@@ -19,6 +19,7 @@ class ItemResponse(ItemCreate):
     id: int
     current_price: float | None
     in_stock: bool | None
+    is_available: bool | None = True  # Product still exists on retailer site
     current_price_confidence: float | None = None
     in_stock_confidence: float | None = None
     is_active: bool
@@ -44,6 +45,7 @@ class SettingsUpdate(BaseModel):
 
 
 # === Search Sites Schemas ===
+
 
 class SearchSiteCreate(BaseModel):
     name: str
@@ -93,6 +95,7 @@ class SearchSiteResponse(BaseModel):
 
 # === Search Results Schemas ===
 
+
 class SearchQuery(BaseModel):
     query: str
     site_ids: list[int] | None = None  # If None, use all active sites
@@ -101,6 +104,7 @@ class SearchQuery(BaseModel):
 
 class SearchResultItem(BaseModel):
     """Un produit trouvé lors de la recherche"""
+
     url: str
     title: str
     price: float | None = None
@@ -115,6 +119,7 @@ class SearchResultItem(BaseModel):
 
 class SearchProgress(BaseModel):
     """Progression de la recherche pour SSE"""
+
     status: str  # "searching", "scraping", "completed", "error"
     total: int
     completed: int
@@ -125,6 +130,7 @@ class SearchProgress(BaseModel):
 
 
 # === Notification Schemas ===
+
 
 class NotificationChannelCreate(BaseModel):
     name: str
