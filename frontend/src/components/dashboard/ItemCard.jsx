@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Marquee } from '@/components/ui/marquee';
 import { cn } from '@/lib/utils';
 
-export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUpdate, categories, onViewHistory }) {
+export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUpdate, categories, onViewHistory, onMarkAvailable }) {
     const { t } = useTranslation();
     const [showCategorySelect, setShowCategorySelect] = useState(false);
     const [showNewCategoryDialog, setShowNewCategoryDialog] = useState(false);
@@ -73,11 +73,24 @@ export function ItemCard({ item, onEdit, onDelete, onCheck, onZoom, onCategoryUp
                 {/* Product Unavailable Overlay */}
                 {isProductUnavailable && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
-                        <div className="flex flex-col items-center gap-2 text-center px-4">
+                        <div className="flex flex-col items-center gap-3 text-center px-4">
                             <AlertTriangle className="h-8 w-8 text-orange-500" />
                             <span className="text-sm font-semibold text-white">
                                 Produit retiré du site
                             </span>
+                            {onMarkAvailable && (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="mt-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onMarkAvailable(item.id);
+                                    }}
+                                >
+                                    Marquer comme disponible
+                                </Button>
+                            )}
                         </div>
                     </div>
                 )}

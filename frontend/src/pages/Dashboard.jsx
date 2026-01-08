@@ -102,6 +102,17 @@ export default function Dashboard() {
         }
     };
 
+    const handleMarkAvailable = async (itemId) => {
+        try {
+            await axios.patch(`${API_URL}/items/${itemId}/availability?available=true`);
+            toast.success('Produit marqué comme disponible');
+            refreshItems();
+        } catch (error) {
+            console.error('Error marking item as available:', error);
+            toast.error('Erreur lors de la mise à jour');
+        }
+    };
+
     const filteredItems = items.filter(item => {
         const term = searchTerm.toLowerCase();
         const matchesSearch = (
@@ -170,6 +181,7 @@ export default function Dashboard() {
                         onZoom={setZoomedImage}
                         onCategoryUpdate={handleCategoryUpdate}
                         onViewHistory={setHistoryItem}
+                        onMarkAvailable={handleMarkAvailable}
                         categories={categories}
                     />
                 ))}
