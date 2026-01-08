@@ -17,6 +17,52 @@ scheduler = AsyncIOScheduler()
 
 PRICE_CHANGE_THRESHOLD_PERCENT = 20.0
 LOW_CONFIDENCE_THRESHOLD = 0.7
+TITLE_SIMILARITY_THRESHOLD = 0.4  # Below this, consider product changed
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize title for comparison: lowercase, remove common suffixes, strip."""
+    if not title:
+        return ""
+    title = title.lower().strip()
+    # Remove common website suffixes
+    for suffix in [" - b&m", " | b&m", " - action", " | action", " - gifi", " | gifi", " - amazon"]:
+        if title.endswith(suffix):
+            title = title[: -len(suffix)]
+    return title.strip()
+
+
+def _titles_match(stored_name: str, page_title: str) -> bool:
+    """
+    Check if the page title still matches the stored product name.
+    Returns True if they match (product still exists), False if different (product replaced).
+    """
+    if not stored_name or not page_title:
+        return True  # Can't compare, assume match
+
+    norm_stored = _normalize_title(stored_name)
+    norm_page = _normalize_title(page_title)
+
+    # If one is empty after normalization, assume match
+    if not norm_stored or not norm_page:
+        return True
+
+    # Check if stored name is contained in page title or vice versa
+    if norm_stored in norm_page or norm_page in norm_stored:
+        return True
+
+    # Check word overlap ratio (Jaccard similarity)
+    stored_words = set(norm_stored.split())
+    page_words = set(norm_page.split())
+
+    if not stored_words or not page_words:
+        return True
+
+    intersection = stored_words & page_words
+    union = stored_words | page_words
+    similarity = len(intersection) / len(union) if union else 0
+
+    return similarity >= TITLE_SIMILARITY_THRESHOLD
 
 
 def _get_thresholds():
@@ -58,10 +104,8 @@ def _update_db_result(
                 item.current_price_confidence = p_conf
 
                 # Auto-reset availability if price was successfully extracted
-                # A valid price proves the product is still available
-                if item.is_available is False:
-                    item.is_available = True
-                    logger.info(f"Item {item_id} marked as available again (price found: {price})")
+                # This is handled elsewhere based on title matching
+                pass
 
             session.add(
                 models.PriceHistory(
@@ -200,6 +244,48 @@ async def process_item_check(item_id: int):
                     body=f"Le produit '{item_data['name']}' n'est plus disponible sur Action.com.\n{item_data['url']}",
                 )
             return
+
+        # Detect product replacement by comparing page title with stored name
+        # If title has changed significantly, the original product was replaced
+        titles_match = _titles_match(item_data["name"], page_title)
+
+        if not titles_match:
+            logger.warning(
+                f"Product replacement detected for item {item_id}. "
+                f"Stored: '{item_data['name']}', Page title: '{page_title}'"
+            )
+            await loop.run_in_executor(
+                None,
+                _update_db_product_unavailable,
+                item_id,
+                f"Produit remplacé (titre: {page_title[:50]}...)"
+                if len(page_title) > 50
+                else f"Produit remplacé (titre: {page_title})",
+                screenshot_path,
+            )
+
+            # Send notification if configured
+            if item_data["notification_channel"]:
+                await NotificationService.send_notification(
+                    item_data["notification_channel"],
+                    title=f"⚠️ Produit remplacé : {item_data['name']}",
+                    body=f"Le produit '{item_data['name']}' semble avoir été remplacé.\nNouveau titre: {page_title}\n{item_data['url']}",
+                )
+            return
+
+        # If titles match and product was previously marked unavailable, reset it
+        if titles_match:
+
+            def _reset_availability(item_id: int):
+                with database.SessionLocal() as session:
+                    if item := session.query(models.Item).filter(models.Item.id == item_id).first():
+                        if item.is_available is False:
+                            item.is_available = True
+                            item.last_error = None
+                            session.commit()
+                            logger.info(f"Item {item_id} marked as available again (title matches)")
+
+            await loop.run_in_executor(None, _reset_availability, item_id)
 
         # HYBRID EXTRACTION STRATEGY (Aligned with ImprovedSearchService)
         # 1. Try specialized parser (if available) or JSON-LD

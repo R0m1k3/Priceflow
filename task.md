@@ -1,24 +1,32 @@
-# Correction Statut Disponibilité Produit B&M
+# Correction Statut Disponibilité Produit
 
 ## Contexte
 
-Le produit "Lot de 24 bougies blanches" sur bmstores.fr est affiché comme "Produit retiré du site" dans Priceflow alors qu'il est bien disponible sur le site (0,88€).
+Le produit "Lot de 24 bougies blanches" sur bmstores.fr est affiché comme "Produit retiré du site" alors qu'il est bien disponible.
 
-## Master Plan
+## Logique Implémentée
 
-- [x] Correction automatique du statut lors d'un refresh réussi
-  - [x] Modifier `_update_db_result` dans `scheduler_service.py` pour remettre `is_available = True` quand un prix est détecté
-- [x] Endpoint API pour correction manuelle
-  - [x] Ajouter un endpoint `PATCH /{item_id}/availability` dans `items.py` router
-  - [x] Permettre de modifier `is_available` via l'API
-- [x] Interface utilisateur
-  - [x] Ajouter `onMarkAvailable` prop dans `ItemCard.jsx`
-  - [x] Ajouter le handler `handleMarkAvailable` dans `Dashboard.jsx`
-  - [x] Afficher un bouton "Marquer comme disponible" dans l'overlay des produits indisponibles
+**Détection d'indisponibilité :**
 
-## Progress Log
+- Si le **titre de la page a changé** significativement par rapport au nom stocké → le produit original a été remplacé → marquer comme "Produit remplacé"
+- Exemple: URL `/produit/123-bougies-blanches` maintenant affiche "Bougies Multicolores" → produit indisponible
 
-- Diagnostic effectué : produit B&M bien disponible (0,88€) mais marqué indisponible dans la DB
-- Modifié `scheduler_service.py` : reset auto de `is_available` quand prix détecté
-- Ajouté endpoint API `PATCH /api/items/{id}/availability`
-- Ajouté bouton dans l'overlay frontend pour correction manuelle
+**Reset de disponibilité :**
+
+- Si le **titre correspond toujours** au nom stocké → le produit existe encore → remettre `is_available = true`
+
+## Tâches Complétées
+
+- [x] Fonction `_normalize_title()` - normalise les titres pour comparaison
+- [x] Fonction `_titles_match()` - compare les titres avec similarité Jaccard
+- [x] Détection de remplacement de produit dans `process_item_check()`
+- [x] Reset automatique quand le titre correspond
+- [x] Endpoint API `PATCH /{item_id}/availability` pour correction manuelle
+- [x] Bouton "Marquer comme disponible" dans l'interface
+
+## Fichiers Modifiés
+
+- `app/services/scheduler_service.py` - logique de détection
+- `app/routers/items.py` - endpoint API
+- `frontend/src/pages/Dashboard.jsx` - handler
+- `frontend/src/components/dashboard/ItemCard.jsx` - bouton UI
