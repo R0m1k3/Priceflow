@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import re
 from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -21,15 +23,67 @@ TITLE_SIMILARITY_THRESHOLD = 0.4  # Below this, consider product changed
 
 
 def _normalize_title(title: str) -> str:
-    """Normalize title for comparison: lowercase, remove common suffixes, strip."""
+    """Normalize title for comparison: lowercase, remove common suffixes/prefixes, strip."""
     if not title:
         return ""
+
     title = title.lower().strip()
-    # Remove common website suffixes
-    for suffix in [" - b&m", " | b&m", " - action", " | action", " - gifi", " | gifi", " - amazon"]:
-        if title.endswith(suffix):
-            title = title[: -len(suffix)]
+
+    # Remove common website suffixes/prefixes
+    patterns = [
+        r" - b&m$",
+        r" \| b&m$",
+        r" - action$",
+        r" \| action$",
+        r" - gifi$",
+        r" \| gifi$",
+        r" - amazon$",
+        r" \| amazon$",
+        r"^b&m stores : ",
+        r"^gifi : ",
+        r"^action : ",
+    ]
+    for pattern in patterns:
+        title = re.sub(pattern, "", title)
+
+    # Remove extra spaces and punctuation that might differ between sites
+    title = re.sub(r"[^\w\s]", " ", title)
+    title = " ".join(title.split())
+
     return title.strip()
+
+
+def _is_generic_or_error_title(title: str) -> bool:
+    """Check if the title is a generic error, bot detection, or placeholder."""
+    if not title:
+        return True
+    t = title.lower()
+    error_terms = [
+        "access denied",
+        "just a moment",
+        "cloudflare",
+        "attention required",
+        "erreur 403",
+        "403 forbidden",
+        "security check",
+        "robot or human",
+        "bot verification",
+        "loading",
+        "chargement",
+        "veuillez patienter",
+        "site non accessible",
+        "maintenance",
+        "un instant",
+    ]
+    if any(term in t for term in error_terms):
+        return True
+
+    # Titles that are just the domain name are often placeholders or homepages
+    domain_titles = ["bmstores.fr", "gifi.fr", "action.com", "amazon.fr"]
+    if t.strip() in domain_titles:
+        return True
+
+    return False
 
 
 def _titles_match(stored_name: str, page_title: str) -> bool:
@@ -104,8 +158,10 @@ def _update_db_result(
                 item.current_price_confidence = p_conf
 
                 # Auto-reset availability if price was successfully extracted
-                # This is handled elsewhere based on title matching
-                pass
+                if item.is_available is False:
+                    item.is_available = True
+                    item.last_error = None
+                    logger.info(f"Item {item.id} marked as available again (price extracted)")
 
             session.add(
                 models.PriceHistory(
@@ -212,6 +268,16 @@ async def process_item_check(item_id: int):
             await loop.run_in_executor(None, _update_db_error, item_id, f"Amazon Bot Detection: {page_title}")
             return
 
+        # Generic Bot Detection for all sites
+        bot_terms = ["captcha", "robot or human", "bot verification", "security check", "access denied", "cloudflare"]
+        html_lower = html_content.lower() if html_content else ""
+        if any(term in page_title.lower() for term in bot_terms) or any(term in html_lower for term in bot_terms):
+            logger.warning(f"Bot detection / blocker triggered for item {item_id} (Title: {page_title})")
+            await loop.run_in_executor(
+                None, _update_db_error, item_id, f"Accès bloqué par le site (Bot Detection) : {page_title}"
+            )
+            return
+
         # Detect Action.com product unavailability
         is_action = "action.com" in item_data["url"]
         is_product_unavailable = False
@@ -248,19 +314,33 @@ async def process_item_check(item_id: int):
         # Detect product replacement by comparing page title with stored name
         # If title has changed significantly, the original product was replaced
         titles_match = _titles_match(item_data["name"], page_title)
+        is_generic_title = _is_generic_or_error_title(page_title)
 
         if not titles_match:
-            logger.warning(
-                f"Product replacement detected for item {item_id}. "
-                f"Stored: '{item_data['name']}', Page title: '{page_title}'"
-            )
+            # If it's a generic or error title, don't mark as unavailable, just mark as error
+            if is_generic_title:
+                logger.warning(f"Generic/Error title detected for item {item_id}: '{page_title}'")
+                await loop.run_in_executor(
+                    None, _update_db_error, item_id, f"Site inaccessible ou titre générique : {page_title}"
+                )
+                return
+
+            # If it's a 404 indication in the title, it's a real unavailability
+            if "404" in page_title.lower() or "page non trouvée" in page_title.lower():
+                logger.info(f"404 detected in title for item {item_id}")
+            else:
+                logger.warning(
+                    f"Product replacement detected for item {item_id}. "
+                    f"Stored: '{item_data['name']}', Page title: '{page_title}'"
+                )
+
             await loop.run_in_executor(
                 None,
                 _update_db_product_unavailable,
                 item_id,
-                f"Produit remplacé (titre: {page_title[:50]}...)"
+                f"Produit retiré ou remplacé (titre: {page_title[:50]}...)"
                 if len(page_title) > 50
-                else f"Produit remplacé (titre: {page_title})",
+                else f"Produit retiré ou remplacé (titre: {page_title})",
                 screenshot_path,
             )
 

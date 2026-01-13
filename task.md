@@ -1,32 +1,26 @@
-# Correction Statut Disponibilité Produit
+# Investigation et Correction du Statut "Produit Retiré"
 
 ## Contexte
 
-Le produit "Lot de 24 bougies blanches" sur bmstores.fr est affiché comme "Produit retiré du site" alors qu'il est bien disponible.
+Le système de suivi des prix marquait incorrectement certains produits comme "retirés" alors qu'ils étaient toujours disponibles, souvent à cause de blocages (bot detection) ou de changements mineurs de titre.
 
-## Logique Implémentée
+## Focus Actuel
 
-**Détection d'indisponibilité :**
+Finalisation et vérification.
 
-- Si le **titre de la page a changé** significativement par rapport au nom stocké → le produit original a été remplacé → marquer comme "Produit remplacé"
-- Exemple: URL `/produit/123-bougies-blanches` maintenant affiche "Bougies Multicolores" → produit indisponible
+## Master Plan
 
-**Reset de disponibilité :**
+- [x] Analyser la logique de comparaison de titres dans `app/services/scheduler_service.py`
+- [x] Vérifier si les scrapers extraient correctement les titres lors des mises à jour
+- [x] Identifier les cas limites (edge cases) où la similarité de titre échoue
+- [x] Corriger la logique pour éviter les faux positifs d'indisponibilité
+- [x] Vérifier la correction avec un exemple concret (test_logic.py)
+- [x] Implémenter le reset automatique de disponibilité si un prix est trouvé
 
-- Si le **titre correspond toujours** au nom stocké → le produit existe encore → remettre `is_available = true`
+## Log de Progression
 
-## Tâches Complétées
-
-- [x] Fonction `_normalize_title()` - normalise les titres pour comparaison
-- [x] Fonction `_titles_match()` - compare les titres avec similarité Jaccard
-- [x] Détection de remplacement de produit dans `process_item_check()`
-- [x] Reset automatique quand le titre correspond
-- [x] Endpoint API `PATCH /{item_id}/availability` pour correction manuelle
-- [x] Bouton "Marquer comme disponible" dans l'interface
-
-## Fichiers Modifiés
-
-- `app/services/scheduler_service.py` - logique de détection
-- `app/routers/items.py` - endpoint API
-- `frontend/src/pages/Dashboard.jsx` - handler
-- `frontend/src/components/dashboard/ItemCard.jsx` - bouton UI
+- [x] Investigation terminée : identification des faux positifs dus aux titres de blocage (Cloudflare, etc.) et aux placeholders ("Loading").
+- [x] Logique de normalisation renforcée.
+- [x] Détection des bots ajoutée pour tous les sites.
+- [x] Auto-reset de `is_available` implémenté dans `_update_db_result`.
+- [x] Correction déployée dans `scheduler_service.py`.
