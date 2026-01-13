@@ -50,6 +50,10 @@ def _normalize_title(title: str) -> str:
     for pattern in patterns:
         title = re.sub(pattern, "", title)
 
+    # Separate numbers from letters (handles cases like 'Blanc40' or '100pièces')
+    title = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", title)
+    title = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", title)
+
     # Remove extra spaces and punctuation that might differ between sites
     title = re.sub(r"[^\w\s]", " ", title)
     title = " ".join(title.split())
@@ -323,7 +327,14 @@ async def process_item_check(item_id: int):
                 html_lower = html_content.lower() if html_content else ""
 
                 if any(term in final_url_lower for term in unavailable_terms) or any(
-                    term in html_lower for term in unavailable_terms
+                    term in html_lower
+                    for term in [
+                        # Use more specific terms for HTML to avoid false positives in random text or meta
+                        "malheureusement, ce produit est actuellement indisponible",
+                        ">produit indisponible<",
+                        ">ce produit est indisponible<",
+                        "product-unavailable-message",
+                    ]
                 ):
                     logger.warning(f"Product unavailable confirmed for item {item_id} on Action.com")
                     await loop.run_in_executor(

@@ -1,29 +1,21 @@
-# Investigation et Correction du Statut "Produit Retiré"
+# Nettoyage et Commit du Projet
 
 ## Contexte
 
-Le système de suivi des prix marquait incorrectement certains produits comme "retirés" alors qu'ils étaient toujours disponibles, souvent à cause de blocages (bot detection) ou de changements mineurs de titre.
+Après avoir corrigé les problèmes de disponibilité d'Action.com et Amazon, il est nécessaire de nettoyer le répertoire racine des scripts de diagnostic et fichiers temporaires avant de committer les changements.
 
 ## Focus Actuel
 
-Finalisation et vérification.
+Identification et suppression des fichiers inutiles, suivi du commit et push.
 
 ## Master Plan
 
-- [x] Analyser la logique de comparaison de titres dans `app/services/scheduler_service.py`
-- [x] Vérifier si les scrapers extraient correctement les titres lors des mises à jour
-- [x] Identifier les cas limites (edge cases) où la similarité de titre échoue
-- [x] Corriger la logique pour éviter les faux positifs d'indisponibilité
-- [x] Vérifier la correction avec un exemple concret (test_logic.py)
-- [x] Implémenter le reset automatique de disponibilité si un prix est trouvé
+- [ ] Identifier les fichiers non essentiels à l'application
+- [ ] Supprimer les fichiers de diagnostic et scripts temporaires
+- [ ] Vérifier que l'application fonctionne toujours (build/syntaxe)
+- [ ] Committer les changements vers le dépôt Git
+- [ ] Pusher les changements
 
 ## Log de Progression
 
-- [x] Investigation terminée : identification des faux positifs dus aux titres de blocage (Cloudflare, etc.) et aux placeholders ("Loading").
-- [x] Logique de normalisation renforcée.
-- [x] Détection des bots ajoutée pour tous les sites.
-- [x] Auto-reset de `is_available` implémenté dans `_update_db_result`.
-- [x] Correction déployée dans `scheduler_service.py`.
-- [x] Affinage de la détection de bot pour Stokomani/L'Incroyable (détection conditionnelle au titre).
-- [x] Support des versions "V2" et matching par mots pour les noms courts sur Amazon.
-- [x] Sécurisation du flux Action.com (check d'indisponibilité déplacé après le titre).
+- [ ] Planification du nettoyage commencée.
