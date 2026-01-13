@@ -1,18 +1,19 @@
 import asyncio
-import json
 import logging
 import re
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from bs4 import BeautifulSoup
 
 from app import database, models
 from app.ai_schema import AIExtractionMetadata, AIExtractionResponse
 from app.services.ai_service import AIService
 from app.services.item_service import ItemService
 from app.services.notification_service import NotificationService
-from app.services.browserless_service import browserless_service
-from app.services.tracking_scraper_service import ScraperService, ScrapeConfig
+from app.services.tracking_scraper_service import ScraperService
+from app.utils.text import clean_text
 
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
@@ -28,6 +29,9 @@ def _normalize_title(title: str) -> str:
         return ""
 
     title = title.lower().strip()
+
+    # Standardize V2, V3 etc. (v2 -> 2) for better matching on Amazon
+    title = re.sub(r"\bv(\d+)\b", r"\1", title)
 
     # Remove common website suffixes/prefixes
     patterns = [
@@ -116,7 +120,16 @@ def _titles_match(stored_name: str, page_title: str) -> bool:
     union = stored_words | page_words
     similarity = len(intersection) / len(union) if union else 0
 
-    return similarity >= TITLE_SIMILARITY_THRESHOLD
+    is_match = similarity >= TITLE_SIMILARITY_THRESHOLD
+
+    # Fallback for short stored names: if 75% of words match, it's likely the same product
+    # This helps with long descriptive titles (Amazon) vs short stored names
+    if not is_match and len(stored_words) <= 5:
+        match_ratio = len(intersection) / len(stored_words) if stored_words else 0
+        if match_ratio >= 0.75:
+            is_match = True
+
+    return is_match
 
 
 def _get_thresholds():
@@ -231,7 +244,7 @@ def _update_db_product_unavailable(item_id: int, error_msg: str, screenshot_path
 async def process_item_check(item_id: int):
     loop = asyncio.get_running_loop()
     with database.SessionLocal() as session:
-        item_data, config = await loop.run_in_executor(None, ItemService.get_item_data_for_checking, session, item_id)
+        item_data, _ = await loop.run_in_executor(None, ItemService.get_item_data_for_checking, session, item_id)
 
     if not item_data:
         logger.error(f"process_item_check: Item ID {item_id} not found")
@@ -240,8 +253,6 @@ async def process_item_check(item_id: int):
     try:
         logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
         # Use independent ScraperService for tracking
-        from app.services.tracking_scraper_service import ScraperService
-
         screenshot_path, html_content, final_url, page_title = await ScraperService.scrape_item(
             url=item_data["url"], selector=item_data["selector"], item_id=item_id, return_html=True
         )
@@ -266,39 +277,6 @@ async def process_item_check(item_id: int):
         if is_blocked:
             logger.warning(f"Amazon Bot Detection triggered for item {item_id}. Title: {page_title}, URL: {final_url}")
             await loop.run_in_executor(None, _update_db_error, item_id, f"Amazon Bot Detection: {page_title}")
-            return
-
-        # Detect Action.com product unavailability
-        is_action = "action.com" in item_data["url"]
-        is_product_unavailable = False
-
-        if is_action:
-            unavailable_terms = [
-                "showproductwarning=true",
-                "produit indisponible",
-                "malheureusement, ce produit est actuellement indisponible",
-            ]
-            final_url_lower = final_url.lower()
-            html_lower = html_content.lower() if html_content else ""
-
-            if any(term in final_url_lower for term in unavailable_terms) or any(
-                term in html_lower for term in unavailable_terms
-            ):
-                is_product_unavailable = True
-
-        if is_product_unavailable:
-            logger.warning(f"Product unavailable detected for item {item_id} on Action.com")
-            await loop.run_in_executor(
-                None, _update_db_product_unavailable, item_id, "Produit indisponible sur Action.com", screenshot_path
-            )
-
-            # Send notification if configured
-            if item_data["notification_channel"]:
-                await NotificationService.send_notification(
-                    item_data["notification_channel"],
-                    title=f"⚠️ Produit indisponible : {item_data['name']}",
-                    body=f"Le produit '{item_data['name']}' n'est plus disponible sur Action.com.\n{item_data['url']}",
-                )
             return
 
         # Detect product replacement by comparing page title with stored name
@@ -332,6 +310,38 @@ async def process_item_check(item_id: int):
                     None, _update_db_error, item_id, f"Site inaccessible ou titre générique : {page_title}"
                 )
                 return
+
+            # Specific check for Action.com unavailability (after title mismatch)
+            is_action = "action.com" in item_data["url"]
+            if is_action:
+                unavailable_terms = [
+                    "showproductwarning=true",
+                    "produit indisponible",
+                    "malheureusement, ce produit est actuellement indisponible",
+                ]
+                final_url_lower = final_url.lower()
+                html_lower = html_content.lower() if html_content else ""
+
+                if any(term in final_url_lower for term in unavailable_terms) or any(
+                    term in html_lower for term in unavailable_terms
+                ):
+                    logger.warning(f"Product unavailable confirmed for item {item_id} on Action.com")
+                    await loop.run_in_executor(
+                        None,
+                        _update_db_product_unavailable,
+                        item_id,
+                        "Produit indisponible sur Action.com",
+                        screenshot_path,
+                    )
+
+                    # Send notification if configured
+                    if item_data["notification_channel"]:
+                        await NotificationService.send_notification(
+                            item_data["notification_channel"],
+                            title=f"⚠️ Produit indisponible : {item_data['name']}",
+                            body=f"Le produit '{item_data['name']}' n'est plus disponible sur Action.com.\n{item_data['url']}",
+                        )
+                    return
 
             # If it's a 404 indication in the title, it's a real unavailability
             if "404" in page_title.lower() or "page non trouvée" in page_title.lower():
@@ -381,13 +391,11 @@ async def process_item_check(item_id: int):
         in_stock = True
 
         # Site-specific parser (Gifi)
-        from urllib.parse import urlparse
-
         domain = urlparse(item_data["url"]).netloc
         if "gifi.fr" in domain:
-            from app.services.parsers.gifi_parser import GifiParser
-
             try:
+                from app.services.parsers.gifi_parser import GifiParser
+
                 parser = GifiParser()
                 details = parser.parse_product_details(html_content, item_data["url"])
                 if details.get("price") is not None:
@@ -399,16 +407,14 @@ async def process_item_check(item_id: int):
 
         # Simple JSON-LD extract (if not found by specific parser)
         if price is None:
-            import json
-
             try:
-                from bs4 import BeautifulSoup
-
                 soup = BeautifulSoup(html_content, "html.parser")
                 scripts = soup.find_all("script", type="application/ld+json")
                 for script in scripts:
                     if script.string:
                         try:
+                            import json
+
                             data = json.loads(script.string)
                             if isinstance(data, list):
                                 data = data[0]
@@ -450,8 +456,6 @@ async def process_item_check(item_id: int):
         else:
             # Fallback to Vision AI if text extraction failed
             # Clean text properly before sending to AI
-            from app.utils.text import clean_text
-
             cleaned_html = clean_text(html_content)
             if not (ai_result := await AIService.analyze_image(screenshot_path, page_text=cleaned_html[:10000])):
                 raise Exception("AI analysis (Vision) failed")

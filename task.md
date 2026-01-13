@@ -24,3 +24,6 @@ Finalisation et vérification.
 - [x] Détection des bots ajoutée pour tous les sites.
 - [x] Auto-reset de `is_available` implémenté dans `_update_db_result`.
 - [x] Correction déployée dans `scheduler_service.py`.
+- [x] Affinage de la détection de bot pour Stokomani/L'Incroyable (détection conditionnelle au titre).
+- [x] Support des versions "V2" et matching par mots pour les noms courts sur Amazon.
+- [x] Sécurisation du flux Action.com (check d'indisponibilité déplacé après le titre).
