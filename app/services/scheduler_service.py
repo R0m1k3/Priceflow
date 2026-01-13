@@ -54,9 +54,16 @@ def _normalize_title(title: str) -> str:
     title = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", title)
     title = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", title)
 
-    # Remove extra spaces and punctuation that might differ between sites
+    # Remove non-word characters (punctuation) early to simplify regex
     title = re.sub(r"[^\w\s]", " ", title)
     title = " ".join(title.split())
+
+    # Remove technical metadata at the end (Action specific noise)
+    # Match various patterns like "0 09 pce 342" or "100 pièces" etc.
+    title = re.sub(r"\s+\d+\s+\d+\s+pce.*$", "", title)
+    title = re.sub(r"\s+\d+\s+pièces.*$", "", title)
+    title = re.sub(r"\s+\d+\s+€.*$", "", title)
+    title = re.sub(r"\s+\d+\s+\d+\s+€.*$", "", title)
 
     return title.strip()
 
@@ -362,6 +369,28 @@ async def process_item_check(item_id: int):
                     f"Product replacement detected for item {item_id}. "
                     f"Stored: '{item_data['name']}', Page title: '{page_title}'"
                 )
+
+                # For Action.com, if we haven't confirmed unavailability above,
+                # don't mark as unavailable yet, just mark as potential replacement error
+                # unless the title is almost completely different
+                if is_action:
+                    # Check if at least some significant words match
+                    norm_stored = _normalize_title(item_data["name"])
+                    norm_page = _normalize_title(page_title)
+                    stored_words = set(norm_stored.split())
+                    page_words = set(norm_page.split())
+                    intersection = stored_words & page_words
+                    if len(intersection) >= 2 or (len(stored_words) <= 3 and len(intersection) >= 1):
+                        logger.warning(
+                            f"Borderline title match for Action.com item {item_id}. Keeping as available but marking error."
+                        )
+                        await loop.run_in_executor(
+                            None,
+                            _update_db_error,
+                            item_id,
+                            f"Titre différent mais produit probablement correct : {page_title}",
+                        )
+                        return
 
             await loop.run_in_executor(
                 None,

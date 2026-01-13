@@ -1,21 +1,21 @@
-# Nettoyage et Commit du Projet
+# Deep Debugging Action.com Availability
 
-## Contexte
+## Context
 
-Après avoir corrigé les problèmes de disponibilité d'Action.com et Amazon, il est nécessaire de nettoyer le répertoire racine des scripts de diagnostic et fichiers temporaires avant de committer les changements.
+Some products on Action.com are still marked as unavailable even after the first round of fixes.
 
-## Focus Actuel
+## Current Focus
 
-Identification et suppression des fichiers inutiles, suivi du commit et push.
+Identifying why specific Action.com products fail the availability check.
 
 ## Master Plan
 
-- [ ] Identifier les fichiers non essentiels à l'application
-- [ ] Supprimer les fichiers de diagnostic et scripts temporaires
-- [ ] Vérifier que l'application fonctionne toujours (build/syntaxe)
-- [ ] Committer les changements vers le dépôt Git
-- [ ] Pusher les changements
+- [ ] List currently unavailable Action.com items from the database (if possible) or logs
+- [ ] Reproduce the check for a specific problematic item
+- [ ] Analyze the HTML and Title for these items
+- [ ] Refine the matching logic or the unavailability detection
+- [ ] Verify fix with multiple Action.com items
 
-## Log de Progression
+## Progress Log
 
-- [ ] Planification du nettoyage commencée.
+- [/] Task started.
