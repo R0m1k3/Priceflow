@@ -268,16 +268,6 @@ async def process_item_check(item_id: int):
             await loop.run_in_executor(None, _update_db_error, item_id, f"Amazon Bot Detection: {page_title}")
             return
 
-        # Generic Bot Detection for all sites
-        bot_terms = ["captcha", "robot or human", "bot verification", "security check", "access denied", "cloudflare"]
-        html_lower = html_content.lower() if html_content else ""
-        if any(term in page_title.lower() for term in bot_terms) or any(term in html_lower for term in bot_terms):
-            logger.warning(f"Bot detection / blocker triggered for item {item_id} (Title: {page_title})")
-            await loop.run_in_executor(
-                None, _update_db_error, item_id, f"Accès bloqué par le site (Bot Detection) : {page_title}"
-            )
-            return
-
         # Detect Action.com product unavailability
         is_action = "action.com" in item_data["url"]
         is_product_unavailable = False
@@ -317,6 +307,24 @@ async def process_item_check(item_id: int):
         is_generic_title = _is_generic_or_error_title(page_title)
 
         if not titles_match:
+            # If titles don't match, check if it's because of a generic bot detection/blocker
+            # We only do this check if titles_match is False to avoid false positives on valid pages
+            bot_terms = [
+                "captcha",
+                "robot or human",
+                "bot verification",
+                "security check",
+                "access denied",
+                "cloudflare ray id",
+            ]
+            html_lower = html_content.lower() if html_content else ""
+            if any(term in page_title.lower() for term in bot_terms) or any(term in html_lower for term in bot_terms):
+                logger.warning(f"Bot detection / blocker confirmed for item {item_id} (Title: {page_title})")
+                await loop.run_in_executor(
+                    None, _update_db_error, item_id, f"Accès bloqué par le site (Bot Detection) : {page_title}"
+                )
+                return
+
             # If it's a generic or error title, don't mark as unavailable, just mark as error
             if is_generic_title:
                 logger.warning(f"Generic/Error title detected for item {item_id}: '{page_title}'")
