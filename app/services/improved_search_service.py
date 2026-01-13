@@ -455,7 +455,61 @@ class ImprovedSearchService:
             return result  # Return original result without price
 
     @staticmethod
-    async def _extract_price(page: Page) -> float | None:
+    def _clean_price_text(price_text: str) -> float | None:
+        """
+        Robust price parsing logic shared with BaseParser.
+        Handles French formats, hybrid notations (9€99), and noise (eco-part).
+        """
+        if not price_text:
+            return None
+
+        import re
+
+        # Normalization
+        cleaned = price_text.strip().replace("\xa0", " ").replace("\u202f", " ")
+
+        # Hybrid notation "9€99" -> "9.99"
+        cleaned = re.sub(r"(\d+)\s*€\s*(\d+)", r"\1.\2", cleaned)
+        cleaned = cleaned.replace("€", "").replace("EUR", "")
+
+        # Noise removal
+        noise_patterns = [
+            r"\s*[/]\s*.*$",  # / pce, / kg
+            r"\bsoit\b.*$",
+            r"\bdont\b.*$",
+            r"\béco-part\b.*$",
+            r"\beco-part\b.*$",
+        ]
+        for pattern in noise_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+        # Thousands separators
+        if "." in cleaned and "," in cleaned:
+            if cleaned.rfind(".") < cleaned.rfind(","):
+                cleaned = cleaned.replace(".", "")
+            else:
+                cleaned = cleaned.replace(",", "")
+        if " " in cleaned and ("," in cleaned or "." in cleaned):
+            cleaned = cleaned.replace(" ", "")
+
+        cleaned = cleaned.replace(",", ".")
+
+        # Extraction
+        match = re.search(r"(\d+\.?\d*)", cleaned)
+        if match:
+            try:
+                val_str = match.group(1)
+                if val_str.endswith("."):
+                    val_str = val_str[:-1]
+                price = float(val_str)
+                if 0.00 <= price <= 1000000:
+                    return price
+            except ValueError:
+                pass
+        return None
+
+    @classmethod
+    async def _extract_price(cls, page: Page) -> float | None:
         """Extract price using Hybrid Strategy: JSON-LD -> AI -> Strict CSS -> Loose CSS"""
         import re
 
@@ -535,18 +589,10 @@ class ImprovedSearchService:
                         continue
 
                     price_text = await elem.inner_text()
-                    if price_text:
-                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
-                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
-                        match = re.search(r"(\d+\.?\d*)", cleaned)
-                        if match:
-                            try:
-                                price_val = float(match.group(1))
-                                if 0.01 < price_val < 100000:
-                                    logger.debug(f"  ✅ Found price via Strict CSS {selector}: {price_val}€")
-                                    return price_val
-                            except:
-                                continue
+                    price_val = cls._clean_price_text(price_text)
+                    if price_val is not None:
+                        logger.debug(f"  ✅ Found price via Strict CSS {selector}: {price_val}€")
+                        return price_val
             except:
                 continue
 
@@ -591,24 +637,14 @@ class ImprovedSearchService:
                         continue
 
                     price_text = await elem.inner_text()
-                    if price_text:
+                    price_val = cls._clean_price_text(price_text)
+                    if price_val is not None:
                         text_lower = price_text.lower()
-                        # Filter out forbidden words
+                        # Filter out forbidden words (secondary safety)
                         if any(w in text_lower for w in FORBIDDEN_WORDS):
                             continue
-
-                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
-                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
-
-                        match = re.search(r"(\d+\.?\d*)", cleaned)
-                        if match:
-                            try:
-                                price_val = float(match.group(1))
-                                if 0.01 < price_val < 100000:
-                                    logger.debug(f"Found sale price: {price_val}€ from {selector}")
-                                    return price_val
-                            except ValueError:
-                                continue
+                        logger.debug(f"Found sale price: {price_val}€ from {selector}")
+                        return price_val
             except Exception:
                 continue
 
@@ -634,19 +670,10 @@ class ImprovedSearchService:
                         pass
 
                     price_text = await elem.inner_text()
-                    if price_text:
-                        cleaned = price_text.strip().replace("€", "").replace("EUR", "").strip()
-                        cleaned = cleaned.replace(" ", "").replace("\xa0", "").replace(",", ".")
-
-                        match = re.search(r"(\d+\.?\d*)", cleaned)
-                        if match:
-                            try:
-                                price_val = float(match.group(1))
-                                if 0.01 < price_val < 100000:
-                                    logger.debug(f"  Found candidate price: {price_val}€ from {selector}")
-                                    all_prices.append(price_val)
-                            except ValueError:
-                                continue
+                    price_val = cls._clean_price_text(price_text)
+                    if price_val is not None:
+                        logger.debug(f"  Found candidate price: {price_val}€ from {selector}")
+                        all_prices.append(price_val)
             except Exception as e:
                 logger.debug(f"  Error with selector {selector}: {e}")
                 continue

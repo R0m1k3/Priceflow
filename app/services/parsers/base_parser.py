@@ -9,14 +9,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
-
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ProductResult:
     """Unified product result data structure"""
+
     title: str
     url: str
     source: str
@@ -100,22 +99,60 @@ class BaseParser(ABC):
         if not price_text:
             return None
 
-        # Remove currency symbols
-        cleaned = price_text.strip().replace('€', '').replace('EUR', '').strip()
+        # Normalization phase
+        # Replace non-breaking spaces and specific French formatting
+        cleaned = price_text.strip().replace("\xa0", " ").replace("\u202f", " ")
 
-        # Remove thousands separators
-        cleaned = cleaned.replace(' ', '').replace('\xa0', '')
+        # Handle the "9€99" case: "9€99" -> "9.99"
+        cleaned = re.sub(r"(\d+)\s*€\s*(\d+)", r"\1.\2", cleaned)
 
-        # Replace French decimal separator
-        cleaned = cleaned.replace(',', '.')
+        # Remove currency symbols (already partially handled by regex above but for safety)
+        cleaned = cleaned.replace("€", "").replace("EUR", "")
 
-        # Extract first number
-        match = re.search(r'(\d+\.?\d*)', cleaned)
+        # Handle noise like "Eco-part", "/ pce", "soit ..."
+        # Use regex with word boundaries to avoid catching segments of words
+        noise_patterns = [
+            r"\s*[/]\s*.*$",  # / pce, / kg
+            r"\bsoit\b.*$",  # soit ...
+            r"\bdont\b.*$",  # dont ... eco-part
+            r"\béco-part\b.*$",
+            r"\beco-part\b.*$",
+        ]
+
+        for pattern in noise_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+        # Handle thousands separators and decimal points
+        # If it contains both dot and comma, we need to decide which is which
+        if "." in cleaned and "," in cleaned:
+            # Usually the one closer to the end is the decimal separator
+            if cleaned.rfind(".") < cleaned.rfind(","):
+                # Format: 1.234,56
+                cleaned = cleaned.replace(".", "")
+            else:
+                # Format: 1,234.56
+                cleaned = cleaned.replace(",", "")
+
+        # If it has a space as thousands separator
+        if " " in cleaned and ("," in cleaned or "." in cleaned):
+            # Format: 1 234,56 or 1 234.56
+            cleaned = cleaned.replace(" ", "")
+
+        # Standardize decimal separator to dot
+        cleaned = cleaned.replace(",", ".")
+
+        # Final extraction: find the first number that looks like a price
+        match = re.search(r"(\d+\.?\d*)", cleaned)
         if match:
             try:
-                price = float(match.group(1))
-                # Validate range
-                if 0.01 <= price <= 100000:
+                price_str = match.group(1)
+                # Remove trailing dot if any (e.g. from a sentence end)
+                if price_str.endswith("."):
+                    price_str = price_str[:-1]
+
+                price = float(price_str)
+                # Validate range: up to 1,000,000 for high-end items
+                if 0.00 <= price <= 1000000:
                     return price
             except ValueError:
                 pass
@@ -127,10 +164,10 @@ class BaseParser(ABC):
         if not rating_text:
             return None
 
-        match = re.search(r'(\d+[,.]\d+)', rating_text)
+        match = re.search(r"(\d+[,.]\d+)", rating_text)
         if match:
             try:
-                return float(match.group(1).replace(',', '.'))
+                return float(match.group(1).replace(",", "."))
             except ValueError:
                 pass
 
@@ -141,8 +178,8 @@ class BaseParser(ABC):
         if not reviews_text:
             return None
 
-        cleaned = re.sub(r'[^\d\s]', '', reviews_text)
-        cleaned = cleaned.replace(' ', '').replace('\xa0', '')
+        cleaned = re.sub(r"[^\d\s]", "", reviews_text)
+        cleaned = cleaned.replace(" ", "").replace("\xa0", "")
 
         try:
             return int(cleaned)
@@ -209,15 +246,15 @@ class BaseParser(ABC):
 
     def _get_image_src(self, img_element) -> str | None:
         """Extract image source from img element"""
-        attrs = ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-lazy']
+        attrs = ["src", "data-src", "data-lazy-src", "data-original", "data-lazy"]
 
         for attr in attrs:
             url = img_element.get(attr)
-            if url and not url.startswith('data:'):
+            if url and not url.startswith("data:"):
                 return url
 
         # Try srcset
-        srcset = img_element.get('srcset')
+        srcset = img_element.get("srcset")
         if srcset:
             return srcset.split(",")[0].split()[0]
 

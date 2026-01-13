@@ -1,21 +1,23 @@
-# Deep Debugging Action.com Availability
+# Investigation et Correction du Comparateur
 
-## Context
+## Contexte
 
-Some products on Action.com are still marked as unavailable even after the first round of fixes.
+Le comparateur de prix récupère parfois des prix incorrects sur certains sites (B&M, L'Incroyable, Gifi, etc.). Il faut identifier les causes (mauvais sélecteurs, parsing regex trop large) et stabiliser l'extraction.
 
-## Current Focus
+## Focus Actuel
 
-Identifying why specific Action.com products fail the availability check.
+Identification des routes et services impliqués dans la recherche du comparateur.
 
 ## Master Plan
 
-- [ ] List currently unavailable Action.com items from the database (if possible) or logs
-- [ ] Reproduce the check for a specific problematic item
-- [ ] Analyze the HTML and Title for these items
-- [ ] Refine the matching logic or the unavailability detection
-- [ ] Verify fix with multiple Action.com items
+- [x] Identifier les services et parsers utilisés par le comparateur
+- [x] Identifier les sites posant problème (B&M, Gifi, L'Incroyable, etc.)
+- [x] Reproduire les erreurs d'extraction de prix avec des scripts de diagnostic
+- [x] Améliorer la logique de `parse_price_text` dans `BaseParser`
+- [x] Mettre à jour les sélecteurs CSS spécifiques dans les parsers si nécessaire
+- [x] Vérifier les corrections sur une sélection de produits
+- [x] Nettoyage et synchronisation Git
 
-## Progress Log
+## Log de Progression
 
-- [/] Task started.
+- [/] Initialisation de la tâche.
