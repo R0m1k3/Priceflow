@@ -31,7 +31,6 @@ POPUP_SELECTORS = [
     "input[value='Continuer les achats']",
     "input[value='Continue shopping']",
     "input[value='Continue shopping']",
-
     "form:has-text('Continuer les achats') input[type='submit']",
     "[aria-labelledby='continue-shopping-label']",
     "#sp-cc-accept",
@@ -53,7 +52,6 @@ POPUP_SELECTORS = [
 ]
 
 
-
 # Random User-Agents to alternate fingerprint
 AMAZON_USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -62,6 +60,7 @@ AMAZON_USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
 ]
+
 
 @dataclass
 class ScrapeConfig:
@@ -174,12 +173,13 @@ class ScraperService:
             try:
                 # Random delay to simulate human lead-in
                 import random
+
                 await asyncio.sleep(random.uniform(0.5, 2.0))
-                
+
                 await ScraperService._navigate_and_wait(page, url, timeout)
                 final_url = page.url
                 page_title = await page.title()
-                
+
                 # Humanize: scroll a bit and back
                 await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
                 await page.evaluate("window.scrollBy(0, 100)")
@@ -198,16 +198,18 @@ class ScraperService:
                             logger.info("Opening store selector...")
                             await store_btn.first.click(timeout=2000)
                             await page.wait_for_timeout(1000)
-                            
+
                             # Type Nancy in the search input
                             search_input = page.locator("#search_mag")
                             if await search_input.count() > 0:
                                 await search_input.fill("Nancy")
                                 await page.keyboard.press("Enter")
                                 await page.wait_for_timeout(1500)
-                                
+
                                 # Select the first Nancy store (Nancy Essey or Nancy Centre)
-                                select_btn = page.locator(".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')")
+                                select_btn = page.locator(
+                                    ".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')"
+                                )
                                 if await select_btn.count() > 0:
                                     logger.info("Selecting Nancy store...")
                                     await select_btn.first.click()
@@ -230,7 +232,7 @@ class ScraperService:
                     content_data = await page.content()
                 else:
                     content_data = await ScraperService._extract_text(page, config.text_length)
-                
+
                 screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
                 return screenshot_path, content_data, final_url, page_title
@@ -244,10 +246,7 @@ class ScraperService:
 
     @staticmethod
     async def _scrape_amazon_specific(
-        url: str,
-        item_id: int | None,
-        config: ScrapeConfig,
-        return_html: bool
+        url: str, item_id: int | None, config: ScrapeConfig, return_html: bool
     ) -> tuple[str | None, str, str, str]:
         """
         Specialized scraping flow for Amazon to avoid bot detection and ensure good screenshots.
@@ -258,15 +257,16 @@ class ScraperService:
         4. Wait for main image to be visible
         """
         logger.info(f"🛒 Starting specialized Amazon scrape for: {url}")
-        
+
         # Determine base domain
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         base_domain = f"{parsed.scheme}://{parsed.netloc}"
-        
+
         context = await ScraperService._create_context(ScraperService._browser, url)
         page = await context.new_page()
-        
+
         try:
             # 1. Warm-up: Visit Homepage to get cookies/session
             try:
@@ -280,7 +280,7 @@ class ScraperService:
             # 2. Navigate to Product
             logger.info(f"➡️ Navigating to product page: {url}")
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
+
             final_url = page.url
             try:
                 page_title = await page.title()
@@ -289,22 +289,28 @@ class ScraperService:
 
             # 3. Check for Hard Redirects (URL-based)
             if "/ap/signin" in page.url:
-                 logger.error("🚫 Amazon Login Redirect detected (URL)!")
-                 return None, "LOGIN_REQUIRED", final_url, page_title
+                logger.error("🚫 Amazon Login Redirect detected (URL)!")
+                return None, "LOGIN_REQUIRED", final_url, page_title
 
             # 4. Handle Popups & Location Selectors
             await ScraperService._handle_popups(page)
-            
+
             # Dismiss "Change Address" or specific Amazon location modals if any
             try:
-                await page.evaluate("document.getElementById('nav-main')?.classList.remove('nav-progressive-attribute')")
-            except: pass
+                await page.evaluate(
+                    "document.getElementById('nav-main')?.classList.remove('nav-progressive-attribute')"
+                )
+            except:
+                pass
 
             # 5. Check for Bot Detection / CAPTCHA / Login (Content-based)
             # We do this AFTER popup removal because sometimes "Identifiez-vous" is in a dismissible modal
             content_check = await page.content()
-            
-            if "Type the characters you see in this image" in content_check or "Saisissez les caractères que vous voyez" in content_check:
+
+            if (
+                "Type the characters you see in this image" in content_check
+                or "Saisissez les caractères que vous voyez" in content_check
+            ):
                 logger.error("🚫 Amazon CAPTCHA detected!")
                 # Attempt refresh once
                 logger.info("Retrying with refresh...")
@@ -313,7 +319,7 @@ class ScraperService:
                 # Re-check
                 content_check = await page.content()
                 if "Type the characters you see in this image" in content_check:
-                     return None, "CAPTCHA_DETECTED", final_url, page_title
+                    return None, "CAPTCHA_DETECTED", final_url, page_title
 
             if "Identifiez-vous" in content_check or "ap_signin" in content_check:
                 # Double check: is it a modal we missed? Try one last specific closure
@@ -323,40 +329,46 @@ class ScraperService:
                         logger.info("Found login modal close button, clicking...")
                         await close_btn.first.click()
                         await page.wait_for_timeout(1000)
-                        content_check = await page.content() # Refresh content
-                except: pass
+                        content_check = await page.content()  # Refresh content
+                except:
+                    pass
 
                 if "Identifiez-vous" in content_check or "ap_signin" in content_check:
-                    # Retry once for Login wall too
-                    logger.info("⚠️ Amazon Login/Auth detected. Retrying with refresh...")
-                    await page.reload()
-                    await asyncio.sleep(3)
-                    content_check = await page.content()
+                    # Final Check: Do we have a product title?
+                    # If we have a title, it's just a popup we missed/hid. Proceed.
+                    # If NO title, it's a hard redirect/gate. Fail.
+                    try:
+                        title_check = page.locator("#productTitle, #title")
+                        if await title_check.count() > 0 and await title_check.first.is_visible():
+                            logger.info("⚠️ Login prompt detected but Product Title found. Ignoring/Hiding modal...")
+                            # Attempt to brute-force remove the modal overlay again just in case
+                            await page.evaluate(
+                                "() => document.querySelectorAll('.a-popover-modal, .a-modal-scroller').forEach(e => e.remove())"
+                            )
+                        else:
+                            # No title found, now we can try to reload or fail
+                            logger.info("⚠️ Amazon Login/Auth detected and No Title found. Retrying with refresh...")
+                            await page.reload()
+                            await asyncio.sleep(3)
+                            content_check = await page.content()
 
-                    if "Identifiez-vous" in content_check or "ap_signin" in content_check:
-                        # Final Check: Do we have a product title?
-                        # If we have a title, it's just a popup we missed/hid. Proceed.
-                        # If NO title, it's a hard redirect/gate. Fail.
-                        try:
-                            title_check = page.locator("#productTitle, #title")
-                            if await title_check.count() > 0:
-                                 logger.info("⚠️ Login prompt detected but Product Title found. Ignoring/Hiding modal...")
-                                 # Attempt to brute-force remove the modal overlay again just in case
-                                 await page.evaluate("document.querySelectorAll('.a-popover-modal, .a-modal-scroller').forEach(e => e.remove())")
-                            else:
-                                 logger.error("🚫 Amazon Login Prompt detected (Blocking)!")
-                                 return None, "LOGIN_REQUIRED", final_url, page_title
-                        except:
-                            logger.error("🚫 Amazon Login Prompt detected (Error Checking Title)!")
-                            return None, "LOGIN_REQUIRED", final_url, page_title
+                            if "Identifiez-vous" in content_check or "ap_signin" in content_check:
+                                # Re-check title after reload
+                                if await title_check.count() > 0 and await title_check.first.is_visible():
+                                    logger.info("⚠️ Title appeared after refresh despite login prompt.")
+                                else:
+                                    logger.error("🚫 Amazon Login Prompt detected (Blocking)!")
+                                    return None, "LOGIN_REQUIRED", final_url, page_title
+                    except Exception as e:
+                        logger.error(f"🚫 Amazon Login Prompt detected (Error Checking Title: {e})")
+                        return None, "LOGIN_REQUIRED", final_url, page_title
 
             # 6. Wait for Main Image (Critical for screenshot)
             logger.info("🖼️ Waiting for product image...")
             try:
                 # Main image container on desktop
                 await page.wait_for_selector(
-                    "#imgTagWrapperId, #landingImage, #main-image-container, .imgTagWrapper", 
-                    timeout=10000
+                    "#imgTagWrapperId, #landingImage, #main-image-container, .imgTagWrapper", timeout=10000
                 )
             except Exception as e:
                 logger.warning(f"Could not find main image container: {e}")
@@ -373,10 +385,10 @@ class ScraperService:
                 content_data = await page.content()
             else:
                 content_data = await ScraperService._extract_text(page, config.text_length)
-                
+
             # 8. Screenshot
             screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
-            
+
             return screenshot_path, content_data, final_url, page_title
 
         except Exception as e:
@@ -396,14 +408,15 @@ class ScraperService:
         """Create context with advanced stealth and headers (specifically for Amazon)"""
         # Determine base domain for referer
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
         base_domain = f"{parsed.scheme}://{parsed.netloc}/"
 
         if "amazon" in url:
-             ua = random.choice(AMAZON_USER_AGENTS)
-             logger.info(f"🎭 Using rotated User-Agent: {ua}")
+            ua = random.choice(AMAZON_USER_AGENTS)
+            logger.info(f"🎭 Using rotated User-Agent: {ua}")
         else:
-             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
@@ -422,8 +435,8 @@ class ScraperService:
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
                 "Upgrade-Insecure-Requests": "1",
-                "Referer": base_domain if "amazon" in url else "https://www.google.com/"
-            }
+                "Referer": base_domain if "amazon" in url else "https://www.google.com/",
+            },
         )
 
         # Advanced Stealth mode
@@ -475,10 +488,10 @@ class ScraperService:
     async def _handle_popups(page: Page):
         """Aggressive multi-pass popup and overlay removal"""
         logger.info("Starting aggressive popup removal...")
-        
+
         # 1. Multi-pass clicking (some popups appear after others are closed)
         for i in range(2):
-            logger.debug(f"Popup removal pass {i+1}")
+            logger.debug(f"Popup removal pass {i + 1}")
             for selector in POPUP_SELECTORS:
                 try:
                     locators = page.locator(selector)
@@ -492,12 +505,13 @@ class ScraperService:
                                 await page.wait_for_timeout(500)
                 except Exception:
                     pass
-            
+
             # Hammer Escape key
             try:
                 await page.keyboard.press("Escape")
                 await page.wait_for_timeout(200)
-            except: pass
+            except:
+                pass
 
         # 2. Javascript cleanup (Hide pesky overlays and CMPs that won't close)
         logger.info("Injecting CSS/JS cleanup for persistent overlays...")
@@ -540,7 +554,7 @@ class ScraperService:
                 document.documentElement.style.overflow = 'auto';
             }
         """)
-        
+
         # Wait for any transitions
         await page.wait_for_timeout(1000)
 
@@ -582,7 +596,7 @@ class ScraperService:
 
         try:
             logger.info(f"Extracting text (limit: {text_length} chars)...")
-            
+
             # Smart extraction: remove noise (nav, footer, scripts) before getting text
             clean_text = await page.evaluate("""
                 () => {
@@ -604,7 +618,7 @@ class ScraperService:
                     return clone.innerText;
                 }
             """)
-            
+
             # Fallback if cleaning removed everything (unlikely but safe)
             if not clean_text or len(clean_text) < 100:
                 logger.warning("Cleaned text too short, falling back to full body text")
@@ -612,7 +626,8 @@ class ScraperService:
 
             # Collapse whitespace
             import re
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+            clean_text = re.sub(r"\s+", " ", clean_text).strip()
 
             page_text = clean_text[:text_length]
             logger.info(f"Extracted {len(page_text)} chars")
