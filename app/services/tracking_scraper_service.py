@@ -145,6 +145,7 @@ class ScraperService:
         item_id: int | None = None,
         config: ScrapeConfig | None = None,
         return_html: bool = False,
+        retries: int = 3
     ) -> tuple[str | None, str, str, str]:
         """
         Scrapes the given URL using Browserless and Playwright.
@@ -157,92 +158,115 @@ class ScraperService:
         scroll_pixels = max(350, config.scroll_pixels if config.scroll_pixels > 0 else 350)
         timeout = max(30000, config.timeout if config.timeout > 0 else 90000)
 
-        # Ensure browser is connected and healthy
-        if not await ScraperService._ensure_browser_connected():
-            logger.error("Failed to establish browser connection")
-            return None, "", url, ""
-
-        try:
-            # SPECIALIZED AMAZON HANDLING
-            if "amazon" in url:
-                return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html)
-
-            context = await ScraperService._create_context(ScraperService._browser, url)
-            page = await context.new_page()
+        for attempt in range(retries):
+            # Ensure browser is connected and healthy
+            if not await ScraperService._ensure_browser_connected():
+                logger.error("Failed to establish browser connection")
+                if attempt < retries - 1:
+                    await asyncio.sleep(2)
+                    continue
+                return None, "", url, ""
 
             try:
-                # Random delay to simulate human lead-in
-                import random
+                # SPECIALIZED AMAZON HANDLING
+                if "amazon" in url:
+                    return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html)
 
-                await asyncio.sleep(random.uniform(0.5, 2.0))
+                context = await ScraperService._create_context(ScraperService._browser, url)
+                page = await context.new_page()
 
-                await ScraperService._navigate_and_wait(page, url, timeout)
-                final_url = page.url
-                page_title = await page.title()
-
-                # Humanize: scroll a bit and back
-                await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
-                await page.evaluate("window.scrollBy(0, 100)")
-                await asyncio.sleep(0.5)
-                await page.evaluate("window.scrollBy(0, -100)")
-
-                await ScraperService._handle_popups(page)
-
-                # FORCER LE MAGASIN NANCY POUR B&M STORES
-                if "bmstores.fr" in url:
+                try:
+                    # Random delay to simulate human lead-in
+                    import random
+                    await asyncio.sleep(random.uniform(0.5, 2.0))
+                    
+                    await ScraperService._navigate_and_wait(page, url, timeout)
+                    final_url = page.url
+                    page_title = await page.title()
+                    
+                    # Humanize: scroll a bit and back
                     try:
-                        logger.info("B&M Stores detected: checking store selection (Nancy)...")
-                        # Check if store is already selected or if modal is needed
-                        store_btn = page.locator(".mod-shops .btn-shop, .js-show-shops")
-                        if await store_btn.count() > 0:
-                            logger.info("Opening store selector...")
-                            await store_btn.first.click(timeout=2000)
-                            await page.wait_for_timeout(1000)
+                        await page.mouse.move(random.randint(100, 500), random.randint(100, 500))
+                        await page.evaluate("window.scrollBy(0, 100)")
+                        await asyncio.sleep(0.5)
+                        await page.evaluate("window.scrollBy(0, -100)")
+                    except Exception:
+                        pass
 
-                            # Type Nancy in the search input
-                            search_input = page.locator("#search_mag")
-                            if await search_input.count() > 0:
-                                await search_input.fill("Nancy")
-                                await page.keyboard.press("Enter")
-                                await page.wait_for_timeout(1500)
+                    await ScraperService._handle_popups(page)
 
-                                # Select the first Nancy store (Nancy Essey or Nancy Centre)
-                                select_btn = page.locator(
-                                    ".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')"
-                                )
-                                if await select_btn.count() > 0:
-                                    logger.info("Selecting Nancy store...")
-                                    await select_btn.first.click()
-                                    await page.wait_for_timeout(2000)
-                                    # Refresh page or wait for update
-                                    await page.reload(wait_until="domcontentloaded")
-                                    await page.wait_for_timeout(1000)
-                    except Exception as e:
-                        logger.warning(f"Failed to force B&M store Nancy: {e}")
+                    # FORCER LE MAGASIN NANCY POUR B&M STORES
+                    if "bmstores.fr" in url:
+                        try:
+                            logger.info("B&M Stores detected: checking store selection (Nancy)...")
+                            # Check if store is already selected or if modal is needed
+                            store_btn = page.locator(".mod-shops .btn-shop, .js-show-shops")
+                            if await store_btn.count() > 0:
+                                logger.info("Opening store selector...")
+                                await store_btn.first.click(timeout=2000)
+                                await page.wait_for_timeout(1000)
+                                
+                                # Type Nancy in the search input
+                                search_input = page.locator("#search_mag")
+                                if await search_input.count() > 0:
+                                    await search_input.fill("Nancy")
+                                    await page.keyboard.press("Enter")
+                                    await page.wait_for_timeout(1500)
+                                    
+                                    # Select the first Nancy store (Nancy Essey or Nancy Centre)
+                                    select_btn = page.locator(".shop-list .btn-select-shop, button:has-text('Choisir ce magasin')")
+                                    if await select_btn.count() > 0:
+                                        logger.info("Selecting Nancy store...")
+                                        await select_btn.first.click()
+                                        await page.wait_for_timeout(2000)
+                                        # Refresh page or wait for update
+                                        await page.reload(wait_until="domcontentloaded")
+                                        await page.wait_for_timeout(1000)
+                        except Exception as e:
+                            logger.warning(f"Failed to force B&M store Nancy: {e}")
 
-                if selector:
-                    await ScraperService._wait_for_selector(page, selector)
-                else:
-                    await ScraperService._auto_detect_price(page)
+                    if selector:
+                        await ScraperService._wait_for_selector(page, selector)
+                    else:
+                        await ScraperService._auto_detect_price(page)
 
-                if config.smart_scroll:
-                    await ScraperService._smart_scroll(page, scroll_pixels)
+                    if config.smart_scroll:
+                        await ScraperService._smart_scroll(page, scroll_pixels)
 
-                if return_html:
-                    content_data = await page.content()
-                else:
-                    content_data = await ScraperService._extract_text(page, config.text_length)
+                    if return_html:
+                        content_data = await page.content()
+                    else:
+                        content_data = await ScraperService._extract_text(page, config.text_length)
+                    
+                    screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
 
-                screenshot_path = await ScraperService._take_screenshot(page, url, item_id)
+                    return screenshot_path, content_data, final_url, page_title
 
-                return screenshot_path, content_data, final_url, page_title
+                finally:
+                    await context.close()
 
-            finally:
-                await context.close()
+            except Exception as e:
+                logger.error(f"❌ Error scraping {url} (Attempt {attempt+1}/{retries}): {e}")
+                
+                 # Check for critical browser failure
+                error_str = str(e).lower()
+                if "target page, context or browser has been closed" in error_str or "connection closed" in error_str:
+                    logger.warning("⚠️ Critical browser failure detected. Triggering re-initialization.")
+                    # Force re-initialization on next attempt
+                    async with ScraperService._lock:
+                        if ScraperService._browser:
+                            try:
+                                await ScraperService._browser.close()
+                            except: pass
+                            ScraperService._browser = None
 
-        except Exception as e:
-            logger.error(f"Error scraping {url}: {e}")
-            return None, "", url, ""
+                if attempt == retries - 1:
+                    return None, "", url, ""
+                
+                # Exponential backoff
+                await asyncio.sleep(2 * (attempt + 1))
+        
+        return None, "", url, ""
 
     @staticmethod
     async def _scrape_amazon_specific(
@@ -405,38 +429,45 @@ class ScraperService:
 
     @staticmethod
     async def _create_context(browser: Browser, url: str) -> BrowserContext:
-        """Create context with advanced stealth and headers (specifically for Amazon)"""
+        """Create context with advanced stealth and headers"""
+        from app.core.search_config import get_random_stealth_config
+        
+        stealth_config = get_random_stealth_config()
+        ua = stealth_config["ua"]
+        ch = stealth_config["ch"]
+        platform = stealth_config["platform"]
+
+        logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
+
         # Determine base domain for referer
         from urllib.parse import urlparse
-
         parsed = urlparse(url)
         base_domain = f"{parsed.scheme}://{parsed.netloc}/"
-
-        if "amazon" in url:
-            ua = random.choice(AMAZON_USER_AGENTS)
-            logger.info(f"🎭 Using rotated User-Agent: {ua}")
-        else:
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        
+        # Smart referer selection
+        referer = get_random_referer(url)
 
         context = await browser.new_context(
             viewport={"width": 1920, "height": 1080},
             user_agent=ua,
             locale="fr-FR",
             timezone_id="Europe/Paris",
+            java_script_enabled=True,
+            bypass_csp=True,
             extra_http_headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Cache-Control": "max-age=0",
-                "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                "Sec-Ch-Ua": ch,
                 "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Ch-Ua-Platform": platform,
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
                 "Sec-Fetch-User": "?1",
                 "Upgrade-Insecure-Requests": "1",
-                "Referer": base_domain if "amazon" in url else "https://www.google.com/",
-            },
+                "Referer": referer
+            }
         )
 
         # Advanced Stealth mode
@@ -445,13 +476,24 @@ class ScraperService:
             Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
             
             // Masquerade plugins
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+            Object.defineProperty(navigator, 'plugins', { 
+                get: () => [
+                    { name: 'PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer' },
+                    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer' }
+                ] 
+            });
             
             // Languages
             Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
 
             // Chrome runtime
-            window.chrome = { runtime: {} };
+            window.chrome = { 
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
+            };
 
             // Overwrite permissions
             const originalQuery = window.navigator.permissions.query;
@@ -653,3 +695,18 @@ class ScraperService:
         await page.screenshot(path=filename, full_page=False)
         logger.info(f"Screenshot saved to {filename}")
         return filename
+
+
+def get_random_referer(target_url: str) -> str:
+    """Return a random referer, prioritizing Google for Amazon."""
+    if "amazon" in target_url:
+        return "https://www.google.fr/"
+    
+    referers = [
+        "https://www.google.fr/",
+        "https://www.bing.com/",
+        "https://www.qwant.com/",
+        "https://duckduckgo.com/",
+        "https://www.facebook.com/"
+    ]
+    return random.choice(referers)
