@@ -43,12 +43,19 @@ def _normalize_title(title: str) -> str:
         r" \| gifi$",
         r" - amazon$",
         r" \| amazon$",
+        # Country specific
+        r" \| action fr$",
+        r" - action fr$",
+        r" \| action be$",
+        r" - action be$",
+        r" \| action nl$",
+        r" - action nl$",
         r"^b&m stores : ",
         r"^gifi : ",
         r"^action : ",
     ]
     for pattern in patterns:
-        title = re.sub(pattern, "", title)
+        title = re.sub(pattern, "", title, flags=re.IGNORECASE)
 
     # Separate numbers from letters (handles cases like 'Blanc40' or '100pièces')
     title = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", title)
@@ -80,15 +87,14 @@ def _is_generic_or_error_title(title: str) -> bool:
         "attention required",
         "erreur 403",
         "403 forbidden",
-        "security check",
+        "security check", # Warning: Can be in valid titles? Unlikely.
         "robot or human",
         "bot verification",
-        "loading",
-        "chargement",
-        "veuillez patienter",
+        # "loading", # Removed: too generic, handled by content check usually
+        # "chargement",
+        # "veuillez patienter",
         "site non accessible",
         "maintenance",
-        "un instant",
     ]
     if any(term in t for term in error_terms):
         return True
@@ -298,8 +304,6 @@ async def process_item_check(item_id: int):
         if not titles_match:
             # If titles don't match, check if it's because of a generic bot detection/blocker
             # We only do this check if titles_match is False to avoid false positives on valid pages
-            # If titles don't match, check if it's because of a generic bot detection/blocker
-            # We only do this check if titles_match is False to avoid false positives on valid pages
             bot_terms_title = [
                 "captcha",
                 "robot or human",
@@ -314,10 +318,11 @@ async def process_item_check(item_id: int):
                 "captcha",
                 "robot or human",
                 "bot verification",
-                "security check",
+                # "security check", # Removed: too generic
                 "access denied",
                 "attention required",
-                "enable javascript",
+                # "enable javascript", # Removed: common in noscript tags
+                "cf-browser-verification",
             ]
             
             html_lower = html_content.lower() if html_content else ""

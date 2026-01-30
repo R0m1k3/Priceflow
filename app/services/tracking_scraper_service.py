@@ -187,7 +187,7 @@ class ScraperService:
                      config_selector = cfg.get("price_selector")
                 
                 # Use config selector if none provided
-                if selector is None and config_selector:
+                if not selector and config_selector:
                     logger.info(f"Using configured price selector for {domain}: {config_selector}")
                     selector = config_selector
 
