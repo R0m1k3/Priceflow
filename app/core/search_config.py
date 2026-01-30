@@ -198,10 +198,10 @@ SITE_CONFIGS = {
         "search_url": "https://www.action.com/fr-fr/search/?q={query}",
         "product_selector": "div[data-testid='product-card']",
         "product_image_selector": "img[data-testid='product-card-image']",
-        "price_selector": ".product-price, [data-testid='product-price'], .price",
+        "price_selector": ".product-price, [data-testid='product-price'], .price, .current-price, .product-card__price",
         "wait_selector": "div[data-testid='product-card']",
         "category": "Discount",
-        "requires_proxy": True,
+        "requires_proxy": False,
     },
     "e-leclerc.com": {
         "name": "E.Leclerc",

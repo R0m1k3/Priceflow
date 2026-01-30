@@ -191,9 +191,9 @@ class ScraperService:
                     logger.info(f"Using configured price selector for {domain}: {config_selector}")
                     selector = config_selector
 
-                # Special override: If Action.com, force proxy
-                if "action.com" in domain:
-                    requires_proxy = True
+                # Special override: If Action.com, force proxy ONLY if strictly needed and proxies are available
+                # if "action.com" in domain:
+                #    requires_proxy = True
 
                 proxy = None
                 if requires_proxy:
@@ -207,6 +207,10 @@ class ScraperService:
                 # SPECIALIZED AMAZON HANDLING
                 if "amazon" in url:
                     return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html, proxy)
+
+                # SPECIALIZED ACTION HANDLING (Rupture de stock check)
+                is_action = "action.com" in url
+
 
                 context = await ScraperService._create_context(ScraperService._browser, url, proxy=proxy)
                 page = await context.new_page()
@@ -697,6 +701,24 @@ class ScraperService:
                     return clone.innerText;
                 }
             """)
+
+            # Extra cleanup to prevent TitlePrice merging
+            # If we are on Action, we might need specific spacing logic
+            if "action.com" in page.url:
+                 clean_text = await page.evaluate("""
+                    () => {
+                         const title = document.querySelector('h1, .product-title');
+                         const price = document.querySelector('.price, .product-price');
+                         
+                         let text = document.body.innerText;
+                         
+                         // Manually construct clean string if elements found
+                         if(title && price) {
+                             return title.innerText + " " + price.innerText + "\\n" + text;
+                         }
+                         return text;
+                    }
+                 """)
 
             # Fallback if cleaning removed everything (unlikely but safe)
             if not clean_text or len(clean_text) < 100:
