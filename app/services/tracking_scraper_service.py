@@ -8,6 +8,8 @@ from datetime import datetime
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from app.core.search_config import SITE_CONFIGS, get_amazon_proxies, get_random_stealth_config
+
 logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
@@ -168,16 +170,39 @@ class ScraperService:
                 return None, "", url, ""
 
             try:
+                # Determine Proxy Requirement
+                from urllib.parse import urlparse
+                domain = urlparse(url).netloc.replace("www.", "")
+                
+                # Check SITE_CONFIGS for proxy requirement
+                requires_proxy = False
+                if domain in SITE_CONFIGS:
+                    requires_proxy = SITE_CONFIGS[domain].get("requires_proxy", False)
+                elif f"www.{domain}" in SITE_CONFIGS: # Fallback check
+                     requires_proxy = SITE_CONFIGS[f"www.{domain}"].get("requires_proxy", False)
+                
+                # Special override: If Action.com, force proxy
+                if "action.com" in domain:
+                    requires_proxy = True
+
+                proxy = None
+                if requires_proxy:
+                    proxies = get_amazon_proxies() # Reusing Amazon proxies for hard sites
+                    if proxies:
+                        proxy = random.choice(proxies)
+                        # Rotate proxy on retry
+                        if attempt > 0:
+                             proxy = random.choice(proxies)
+
                 # SPECIALIZED AMAZON HANDLING
                 if "amazon" in url:
-                    return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html)
+                    return await ScraperService._scrape_amazon_specific(url, item_id, config, return_html, proxy)
 
-                context = await ScraperService._create_context(ScraperService._browser, url)
+                context = await ScraperService._create_context(ScraperService._browser, url, proxy=proxy)
                 page = await context.new_page()
 
                 try:
                     # Random delay to simulate human lead-in
-                    import random
                     await asyncio.sleep(random.uniform(0.5, 2.0))
                     
                     await ScraperService._navigate_and_wait(page, url, timeout)
@@ -270,7 +295,7 @@ class ScraperService:
 
     @staticmethod
     async def _scrape_amazon_specific(
-        url: str, item_id: int | None, config: ScrapeConfig, return_html: bool
+        url: str, item_id: int | None, config: ScrapeConfig, return_html: bool, proxy: dict | None = None
     ) -> tuple[str | None, str, str, str]:
         """
         Specialized scraping flow for Amazon to avoid bot detection and ensure good screenshots.
@@ -288,7 +313,7 @@ class ScraperService:
         parsed = urlparse(url)
         base_domain = f"{parsed.scheme}://{parsed.netloc}"
 
-        context = await ScraperService._create_context(ScraperService._browser, url)
+        context = await ScraperService._create_context(ScraperService._browser, url, proxy=proxy)
         page = await context.new_page()
 
         try:
@@ -428,9 +453,8 @@ class ScraperService:
         return await p.chromium.connect_over_cdp(BROWSERLESS_URL, timeout=30000)
 
     @staticmethod
-    async def _create_context(browser: Browser, url: str) -> BrowserContext:
+    async def _create_context(browser: Browser, url: str, proxy: dict | None = None) -> BrowserContext:
         """Create context with advanced stealth and headers"""
-        from app.core.search_config import get_random_stealth_config
         
         stealth_config = get_random_stealth_config()
         ua = stealth_config["ua"]
@@ -438,6 +462,8 @@ class ScraperService:
         platform = stealth_config["platform"]
 
         logger.info(f"🎭 Using stealth profile: {ua[:50]}...")
+        if proxy:
+            logger.info(f"🛡️ Using Proxy: {proxy['server']}")
 
         # Determine base domain for referer
         from urllib.parse import urlparse
@@ -454,6 +480,7 @@ class ScraperService:
             timezone_id="Europe/Paris",
             java_script_enabled=True,
             bypass_csp=True,
+            proxy=proxy,
             extra_http_headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                 "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
