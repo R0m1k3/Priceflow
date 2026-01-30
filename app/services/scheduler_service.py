@@ -298,19 +298,45 @@ async def process_item_check(item_id: int):
         if not titles_match:
             # If titles don't match, check if it's because of a generic bot detection/blocker
             # We only do this check if titles_match is False to avoid false positives on valid pages
-            bot_terms = [
+            # If titles don't match, check if it's because of a generic bot detection/blocker
+            # We only do this check if titles_match is False to avoid false positives on valid pages
+            bot_terms_title = [
                 "captcha",
                 "robot or human",
                 "bot verification",
                 "security check",
                 "access denied",
-                "cloudflare ray id",
+                "403 forbidden",
+                "just a moment",
             ]
+            # HTML terms must be stricter to avoid catching footer text (like "Cloudflare Ray ID")
+            bot_terms_html = [
+                "captcha",
+                "robot or human",
+                "bot verification",
+                "security check",
+                "access denied",
+                "attention required",
+                "enable javascript",
+            ]
+            
             html_lower = html_content.lower() if html_content else ""
-            if any(term in page_title.lower() for term in bot_terms) or any(term in html_lower for term in bot_terms):
-                logger.warning(f"Bot detection / blocker confirmed for item {item_id} (Title: {page_title})")
-                await loop.run_in_executor(
+            
+            # Check Title first (Strong signal)
+            if any(term in page_title.lower() for term in bot_terms_title):
+                 logger.warning(f"Bot detection / blocker confirmed (Title match) for item {item_id} (Title: {page_title})")
+                 await loop.run_in_executor(
                     None, _update_db_error, item_id, f"Accès bloqué par le site (Bot Detection) : {page_title}"
+                 )
+                 return
+
+            # Check HTML ONLY if title is also generic or fails validation, 
+            # OR if the match is very specific (like huge CAPTCHA text)
+            # BUT avoid "cloudflare" in HTML unless title is strictly "Just a moment..."
+            if any(term in html_lower for term in bot_terms_html):
+                logger.warning(f"Bot detection / blocker confirmed (HTML match) for item {item_id}")
+                await loop.run_in_executor(
+                    None, _update_db_error, item_id, f"Accès bloqué par le site (Bot Detection HTML)"
                 )
                 return
 
