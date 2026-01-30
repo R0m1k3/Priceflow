@@ -170,17 +170,27 @@ class ScraperService:
                 return None, "", url, ""
 
             try:
-                # Determine Proxy Requirement
+                # Determine Proxy & Selector Requirement
                 from urllib.parse import urlparse
                 domain = urlparse(url).netloc.replace("www.", "")
                 
-                # Check SITE_CONFIGS for proxy requirement
+                # Check SITE_CONFIGS for proxy requirement and default selector
                 requires_proxy = False
+                config_selector = None
+                
                 if domain in SITE_CONFIGS:
                     requires_proxy = SITE_CONFIGS[domain].get("requires_proxy", False)
+                    config_selector = SITE_CONFIGS[domain].get("price_selector")
                 elif f"www.{domain}" in SITE_CONFIGS: # Fallback check
-                     requires_proxy = SITE_CONFIGS[f"www.{domain}"].get("requires_proxy", False)
+                     cfg = SITE_CONFIGS[f"www.{domain}"]
+                     requires_proxy = cfg.get("requires_proxy", False)
+                     config_selector = cfg.get("price_selector")
                 
+                # Use config selector if none provided
+                if selector is None and config_selector:
+                    logger.info(f"Using configured price selector for {domain}: {config_selector}")
+                    selector = config_selector
+
                 # Special override: If Action.com, force proxy
                 if "action.com" in domain:
                     requires_proxy = True
