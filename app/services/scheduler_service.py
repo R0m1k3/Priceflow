@@ -262,7 +262,7 @@ async def process_item_check(item_id: int):
         return
 
     try:
-        logger.info(f"Checking item: {item_data['name']} ({item_data['url']})")
+        logger.info(f"Checking item: {item_data['name']} ({item_data['url']}) [PATCH V2 LOADED]")
         # Use independent ScraperService for tracking
         screenshot_path, html_content, final_url, page_title = await ScraperService.scrape_item(
             url=item_data["url"], selector=item_data["selector"], item_id=item_id, return_html=True
