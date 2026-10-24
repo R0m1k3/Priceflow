@@ -238,8 +238,10 @@ async def serve_spa(full_path: str):
         return {"message": "Not found"}
 
     # Serve static files from root (favicon, logo, etc.)
-    static_file_path = f"static/{full_path}"
-    if os.path.isfile(static_file_path):
+    # realpath + containment check to prevent path traversal (../)
+    static_root = os.path.realpath("static")
+    static_file_path = os.path.realpath(os.path.join(static_root, full_path))
+    if static_file_path.startswith(static_root + os.sep) and os.path.isfile(static_file_path):
         return FileResponse(static_file_path)
 
     # Default to SPA index.html
