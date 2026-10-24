@@ -2,9 +2,32 @@
 Tests for URL validation and security.
 """
 
+import socket
+
 import pytest
 
+from app import url_validation
 from app.url_validation import URLValidationError, validate_url
+
+
+def _fake_resolve(hostname: str) -> list[str]:
+    """Deterministic DNS for tests (no network access needed)."""
+    if hostname == "127.1":
+        return ["127.0.0.1"]
+    if hostname.startswith("private."):
+        return ["10.0.0.5"]
+    if hostname.startswith("mixed."):
+        return ["93.184.216.34", "192.168.1.10"]
+    if hostname.startswith("mapped."):
+        return ["::ffff:169.254.169.254"]
+    if hostname in {"db", "browserless"} or hostname.startswith("unresolvable."):
+        raise socket.gaierror("Name or service not known")
+    return ["93.184.216.34"]
+
+
+@pytest.fixture(autouse=True)
+def fake_dns(monkeypatch):
+    monkeypatch.setattr(url_validation, "_resolve_host", _fake_resolve)
 
 
 class TestURLValidation:
@@ -164,3 +187,37 @@ class TestSSRFPrevention:
         for url in public_ips:
             validate_url(url)
             # Should not raise
+
+    def test_hostname_resolving_to_private_ip_blocked(self):
+        """DNS names pointing to private ranges are blocked (DNS-based SSRF)."""
+        with pytest.raises(URLValidationError, match="Private/internal IPs"):
+            validate_url("http://private.attacker.example/")
+
+    def test_hostname_with_any_private_record_blocked(self):
+        """A single private A record is enough to block."""
+        with pytest.raises(URLValidationError, match="Private/internal IPs"):
+            validate_url("http://mixed.attacker.example/")
+
+    def test_ipv4_mapped_ipv6_blocked(self):
+        """IPv4-mapped IPv6 addresses are checked against IPv4 ranges."""
+        with pytest.raises(URLValidationError, match="Private/internal IPs"):
+            validate_url("http://[::ffff:127.0.0.1]/")
+        with pytest.raises(URLValidationError, match="Private/internal IPs"):
+            validate_url("http://mapped.attacker.example/")
+
+    def test_metadata_and_internal_hostnames_blocked(self):
+        """Cloud metadata / internal hostnames are blocked."""
+        for url in [
+            "http://metadata.google.internal/",
+            "http://foo.localhost/",
+            "http://[fd00::1]/",
+            "http://100.64.0.1/",
+        ]:
+            with pytest.raises(URLValidationError):
+                validate_url(url)
+
+    def test_internal_docker_hostnames_blocked(self):
+        """Unresolvable / internal service names are rejected."""
+        for url in ["http://db:5432/", "http://browserless:3000/"]:
+            with pytest.raises(URLValidationError):
+                validate_url(url)

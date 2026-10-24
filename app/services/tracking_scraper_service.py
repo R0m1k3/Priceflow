@@ -8,6 +8,8 @@ from datetime import datetime
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from app.url_validation import URLValidationError, validate_url
+
 logger = logging.getLogger(__name__)
 
 BROWSERLESS_URL = os.getenv("BROWSERLESS_URL", "ws://browserless:3000")
@@ -157,6 +159,13 @@ class ScraperService:
         scroll_pixels = max(350, config.scroll_pixels if config.scroll_pixels > 0 else 350)
         timeout = max(30000, config.timeout if config.timeout > 0 else 90000)
 
+        # SSRF protection: re-check the target (DNS may have changed since creation)
+        try:
+            await asyncio.to_thread(validate_url, url)
+        except URLValidationError as e:
+            logger.error(f"Blocked scrape of {url}: {e}")
+            return None, "", url, ""
+
         # Ensure browser is connected and healthy
         if not await ScraperService._ensure_browser_connected():
             logger.error("Failed to establish browser connection")
@@ -178,6 +187,15 @@ class ScraperService:
 
                 await ScraperService._navigate_and_wait(page, url, timeout)
                 final_url = page.url
+
+                # SSRF protection: discard the result if a redirect led to an internal host
+                if final_url != url and final_url.startswith(("http://", "https://")):
+                    try:
+                        await asyncio.to_thread(validate_url, final_url)
+                    except URLValidationError as e:
+                        logger.error(f"Blocked redirect from {url} to {final_url}: {e}")
+                        return None, "", url, ""
+
                 page_title = await page.title()
 
                 # Humanize: scroll a bit and back
@@ -282,6 +300,12 @@ class ScraperService:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
             final_url = page.url
+            if final_url != url and final_url.startswith(("http://", "https://")):
+                try:
+                    await asyncio.to_thread(validate_url, final_url)
+                except URLValidationError as e:
+                    logger.error(f"Blocked redirect from {url} to {final_url}: {e}")
+                    return None, "", url, ""
             try:
                 page_title = await page.title()
             except:
