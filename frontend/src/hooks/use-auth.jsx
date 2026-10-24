@@ -5,6 +5,37 @@ const AuthContext = createContext(null);
 
 const API_URL = '/api/auth';
 
+// Ajoute automatiquement le token JWT à toutes les requêtes API
+axios.interceptors.request.use((config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+        config.headers = config.headers || {};
+        if (!config.headers.Authorization) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+    }
+    return config;
+});
+
+// Token expiré ou invalide : on déconnecte et on renvoie vers la page de connexion
+axios.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const url = error.config?.url || '';
+        if (
+            error.response?.status === 401 &&
+            !url.includes('/auth/login') &&
+            localStorage.getItem('token')
+        ) {
+            localStorage.removeItem('token');
+            if (window.location.pathname !== '/login') {
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);

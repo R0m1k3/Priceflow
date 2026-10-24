@@ -3,11 +3,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app import database, models, schemas
+from app.dependencies import get_admin_user, get_current_user
 from app.limiter import limiter
 from app.services.scheduler_service import process_item_check, scheduled_refresh, scheduler
 from app.services.settings_service import SettingsService
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/config")
@@ -22,7 +23,7 @@ def get_job_config(db: Session = Depends(database.get_db)):
     return {"refresh_interval_minutes": interval, "next_run": next_run, "running": scheduler.running}
 
 
-@router.post("/config")
+@router.post("/config", dependencies=[Depends(get_admin_user)])
 def update_job_config(config: schemas.SettingsUpdate, db: Session = Depends(database.get_db)):
     if config.key != "refresh_interval_minutes":
         raise HTTPException(status_code=400, detail="Invalid setting key for job config")

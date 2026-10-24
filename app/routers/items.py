@@ -2,11 +2,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app import database, models, schemas
+from app.dependencies import get_current_user
 from app.limiter import limiter
 from app.services.item_service import ItemService
 from app.services.scheduler_service import process_item_check
 
-router = APIRouter(prefix="/items", tags=["items"])
+router = APIRouter(prefix="/items", tags=["items"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[schemas.ItemResponse])

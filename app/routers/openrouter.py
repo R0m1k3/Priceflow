@@ -3,11 +3,13 @@ Router pour les endpoints OpenRouter.
 Permet de récupérer la liste des modèles et leurs coûts.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from app.dependencies import get_admin_user
 
 from app.services.openrouter_service import OpenRouterService
 
-router = APIRouter(prefix="/openrouter", tags=["openrouter"])
+router = APIRouter(prefix="/openrouter", tags=["openrouter"], dependencies=[Depends(get_admin_user)])
 
 
 @router.get("/models")

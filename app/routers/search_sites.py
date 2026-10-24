@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.dependencies import get_admin_user, get_current_user
 from app.schemas import SearchSiteResponse, SearchSiteUpdate
 from app.services import search_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/search-sites", tags=["search-sites"])
+router = APIRouter(prefix="/api/search-sites", tags=["search-sites"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("", response_model=list[SearchSiteResponse])
@@ -33,7 +34,7 @@ async def get_site(site_id: int, db: Session = Depends(get_db)):
     return site
 
 
-@router.put("/{site_id}", response_model=SearchSiteResponse)
+@router.put("/{site_id}", response_model=SearchSiteResponse, dependencies=[Depends(get_admin_user)])
 async def update_site(
     site_id: int,
     site: SearchSiteUpdate,
@@ -60,7 +61,7 @@ async def update_site(
     return updated
 
 
-@router.post("/seed", response_model=dict)
+@router.post("/seed", response_model=dict, dependencies=[Depends(get_admin_user)])
 async def seed_default_sites(db: Session = Depends(get_db)):
     """
     Initialise les sites par défaut s'ils n'existent pas encore.
@@ -77,7 +78,7 @@ async def seed_default_sites(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/reset", response_model=dict)
+@router.post("/reset", response_model=dict, dependencies=[Depends(get_admin_user)])
 async def reset_sites_to_defaults(db: Session = Depends(get_db)):
     """
     Réinitialise tous les sites avec les valeurs par défaut.
