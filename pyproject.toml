@@ -26,6 +26,7 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "pyjwt",
+    "bcrypt",
     "crawl4ai",
 ]
 

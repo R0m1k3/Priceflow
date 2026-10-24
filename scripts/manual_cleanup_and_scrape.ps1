@@ -3,7 +3,7 @@
 
 $BaseUrl = "http://localhost:8555/api"
 $Username = "admin"
-$Password = "admin"
+$Password = if ($env:PRICEFLOW_ADMIN_PASSWORD) { $env:PRICEFLOW_ADMIN_PASSWORD } else { Read-Host "Mot de passe admin" }
 
 Write-Host "1. Logging in as $Username..." -ForegroundColor Cyan
 try {

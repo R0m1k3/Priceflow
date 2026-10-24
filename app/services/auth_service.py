@@ -1,39 +1,61 @@
 """
 Authentication service for user management and JWT tokens.
 """
+import base64
 import hashlib
+import hmac
+import logging
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 import jwt
 from sqlalchemy.orm import Session
 
 from app import models
+
+logger = logging.getLogger(__name__)
 
 # JWT Configuration
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
-# Default admin credentials
+# Default admin account (password from ADMIN_PASSWORD env or randomly generated)
 DEFAULT_ADMIN_USERNAME = "admin"
-DEFAULT_ADMIN_PASSWORD = "admin"
+
+BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2y$")
+
+
+def _bcrypt_input(password: str) -> bytes:
+    """Pre-hash the password so bcrypt's 72-byte limit never truncates it."""
+    return base64.b64encode(hashlib.sha256(password.encode()).digest())
 
 
 def hash_password(password: str) -> str:
-    """Hash password using SHA-256 with salt."""
-    salt = secrets.token_hex(16)
-    password_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-    return f"{salt}:{password_hash}"
+    """Hash password using bcrypt."""
+    return bcrypt.hashpw(_bcrypt_input(password), bcrypt.gensalt()).decode()
+
+
+def is_legacy_hash(password_hash: str) -> bool:
+    """Legacy format: single-round salted SHA-256 ("salt:hexdigest")."""
+    return not password_hash.startswith(BCRYPT_PREFIXES)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify password against hash."""
+    """Verify password against hash (bcrypt, or legacy salted SHA-256)."""
+    if not password_hash:
+        return False
+    if not is_legacy_hash(password_hash):
+        try:
+            return bcrypt.checkpw(_bcrypt_input(password), password_hash.encode())
+        except ValueError:
+            return False
     try:
         salt, stored_hash = password_hash.split(":")
         computed_hash = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-        return computed_hash == stored_hash
+        return hmac.compare_digest(computed_hash, stored_hash)
     except ValueError:
         return False
 
@@ -80,6 +102,11 @@ def authenticate_user(db: Session, username: str, password: str) -> models.User 
         return None
     if not user.is_active:
         return None
+    # Transparent upgrade of legacy SHA-256 hashes to bcrypt
+    if is_legacy_hash(user.password_hash):
+        user.password_hash = hash_password(password)
+        db.commit()
+        logger.info(f"Password hash upgraded to bcrypt for user '{user.username}'")
     return user
 
 
@@ -142,9 +169,23 @@ def toggle_user_active(db: Session, user_id: int) -> models.User | None:
 
 
 def seed_default_admin(db: Session) -> bool:
-    """Create default admin user if no users exist."""
+    """Create the admin user if no users exist.
+
+    The password comes from the ADMIN_PASSWORD env var; otherwise a random
+    password is generated and logged once.
+    """
     user_count = db.query(models.User).count()
     if user_count == 0:
-        create_user(db, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, is_admin=True)
+        password = os.getenv("ADMIN_PASSWORD") or ""
+        if password:
+            create_user(db, DEFAULT_ADMIN_USERNAME, password, is_admin=True)
+            logger.info(f"Utilisateur '{DEFAULT_ADMIN_USERNAME}' créé avec le mot de passe défini dans ADMIN_PASSWORD")
+        else:
+            password = secrets.token_urlsafe(16)
+            create_user(db, DEFAULT_ADMIN_USERNAME, password, is_admin=True)
+            logger.warning(
+                f"Utilisateur '{DEFAULT_ADMIN_USERNAME}' créé avec le mot de passe généré : {password} "
+                "(affiché une seule fois, changez-le après la première connexion)"
+            )
         return True
     return False

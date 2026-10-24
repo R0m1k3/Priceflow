@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI):
 
             # Seed default admin user
             if auth_service.seed_default_admin(db):
-                logger.info("Utilisateur admin par défaut créé (admin/admin)")
+                logger.info("Utilisateur admin initial créé")
             else:
                 logger.info("Utilisateurs déjà initialisés")
 

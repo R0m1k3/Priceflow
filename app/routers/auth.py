@@ -4,7 +4,7 @@ Authentication router for login, user management, and admin functions.
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app import models
 from app.database import SessionLocal
 from app.services import auth_service
 from app.dependencies import get_db, get_current_user, get_admin_user
+from app.limiter import limiter
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +65,10 @@ class AdminChangePasswordRequest(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, credentials: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user and return JWT token."""
-    user = auth_service.authenticate_user(db, request.username, request.password)
+    user = auth_service.authenticate_user(db, credentials.username, credentials.password)
 
     if not user:
         raise HTTPException(
