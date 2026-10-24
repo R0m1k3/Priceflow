@@ -77,8 +77,8 @@ Ouvrez votre navigateur sur : **http://localhost:8555**
 | Service | Port | Description |
 |---------|------|-------------|
 | **PriceFlow App** | `8555:8555` | Application principale |
-| **PostgreSQL** | `5488:5432` | Base de données |
-| **Browserless** | `3012:3000` | Navigateur headless pour le scraping |
+| **PostgreSQL** | non publié (réseau Docker) | Base de données |
+| **Browserless** | non publié (réseau Docker) | Navigateur headless pour le scraping |
 
 **Réseau** : `nginx_default` (external)
 
@@ -88,10 +88,23 @@ Ouvrez votre navigateur sur : **http://localhost:8555**
 
 | Variable | Description | Défaut |
 |----------|-------------|--------|
-| `DATABASE_URL` | Chaîne de connexion PostgreSQL | `postgresql://priceflow:priceflow@db:5432/priceflow` |
-| `BROWSERLESS_URL` | URL WebSocket de Browserless | `ws://browserless:3000` |
+| `DATABASE_URL` | Chaîne de connexion PostgreSQL | construite à partir de `POSTGRES_PASSWORD` |
+| `BROWSERLESS_URL` | URL WebSocket de Browserless | `ws://browserless:3000?token=${BROWSERLESS_TOKEN}` |
 | `LOG_LEVEL` | Niveau de log (DEBUG, INFO, WARNING, ERROR) | `INFO` |
-| `CORS_ORIGINS` | Origines CORS autorisées | `*` |
+| `CORS_ORIGINS` | Origines CORS autorisées (liste séparée par des virgules, `*` ignoré) | vide (même origine) |
+
+### Sécurité / variables obligatoires
+
+À définir dans `.env` (voir `.env.example`) — `docker compose` refuse de démarrer sans les deux premières :
+
+| Variable | Description |
+|----------|-------------|
+| `POSTGRES_PASSWORD` | Mot de passe PostgreSQL (caractères alphanumériques, ex. `openssl rand -hex 24`). **Installation existante** : la base a été initialisée avec `priceflow` ; gardez cette valeur ou changez d'abord le mot de passe : `docker exec -it priceflow-db psql -U priceflow -c "ALTER USER priceflow PASSWORD '...';"` |
+| `BROWSERLESS_TOKEN` | Token d'accès à Browserless (ex. `openssl rand -hex 24`) |
+| `OPENROUTER_API_KEY` | Optionnelle — clé OpenRouter (ne jamais la committer) |
+| `ADMIN_PASSWORD` | Optionnelle — mot de passe du compte `admin` créé au premier démarrage ; sinon un mot de passe aléatoire est affiché une fois dans les logs |
+
+PostgreSQL et Browserless ne sont plus exposés sur l'hôte. Toutes les routes `/api` (hors connexion et consultation des catalogues/recherche) exigent un token JWT.
 
 ### Configuration IA
 

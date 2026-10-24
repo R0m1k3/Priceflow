@@ -11,11 +11,14 @@ services:
     ports:
       - "8555:8555"
     environment:
-      - DATABASE_URL=postgresql://priceflow:priceflow@db:5432/priceflow
-      - BROWSERLESS_URL=ws://browserless:3000
+      - DATABASE_URL=postgresql://priceflow:${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans .env}@db:5432/priceflow
+      - BROWSERLESS_URL=ws://browserless:3000?token=${BROWSERLESS_TOKEN:?Définissez BROWSERLESS_TOKEN dans .env}
       - LOG_LEVEL=INFO
-      - CORS_ORIGINS=*
-      - OPENROUTER_API_KEY=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
+      # Origines CORS autorisées (séparées par des virgules). Vide = même origine uniquement.
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      # Mot de passe du compte admin créé au premier démarrage (sinon généré aléatoirement et affiché dans les logs)
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy
@@ -31,11 +34,10 @@ services:
     image: postgres:15-alpine
     container_name: priceflow-db
     restart: unless-stopped
-    ports:
-      - "5488:5432"
+    # Pas de port publié : la base n'est accessible que depuis le réseau Docker
     environment:
       - POSTGRES_USER=priceflow
-      - POSTGRES_PASSWORD=priceflow
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Définissez POSTGRES_PASSWORD dans .env}
       - POSTGRES_DB=priceflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -53,9 +55,10 @@ services:
     image: ghcr.io/browserless/chromium:latest
     container_name: priceflow-browserless
     restart: unless-stopped
-    ports:
-      - "3012:3000"
+    # Pas de port publié : Browserless n'est accessible que depuis le réseau Docker
     environment:
+      # Authentification (le même token est passé à l'application via BROWSERLESS_URL)
+      - TOKEN=${BROWSERLESS_TOKEN:?Définissez BROWSERLESS_TOKEN dans .env}
       # Timeouts
       - TIMEOUT=300000
       - CONNECTION_TIMEOUT=300000
